@@ -7,7 +7,7 @@ const BATCH_LIMIT = 5;
 
 const OZON_REVIEWS_URL = "https://seller.ozon.ru/app/reviews";
 const OZON_QUESTIONS_URL = "https://seller.ozon.ru/app/reviews/questions";
-const BACKEND_URL = "https://nxymhkyvhcfcwjcfcbfy.supabase.co/functions/v1";
+const BACKEND_URL = "https://bkmicyguzlwampuindff.supabase.co/functions/v1";
 const SYNC_REVIEWS_URL = BACKEND_URL + "/sync-reviews";
 
 const pendingPublishResolvers = new Map();
