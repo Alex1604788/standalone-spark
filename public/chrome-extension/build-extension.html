@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Сборка расширения Автоответ</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+    }
+    button {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      font-size: 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin: 10px 0;
+    }
+    button:hover {
+      background: #5568d3;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    #status {
+      margin: 20px 0;
+      padding: 15px;
+      border-radius: 8px;
+      background: #f3f4f6;
+    }
+    .success {
+      background: #d1fae5 !important;
+      color: #065f46;
+    }
+    .error {
+      background: #fee2e2 !important;
+      color: #991b1b;
+    }
+  </style>
+</head>
+<body>
+  <h1>🚀 Сборка расширения Автоответ</h1>
+  <p>Нажмите кнопку ниже, чтобы собрать и скачать ZIP-архив расширения для Chrome.</p>
+  
+  <button id="buildBtn" onclick="buildExtension()">Собрать расширение (ZIP)</button>
+  
+  <div id="status"></div>
+
+  <script>
+    async function buildExtension() {
+      const btn = document.getElementById('buildBtn');
+      const status = document.getElementById('status');
+      
+      btn.disabled = true;
+      status.textContent = 'Сборка расширения...';
+      status.className = '';
+      
+      try {
+        const zip = new JSZip();
+        
+        // Список файлов для включения в архив
+        const files = [
+          'manifest.json',
+          'popup.html',
+          'popup.js',
+          'background.js',
+          'content.js',
+          'content_publish.js',
+          'README.md'
+        ];
+        
+        // Загружаем каждый файл
+        for (const file of files) {
+          try {
+            const response = await fetch(file);
+            if (!response.ok) throw new Error(`Не удалось загрузить ${file}`);
+            const content = await response.text();
+            zip.file(file, content);
+            console.log(`✓ Добавлен: ${file}`);
+          } catch (err) {
+            console.warn(`⚠ Пропущен: ${file}`, err.message);
+          }
+        }
+        
+        // Добавляем иконки (если есть)
+        const icons = ['icon16.png', 'icon48.png', 'icon128.png', 'icon512.png'];
+        for (const icon of icons) {
+          try {
+            const response = await fetch(icon);
+            if (response.ok) {
+              const blob = await response.blob();
+              zip.file(icon, blob);
+              console.log(`✓ Добавлена иконка: ${icon}`);
+            }
+          } catch (err) {
+            console.warn(`⚠ Иконка не найдена: ${icon}`);
+          }
+        }
+        
+        // Генерируем ZIP
+        const blob = await zip.generateAsync({ type: 'blob' });
+        
+        // Скачиваем файл
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'avtoOtvet-extension-v2.0.3.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        status.textContent = '✅ Расширение успешно собрано и скачано!';
+        status.className = 'success';
+        
+      } catch (error) {
+        console.error('Ошибка сборки:', error);
+        status.textContent = '❌ Ошибка сборки: ' + error.message;
+        status.className = 'error';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
