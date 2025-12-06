@@ -29,8 +29,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Search, Edit, CheckCircle2, AlertCircle, XCircle } from "lucide-react";
+import { Search, Edit, CheckCircle2, AlertCircle, XCircle, DollarSign, Package, Truck, Tag, Copy, Download, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface Product {
   id: string;
@@ -38,6 +44,7 @@ interface Product {
   name: string;
   category: string | null;
   price: number | null;
+  image_url: string | null;
 }
 
 interface ProductBusinessData {
@@ -101,7 +108,8 @@ const ProductSettings = () => {
           external_id,
           name,
           category,
-          price
+          price,
+          image_url
         `)
         .eq("marketplace_id", marketplace.id)
         .order("name");
@@ -151,6 +159,20 @@ const ProductSettings = () => {
   const businessDataMap = new Map(
     businessData?.map((bd) => [bd.offer_id, bd]) || []
   );
+
+  // Создаём карту поставщиков для быстрого доступа
+  const supplierMap = new Map(
+    suppliers?.map((s) => [s.id, s.name]) || []
+  );
+
+  // Функция копирования в буфер обмена
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({
+      title: "Скопировано",
+      description: `Артикул ${text} скопирован в буфер обмена`,
+    });
+  };
 
   // Открыть модальное окно редактирования
   const handleEditClick = (product: Product) => {
@@ -205,6 +227,64 @@ const ProductSettings = () => {
     }
   };
 
+  // Выгрузка товаров в Excel
+  const handleExportExcel = () => {
+    if (!products || !marketplace) return;
+
+    // Подготовка данных для экспорта
+    const exportData = products.map((product) => {
+      const bd = businessDataMap.get(product.external_id);
+      const supplierName = bd?.supplier_id ? supplierMap.get(bd.supplier_id) : "";
+
+      return {
+        "Артикул": product.external_id,
+        "Название товара": product.name,
+        "Поставщик": supplierName || "",
+        "Цена закупки": bd?.purchase_price || "",
+        "Категория": bd?.category || "",
+        "Малая коробка": bd?.small_box_quantity || "",
+        "Большая коробка": bd?.large_box_quantity || "",
+      };
+    });
+
+    // Формирование CSV
+    const headers = Object.keys(exportData[0]);
+    const csvContent = [
+      headers.join("\t"),
+      ...exportData.map((row) => headers.map((h) => row[h as keyof typeof row]).join("\t"))
+    ].join("\n");
+
+    // Скачивание файла
+    const BOM = "\uFEFF"; // UTF-8 BOM for Excel
+    const blob = new Blob([BOM + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `товары_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "Экспорт завершен",
+      description: `Выгружено ${exportData.length} товаров`,
+    });
+  };
+
+  // Загрузка данных из Excel
+  const handleImportExcel = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !marketplace) return;
+
+    toast({
+      title: "Функция в разработке",
+      description: "Загрузка из Excel будет реализована в следующей версии. Пока используйте ручное редактирование.",
+      variant: "default",
+    });
+
+    // Сброс input для возможности повторной загрузки того же файла
+    event.target.value = "";
+  };
+
   // Функция для определения полноты данных
   const getCompletenessStatus = (product: Product): "complete" | "partial" | "empty" => {
     const bd = businessDataMap.get(product.external_id);
@@ -223,33 +303,67 @@ const ProductSettings = () => {
     return "empty";
   };
 
-  // Индикатор полноты
-  const CompletenessIndicator = ({ product }: { product: Product }) => {
-    const status = getCompletenessStatus(product);
+  // Индикаторы заполненности (4 иконки)
+  const CompletenessIndicators = ({ product }: { product: Product }) => {
+    const bd = businessDataMap.get(product.external_id);
 
-    if (status === "complete") {
-      return (
-        <Badge variant="default" className="bg-green-500">
-          <CheckCircle2 className="w-3 h-3 mr-1" />
-          Заполнено
-        </Badge>
-      );
-    }
+    const hasPrice = !!bd?.purchase_price;
+    const hasPackaging = !!bd?.small_box_quantity || !!bd?.large_box_quantity;
+    const hasSupplier = !!bd?.supplier_id;
+    const hasCategory = !!bd?.category;
 
-    if (status === "partial") {
-      return (
-        <Badge variant="secondary" className="bg-yellow-500 text-white">
-          <AlertCircle className="w-3 h-3 mr-1" />
-          Частично
-        </Badge>
-      );
-    }
+    const IconIndicator = ({
+      Icon,
+      filled,
+      label,
+      value
+    }: {
+      Icon: any;
+      filled: boolean;
+      label: string;
+      value?: string
+    }) => (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger>
+            <Icon
+              className={`w-4 h-4 ${filled ? 'text-green-500' : 'text-red-500'}`}
+            />
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{filled ? `${label}: ${value}` : `${label} не указан`}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
 
     return (
-      <Badge variant="destructive">
-        <XCircle className="w-3 h-3 mr-1" />
-        Пусто
-      </Badge>
+      <div className="flex gap-2">
+        <IconIndicator
+          Icon={DollarSign}
+          filled={hasPrice}
+          label="Цена закупки"
+          value={bd?.purchase_price ? `${bd.purchase_price} ₽` : undefined}
+        />
+        <IconIndicator
+          Icon={Package}
+          filled={hasPackaging}
+          label="Упаковка"
+          value={bd?.small_box_quantity ? `${bd.small_box_quantity} шт` : undefined}
+        />
+        <IconIndicator
+          Icon={Truck}
+          filled={hasSupplier}
+          label="Поставщик"
+          value={bd?.supplier_id ? supplierMap.get(bd.supplier_id) : undefined}
+        />
+        <IconIndicator
+          Icon={Tag}
+          filled={hasCategory}
+          label="Категория"
+          value={bd?.category || undefined}
+        />
+      </div>
     );
   };
 
@@ -328,6 +442,24 @@ const ProductSettings = () => {
                 <SelectItem value="complete">Заполнено</SelectItem>
               </SelectContent>
             </Select>
+
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => handleExportExcel()}>
+                <Download className="w-4 h-4 mr-2" />
+                Выгрузить Excel
+              </Button>
+              <Button variant="outline" onClick={() => document.getElementById('excel-upload')?.click()}>
+                <Upload className="w-4 h-4 mr-2" />
+                Загрузить Excel
+              </Button>
+              <input
+                id="excel-upload"
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={handleImportExcel}
+              />
+            </div>
           </div>
 
           {/* Статистика */}
@@ -383,40 +515,69 @@ const ProductSettings = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-16">Фото</TableHead>
                     <TableHead>Артикул</TableHead>
                     <TableHead>Название товара</TableHead>
                     <TableHead>Категория</TableHead>
-                    <TableHead>Цена продажи</TableHead>
-                    <TableHead>Статус</TableHead>
+                    <TableHead>Поставщик</TableHead>
+                    <TableHead>Заполненность</TableHead>
                     <TableHead className="text-right">Действия</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredProducts?.slice(0, 50).map((product) => (
-                    <TableRow key={product.id}>
-                      <TableCell className="font-mono text-sm">
-                        {product.external_id}
-                      </TableCell>
-                      <TableCell className="max-w-md truncate">
-                        {product.name}
-                      </TableCell>
-                      <TableCell>
-                        {product.category || <span className="text-muted-foreground">—</span>}
-                      </TableCell>
-                      <TableCell>
-                        {product.price ? `${product.price.toLocaleString()} ₽` : "—"}
-                      </TableCell>
-                      <TableCell>
-                        <CompletenessIndicator product={product} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="sm" onClick={() => handleEditClick(product)}>
-                          <Edit className="w-4 h-4 mr-1" />
-                          Редактировать
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {filteredProducts?.slice(0, 50).map((product) => {
+                    const bd = businessDataMap.get(product.external_id);
+                    const supplierName = bd?.supplier_id ? supplierMap.get(bd.supplier_id) : null;
+
+                    return (
+                      <TableRow key={product.id}>
+                        <TableCell>
+                          {product.image_url ? (
+                            <img
+                              src={product.image_url}
+                              alt={product.name}
+                              className="w-10 h-10 object-cover rounded"
+                            />
+                          ) : (
+                            <div className="w-10 h-10 bg-gray-200 rounded flex items-center justify-center">
+                              <Package className="w-5 h-5 text-gray-400" />
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono text-sm">
+                          <div className="flex items-center gap-2">
+                            <span>{product.external_id}</span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => copyToClipboard(product.external_id)}
+                            >
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                        <TableCell className="max-w-md truncate">
+                          {product.name}
+                        </TableCell>
+                        <TableCell>
+                          {bd?.category || <span className="text-muted-foreground">—</span>}
+                        </TableCell>
+                        <TableCell>
+                          {supplierName || <span className="text-muted-foreground">—</span>}
+                        </TableCell>
+                        <TableCell>
+                          <CompletenessIndicators product={product} />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" onClick={() => handleEditClick(product)}>
+                            <Edit className="w-4 h-4 mr-1" />
+                            Редактировать
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
 
