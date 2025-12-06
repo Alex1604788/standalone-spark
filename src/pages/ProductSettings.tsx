@@ -42,6 +42,7 @@ import {
 interface Product {
   id: string;
   external_id: string;
+  offer_id: string;
   name: string;
   category: string | null;
   price: number | null;
@@ -107,6 +108,7 @@ const ProductSettings = () => {
         .select(`
           id,
           external_id,
+          offer_id,
           name,
           category,
           price,
@@ -236,11 +238,9 @@ const ProductSettings = () => {
     const exportData = products.map((product) => {
       const bd = businessDataMap.get(product.external_id);
       const supplierName = bd?.supplier_id ? supplierMap.get(bd.supplier_id) : "";
-      // Артикул OZON (offer_id) берем из business data
-      const offerId = bd?.offer_id || product.external_id;
 
       return {
-        "Артикул": offerId,
+        "Артикул": product.offer_id,
         "Название товара": product.name,
         "Поставщик": supplierName || "",
         "Цена закупки": bd?.purchase_price || "",
@@ -447,12 +447,10 @@ const ProductSettings = () => {
 
   // Фильтрация товаров
   const filteredProducts = products?.filter((product) => {
-    // Поиск по названию или артикулу (offer_id из business data)
-    const bd = businessDataMap.get(product.external_id);
-    const offerId = bd?.offer_id || product.external_id;
+    // Поиск по названию или артикулу
     const matchesSearch =
       product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      offerId.toLowerCase().includes(searchQuery.toLowerCase());
+      product.offer_id.toLowerCase().includes(searchQuery.toLowerCase());
 
     // Фильтр по категории
     const matchesCategory =
@@ -608,8 +606,6 @@ const ProductSettings = () => {
                   {filteredProducts?.slice(0, 50).map((product) => {
                     const bd = businessDataMap.get(product.external_id);
                     const supplierName = bd?.supplier_id ? supplierMap.get(bd.supplier_id) : null;
-                    // Артикул OZON (offer_id) берем из business data, если есть
-                    const offerId = bd?.offer_id || product.external_id;
 
                     return (
                       <TableRow key={product.id}>
@@ -628,12 +624,12 @@ const ProductSettings = () => {
                         </TableCell>
                         <TableCell className="font-mono text-sm">
                           <div className="flex items-center gap-2">
-                            <span>{offerId}</span>
+                            <span>{product.offer_id}</span>
                             <Button
                               variant="ghost"
                               size="icon"
                               className="h-6 w-6"
-                              onClick={() => copyToClipboard(offerId)}
+                              onClick={() => copyToClipboard(product.offer_id)}
                             >
                               <Copy className="h-3 w-3" />
                             </Button>
