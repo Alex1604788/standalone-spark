@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.ozon-save]
 verify_jwt = false
+
+[functions.update-reply-statuses]
+verify_jwt = false
