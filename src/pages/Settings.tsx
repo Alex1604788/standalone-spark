@@ -95,20 +95,116 @@ const Settings = () => {
       })
       .eq("id", settings.id);
 
-    setIsLoading(false);
-
     if (error) {
+      setIsLoading(false);
       toast({
         title: "Ошибка",
         description: "Не удалось сохранить настройки",
         variant: "destructive",
       });
-    } else {
-      toast({
-        title: "Сохранено",
-        description: "Настройки успешно обновлены",
-      });
+      return;
     }
+
+    // Пересчитать статусы существующих черновиков в соответствии с новыми режимами
+    // Для каждого рейтинга, если режим = auto, переводим drafted -> scheduled
+    const modeUpdates = [
+      { rating: 1, mode: settings.reviews_mode_1 },
+      { rating: 2, mode: settings.reviews_mode_2 },
+      { rating: 3, mode: settings.reviews_mode_3 },
+      { rating: 4, mode: settings.reviews_mode_4 },
+      { rating: 5, mode: settings.reviews_mode_5 },
+    ];
+
+    for (const { rating, mode } of modeUpdates) {
+      if (mode === "auto") {
+        // Находим черновики для отзывов с этим рейтингом и переводим в scheduled
+        const { data: draftedReplies } = await supabase
+          .from("replies")
+          .select("id, review_id, reviews!inner(rating, marketplace_id)")
+          .eq("status", "drafted")
+          .eq("reviews.rating", rating)
+          .eq("reviews.marketplace_id", selectedMarketplace);
+
+        if (draftedReplies && draftedReplies.length > 0) {
+          const replyIds = draftedReplies.map(r => r.id);
+          await supabase
+            .from("replies")
+            .update({ 
+              status: "scheduled", 
+              mode: "auto",
+              scheduled_at: new Date().toISOString() 
+            })
+            .in("id", replyIds);
+        }
+      } else {
+        // Если режим = semi, переводим scheduled обратно в drafted
+        const { data: scheduledReplies } = await supabase
+          .from("replies")
+          .select("id, review_id, reviews!inner(rating, marketplace_id)")
+          .eq("status", "scheduled")
+          .eq("reviews.rating", rating)
+          .eq("reviews.marketplace_id", selectedMarketplace);
+
+        if (scheduledReplies && scheduledReplies.length > 0) {
+          const replyIds = scheduledReplies.map(r => r.id);
+          await supabase
+            .from("replies")
+            .update({ 
+              status: "drafted", 
+              mode: "semi_auto",
+              scheduled_at: null 
+            })
+            .in("id", replyIds);
+        }
+      }
+    }
+
+    // Аналогично для вопросов
+    if (settings.questions_mode === "auto") {
+      const { data: draftedQuestionReplies } = await supabase
+        .from("replies")
+        .select("id, question_id, questions!inner(marketplace_id)")
+        .eq("status", "drafted")
+        .not("question_id", "is", null)
+        .eq("questions.marketplace_id", selectedMarketplace);
+
+      if (draftedQuestionReplies && draftedQuestionReplies.length > 0) {
+        const replyIds = draftedQuestionReplies.map(r => r.id);
+        await supabase
+          .from("replies")
+          .update({ 
+            status: "scheduled", 
+            mode: "auto",
+            scheduled_at: new Date().toISOString() 
+          })
+          .in("id", replyIds);
+      }
+    } else if (settings.questions_mode === "semi") {
+      const { data: scheduledQuestionReplies } = await supabase
+        .from("replies")
+        .select("id, question_id, questions!inner(marketplace_id)")
+        .eq("status", "scheduled")
+        .not("question_id", "is", null)
+        .eq("questions.marketplace_id", selectedMarketplace);
+
+      if (scheduledQuestionReplies && scheduledQuestionReplies.length > 0) {
+        const replyIds = scheduledQuestionReplies.map(r => r.id);
+        await supabase
+          .from("replies")
+          .update({ 
+            status: "drafted", 
+            mode: "semi_auto",
+            scheduled_at: null 
+          })
+          .in("id", replyIds);
+      }
+    }
+
+    setIsLoading(false);
+    toast({
+      title: "Сохранено",
+      description: "Настройки обновлены и применены к существующим черновикам",
+    });
   };
 
   const updateReviewMode = (rating: number, mode: string) => {
