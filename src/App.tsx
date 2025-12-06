@@ -31,6 +31,7 @@ const OzonSettings = lazy(() => import("./pages/OzonSettings"));
 const DownloadExtension = lazy(() => import("./pages/DownloadExtension"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const ProductSettings = lazy(() => import("./pages/ProductSettings"));
+const ProductKnowledge = lazy(() => import("./pages/ProductKnowledge"));
 const AppLayout = lazy(() => import("./components/AppLayout"));
 
 const queryClient = new QueryClient();
@@ -94,6 +95,7 @@ const App = () => (
             <Route path="/app/extension" element={<ProtectedPage><DownloadExtension /></ProtectedPage>} />
             <Route path="/app/notifications" element={<ProtectedPage><Notifications /></ProtectedPage>} />
             <Route path="/app/products/settings" element={<ProtectedPage><ProductSettings /></ProtectedPage>} />
+            <Route path="/app/products/knowledge" element={<ProtectedPage><ProductKnowledge /></ProtectedPage>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
