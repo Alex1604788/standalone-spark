@@ -106,27 +106,31 @@ const Settings = () => {
     }
 
     // Пересчитать статусы существующих черновиков в соответствии с новыми режимами
-    // Для каждого рейтинга, если режим = auto, переводим drafted -> scheduled
-    const modeUpdates = [
-      { rating: 1, mode: settings.reviews_mode_1 },
-      { rating: 2, mode: settings.reviews_mode_2 },
-      { rating: 3, mode: settings.reviews_mode_3 },
-      { rating: 4, mode: settings.reviews_mode_4 },
-      { rating: 5, mode: settings.reviews_mode_5 },
-    ];
+    // Сначала получаем все отзывы по рейтингам для этого маркетплейса
+    const { data: reviewsByRating } = await supabase
+      .from("reviews")
+      .select("id, rating")
+      .eq("marketplace_id", selectedMarketplace);
 
-    for (const { rating, mode } of modeUpdates) {
-      if (mode === "auto") {
-        // Находим черновики для отзывов с этим рейтингом и переводим в scheduled
-        const { data: draftedReplies } = await supabase
-          .from("replies")
-          .select("id, review_id, reviews!inner(rating, marketplace_id)")
-          .eq("status", "drafted")
-          .eq("reviews.rating", rating)
-          .eq("reviews.marketplace_id", selectedMarketplace);
+    if (reviewsByRating) {
+      const modeUpdates = [
+        { rating: 1, mode: settings.reviews_mode_1 },
+        { rating: 2, mode: settings.reviews_mode_2 },
+        { rating: 3, mode: settings.reviews_mode_3 },
+        { rating: 4, mode: settings.reviews_mode_4 },
+        { rating: 5, mode: settings.reviews_mode_5 },
+      ];
 
-        if (draftedReplies && draftedReplies.length > 0) {
-          const replyIds = draftedReplies.map(r => r.id);
+      for (const { rating, mode } of modeUpdates) {
+        // Получаем review_ids для этого рейтинга
+        const reviewIds = reviewsByRating
+          .filter(r => r.rating === rating)
+          .map(r => r.id);
+
+        if (reviewIds.length === 0) continue;
+
+        if (mode === "auto") {
+          // Переводим drafted -> scheduled для отзывов с этим рейтингом
           await supabase
             .from("replies")
             .update({ 
@@ -134,19 +138,10 @@ const Settings = () => {
               mode: "auto",
               scheduled_at: new Date().toISOString() 
             })
-            .in("id", replyIds);
-        }
-      } else {
-        // Если режим = semi, переводим scheduled обратно в drafted
-        const { data: scheduledReplies } = await supabase
-          .from("replies")
-          .select("id, review_id, reviews!inner(rating, marketplace_id)")
-          .eq("status", "scheduled")
-          .eq("reviews.rating", rating)
-          .eq("reviews.marketplace_id", selectedMarketplace);
-
-        if (scheduledReplies && scheduledReplies.length > 0) {
-          const replyIds = scheduledReplies.map(r => r.id);
+            .eq("status", "drafted")
+            .in("review_id", reviewIds);
+        } else {
+          // Если режим = semi, переводим scheduled обратно в drafted
           await supabase
             .from("replies")
             .update({ 
@@ -154,22 +149,22 @@ const Settings = () => {
               mode: "semi_auto",
               scheduled_at: null 
             })
-            .in("id", replyIds);
+            .eq("status", "scheduled")
+            .in("review_id", reviewIds);
         }
       }
     }
 
     // Аналогично для вопросов
-    if (settings.questions_mode === "auto") {
-      const { data: draftedQuestionReplies } = await supabase
-        .from("replies")
-        .select("id, question_id, questions!inner(marketplace_id)")
-        .eq("status", "drafted")
-        .not("question_id", "is", null)
-        .eq("questions.marketplace_id", selectedMarketplace);
+    const { data: questionIds } = await supabase
+      .from("questions")
+      .select("id")
+      .eq("marketplace_id", selectedMarketplace);
 
-      if (draftedQuestionReplies && draftedQuestionReplies.length > 0) {
-        const replyIds = draftedQuestionReplies.map(r => r.id);
+    if (questionIds && questionIds.length > 0) {
+      const qIds = questionIds.map(q => q.id);
+      
+      if (settings.questions_mode === "auto") {
         await supabase
           .from("replies")
           .update({ 
@@ -177,18 +172,9 @@ const Settings = () => {
             mode: "auto",
             scheduled_at: new Date().toISOString() 
           })
-          .in("id", replyIds);
-      }
-    } else if (settings.questions_mode === "semi") {
-      const { data: scheduledQuestionReplies } = await supabase
-        .from("replies")
-        .select("id, question_id, questions!inner(marketplace_id)")
-        .eq("status", "scheduled")
-        .not("question_id", "is", null)
-        .eq("questions.marketplace_id", selectedMarketplace);
-
-      if (scheduledQuestionReplies && scheduledQuestionReplies.length > 0) {
-        const replyIds = scheduledQuestionReplies.map(r => r.id);
+          .eq("status", "drafted")
+          .in("question_id", qIds);
+      } else if (settings.questions_mode === "semi") {
         await supabase
           .from("replies")
           .update({ 
@@ -196,7 +182,8 @@ const Settings = () => {
             mode: "semi_auto",
             scheduled_at: null 
           })
-          .in("id", replyIds);
+          .eq("status", "scheduled")
+          .in("question_id", qIds);
       }
     }
 
