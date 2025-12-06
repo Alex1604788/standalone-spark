@@ -6,6 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const BATCH_SIZE = 100;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -58,45 +60,50 @@ serve(async (req) => {
 
       console.log(`[update-reply-statuses] Rating ${rating}, mode: ${mode}, reviews: ${reviewIds.length}`);
 
-      if (mode === "auto") {
-        // drafted -> scheduled
-        const { data: updated, error: updateError } = await supabase
-          .from("replies")
-          .update({ 
-            status: "scheduled", 
-            mode: "auto",
-            scheduled_at: new Date().toISOString() 
-          })
-          .eq("status", "drafted")
-          .in("review_id", reviewIds)
-          .select("id");
+      // Process in batches to avoid query limits
+      for (let i = 0; i < reviewIds.length; i += BATCH_SIZE) {
+        const batchIds = reviewIds.slice(i, i + BATCH_SIZE);
+        
+        if (mode === "auto") {
+          // drafted -> scheduled
+          const { data: updated, error: updateError } = await supabase
+            .from("replies")
+            .update({ 
+              status: "scheduled", 
+              mode: "auto",
+              scheduled_at: new Date().toISOString() 
+            })
+            .eq("status", "drafted")
+            .in("review_id", batchIds)
+            .select("id");
 
-        if (updateError) {
-          console.error(`[update-reply-statuses] Error updating to scheduled:`, updateError);
+          if (updateError) {
+            console.error(`[update-reply-statuses] Batch error updating to scheduled:`, updateError);
+          } else {
+            totalUpdatedToScheduled += updated?.length || 0;
+          }
         } else {
-          console.log(`[update-reply-statuses] Updated to scheduled: ${updated?.length || 0}`);
-          totalUpdatedToScheduled += updated?.length || 0;
-        }
-      } else {
-        // scheduled -> drafted (for semi mode)
-        const { data: updated, error: updateError } = await supabase
-          .from("replies")
-          .update({ 
-            status: "drafted", 
-            mode: "semi_auto",
-            scheduled_at: null 
-          })
-          .eq("status", "scheduled")
-          .in("review_id", reviewIds)
-          .select("id");
+          // scheduled -> drafted (for semi mode)
+          const { data: updated, error: updateError } = await supabase
+            .from("replies")
+            .update({ 
+              status: "drafted", 
+              mode: "semi_auto",
+              scheduled_at: null 
+            })
+            .eq("status", "scheduled")
+            .in("review_id", batchIds)
+            .select("id");
 
-        if (updateError) {
-          console.error(`[update-reply-statuses] Error updating to drafted:`, updateError);
-        } else {
-          console.log(`[update-reply-statuses] Updated to drafted: ${updated?.length || 0}`);
-          totalUpdatedToDrafted += updated?.length || 0;
+          if (updateError) {
+            console.error(`[update-reply-statuses] Batch error updating to drafted:`, updateError);
+          } else {
+            totalUpdatedToDrafted += updated?.length || 0;
+          }
         }
       }
+      
+      console.log(`[update-reply-statuses] Rating ${rating} done: scheduled=${totalUpdatedToScheduled}, drafted=${totalUpdatedToDrafted}`);
     }
 
     // Handle questions
@@ -108,35 +115,38 @@ serve(async (req) => {
     if (questionIds && questionIds.length > 0) {
       const qIds = questionIds.map(q => q.id);
       
-      if (settings.questions_mode === "auto") {
-        const { data: updated } = await supabase
-          .from("replies")
-          .update({ 
-            status: "scheduled", 
-            mode: "auto",
-            scheduled_at: new Date().toISOString() 
-          })
-          .eq("status", "drafted")
-          .in("question_id", qIds)
-          .select("id");
+      for (let i = 0; i < qIds.length; i += BATCH_SIZE) {
+        const batchIds = qIds.slice(i, i + BATCH_SIZE);
         
-        totalUpdatedToScheduled += updated?.length || 0;
-        console.log(`[update-reply-statuses] Questions updated to scheduled: ${updated?.length || 0}`);
-      } else if (settings.questions_mode === "semi") {
-        const { data: updated } = await supabase
-          .from("replies")
-          .update({ 
-            status: "drafted", 
-            mode: "semi_auto",
-            scheduled_at: null 
-          })
-          .eq("status", "scheduled")
-          .in("question_id", qIds)
-          .select("id");
-        
-        totalUpdatedToDrafted += updated?.length || 0;
-        console.log(`[update-reply-statuses] Questions updated to drafted: ${updated?.length || 0}`);
+        if (settings.questions_mode === "auto") {
+          const { data: updated } = await supabase
+            .from("replies")
+            .update({ 
+              status: "scheduled", 
+              mode: "auto",
+              scheduled_at: new Date().toISOString() 
+            })
+            .eq("status", "drafted")
+            .in("question_id", batchIds)
+            .select("id");
+          
+          totalUpdatedToScheduled += updated?.length || 0;
+        } else if (settings.questions_mode === "semi") {
+          const { data: updated } = await supabase
+            .from("replies")
+            .update({ 
+              status: "drafted", 
+              mode: "semi_auto",
+              scheduled_at: null 
+            })
+            .eq("status", "scheduled")
+            .in("question_id", batchIds)
+            .select("id");
+          
+          totalUpdatedToDrafted += updated?.length || 0;
+        }
       }
+      console.log(`[update-reply-statuses] Questions done`);
     }
 
     console.log(`[update-reply-statuses] Completed: ${totalUpdatedToScheduled} scheduled, ${totalUpdatedToDrafted} drafted`);
