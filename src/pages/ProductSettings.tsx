@@ -30,7 +30,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Search, Edit, CheckCircle2, AlertCircle, XCircle, DollarSign, Package, Truck, Tag, Copy, Download, Upload } from "lucide-react";
+import { Search, Edit, CheckCircle2, AlertCircle, XCircle, DollarSign, Package, Truck, Tag, Copy, Download, Upload, Plus, Trash2, PackagePlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Tooltip,
@@ -54,10 +54,19 @@ interface ProductBusinessData {
   offer_id: string;
   supplier_id: string | null;
   category: string | null;
+  product_type: string | null;
+  product_subtype: string | null;
   purchase_price: number | null;
   small_box_quantity: number | null;
   large_box_quantity: number | null;
   is_complete: boolean;
+}
+
+interface ProductComposition {
+  id: string;
+  parent_offer_id: string;
+  child_offer_id: string;
+  quantity: number;
 }
 
 interface Supplier {
@@ -81,6 +90,12 @@ const ProductSettings = () => {
     small_box_quantity: "",
     large_box_quantity: "",
   });
+
+  // Composition modal state
+  const [isCompositionModalOpen, setIsCompositionModalOpen] = useState(false);
+  const [compositionRows, setCompositionRows] = useState<Array<{ child_offer_id: string; quantity: string }>>([
+    { child_offer_id: "", quantity: "1" }
+  ]);
 
   // Получаем текущий marketplace
   const { data: marketplace } = useQuery({
@@ -158,6 +173,23 @@ const ProductSettings = () => {
     enabled: !!marketplace?.id,
   });
 
+  // Получаем составы товаров (комплектации)
+  const { data: compositions, refetch: refetchCompositions } = useQuery({
+    queryKey: ["product-compositions", marketplace?.id],
+    queryFn: async () => {
+      if (!marketplace?.id) return [];
+
+      const { data, error } = await supabase
+        .from("product_composition")
+        .select("*")
+        .eq("marketplace_id", marketplace.id);
+
+      if (error) throw error;
+      return data as ProductComposition[];
+    },
+    enabled: !!marketplace?.id,
+  });
+
   // Создаём карту business data для быстрого доступа
   const businessDataMap = new Map(
     businessData?.map((bd) => [bd.offer_id, bd]) || []
@@ -230,6 +262,87 @@ const ProductSettings = () => {
     }
   };
 
+  // Открыть модальное окно создания комплекта
+  const handleOpenComposition = () => {
+    if (!selectedProduct) return;
+
+    // Загружаем существующую комплектацию если есть
+    const existingComposition = compositions?.filter(c => c.parent_offer_id === selectedProduct.offer_id) || [];
+
+    if (existingComposition.length > 0) {
+      setCompositionRows(existingComposition.map(c => ({
+        child_offer_id: c.child_offer_id,
+        quantity: c.quantity.toString()
+      })));
+    } else {
+      // Если нет комплектации, создаем дефолтную (товар = сам себе × 1)
+      setCompositionRows([{
+        child_offer_id: selectedProduct.offer_id,
+        quantity: "1"
+      }]);
+    }
+
+    setIsCompositionModalOpen(true);
+  };
+
+  // Добавить строку комплектации
+  const handleAddCompositionRow = () => {
+    setCompositionRows([...compositionRows, { child_offer_id: "", quantity: "1" }]);
+  };
+
+  // Удалить строку комплектации
+  const handleRemoveCompositionRow = (index: number) => {
+    setCompositionRows(compositionRows.filter((_, i) => i !== index));
+  };
+
+  // Сохранить комплектацию
+  const handleSaveComposition = async () => {
+    if (!selectedProduct || !marketplace) return;
+
+    try {
+      // Удаляем старые записи комплектации для этого товара
+      await supabase
+        .from("product_composition")
+        .delete()
+        .eq("marketplace_id", marketplace.id)
+        .eq("parent_offer_id", selectedProduct.offer_id);
+
+      // Добавляем новые записи
+      const validRows = compositionRows.filter(row => row.child_offer_id.trim() !== "");
+
+      if (validRows.length > 0) {
+        const { error } = await supabase
+          .from("product_composition")
+          .insert(
+            validRows.map(row => ({
+              marketplace_id: marketplace.id,
+              parent_offer_id: selectedProduct.offer_id,
+              child_offer_id: row.child_offer_id.trim(),
+              quantity: parseInt(row.quantity) || 1,
+            }))
+          );
+
+        if (error) throw error;
+      }
+
+      toast({
+        title: "Сохранено",
+        description: `Комплектация для "${selectedProduct.offer_id}" обновлена`,
+      });
+
+      // Обновляем данные
+      await refetchCompositions();
+      setIsCompositionModalOpen(false);
+    } catch (error) {
+      console.error("Error saving composition:", error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось сохранить комплектацию",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Выгрузка товаров в Excel
   const handleExportExcel = () => {
     if (!products || !marketplace) return;
@@ -247,6 +360,8 @@ const ProductSettings = () => {
         "Категория": bd?.category || "",
         "Малая коробка": bd?.small_box_quantity || "",
         "Большая коробка": bd?.large_box_quantity || "",
+        "Вид номенклатуры": bd?.product_type || "",
+        "Подвид номенклатуры": bd?.product_subtype || "",
       };
     });
 
@@ -282,6 +397,8 @@ const ProductSettings = () => {
         "Категория": string;
         "Малая коробка": number | string;
         "Большая коробка": number | string;
+        "Вид номенклатуры": string;
+        "Подвид номенклатуры": string;
       }>;
 
       if (!jsonData || jsonData.length === 0) {
@@ -327,6 +444,8 @@ const ProductSettings = () => {
               purchase_price: purchasePrice,
               small_box_quantity: smallBox,
               large_box_quantity: largeBox,
+              product_type: row["Вид номенклатуры"]?.toString().trim() || null,
+              product_subtype: row["Подвид номенклатуры"]?.toString().trim() || null,
             });
 
           if (error) {
@@ -360,6 +479,143 @@ const ProductSettings = () => {
     }
 
     // Сброс input для возможности повторной загрузки того же файла
+    event.target.value = "";
+  };
+
+  // Выгрузка комплектаций в Excel
+  const handleExportCompositions = () => {
+    if (!products || !marketplace || !compositions) return;
+
+    // Подготовка данных для экспорта
+    const exportData: Array<{ "Артикул": string; "Состав": string; "Количество": number }> = [];
+
+    // Группируем композиции по parent_offer_id
+    const compositionsByParent = new Map<string, Array<{ child: string; qty: number }>>();
+    compositions.forEach(comp => {
+      if (!compositionsByParent.has(comp.parent_offer_id)) {
+        compositionsByParent.set(comp.parent_offer_id, []);
+      }
+      compositionsByParent.get(comp.parent_offer_id)!.push({
+        child: comp.child_offer_id,
+        qty: comp.quantity
+      });
+    });
+
+    // Создаем строки для экспорта
+    compositionsByParent.forEach((children, parent) => {
+      children.forEach(child => {
+        exportData.push({
+          "Артикул": parent,
+          "Состав": child.child,
+          "Количество": child.qty
+        });
+      });
+    });
+
+    if (exportData.length === 0) {
+      toast({
+        title: "Нет данных",
+        description: "Комплектации не найдены",
+        variant: "default",
+      });
+      return;
+    }
+
+    // Создание Excel файла
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Комплектации");
+
+    // Скачивание файла
+    XLSX.writeFile(workbook, `комплектации_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+    toast({
+      title: "Экспорт завершен",
+      description: `Выгружено ${exportData.length} записей`,
+    });
+  };
+
+  // Загрузка комплектаций из Excel
+  const handleImportCompositions = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !marketplace) return;
+
+    try {
+      // Чтение файла
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet) as Array<{
+        "Артикул": string;
+        "Состав": string;
+        "Количество": number | string;
+      }>;
+
+      if (!jsonData || jsonData.length === 0) {
+        toast({
+          title: "Ошибка",
+          description: "Файл пуст или неверный формат",
+          variant: "destructive",
+        });
+        event.target.value = "";
+        return;
+      }
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      // Обрабатываем каждую строку
+      for (const row of jsonData) {
+        try {
+          const parentOfferId = row["Артикул"]?.toString().trim();
+          const childOfferId = row["Состав"]?.toString().trim();
+          const quantity = row["Количество"] ? parseInt(row["Количество"].toString()) : 1;
+
+          if (!parentOfferId || !childOfferId) {
+            errorCount++;
+            continue;
+          }
+
+          // Добавляем комплектацию
+          const { error } = await supabase
+            .from("product_composition")
+            .upsert({
+              marketplace_id: marketplace.id,
+              parent_offer_id: parentOfferId,
+              child_offer_id: childOfferId,
+              quantity: quantity,
+            });
+
+          if (error) {
+            console.error(`Error updating composition ${parentOfferId}:`, error);
+            errorCount++;
+          } else {
+            successCount++;
+          }
+        } catch (err) {
+          console.error("Row processing error:", err);
+          errorCount++;
+        }
+      }
+
+      // Обновляем данные
+      await refetchCompositions();
+
+      toast({
+        title: "Импорт завершен",
+        description: `Успешно: ${successCount}, Ошибок: ${errorCount}`,
+      });
+
+    } catch (error) {
+      console.error("Import error:", error);
+      toast({
+        title: "Ошибка импорта",
+        description: "Не удалось загрузить файл. Проверьте формат Excel.",
+        variant: "destructive",
+      });
+    }
+
+    // Сброс input
     event.target.value = "";
   };
 
@@ -471,6 +727,13 @@ const ProductSettings = () => {
     new Set(products?.map((p) => p.category).filter(Boolean) || [])
   );
 
+  // Подсчет товаров без комплектации
+  const productsWithoutComposition = products?.filter(product => {
+    // Проверяем есть ли у товара композиция (где он parent_offer_id)
+    const hasComposition = compositions?.some(comp => comp.parent_offer_id === product.offer_id);
+    return !hasComposition;
+  }).length || 0;
+
   return (
     <div className="container mx-auto py-6">
       <Card>
@@ -537,8 +800,36 @@ const ProductSettings = () => {
                 className="hidden"
                 onChange={handleImportExcel}
               />
+
+              <div className="w-px bg-gray-300 mx-1" />
+
+              <Button variant="outline" onClick={() => handleExportCompositions()}>
+                <Download className="w-4 h-4 mr-2" />
+                Выгрузить комплектации
+              </Button>
+              <Button variant="outline" onClick={() => document.getElementById('compositions-upload')?.click()}>
+                <Upload className="w-4 h-4 mr-2" />
+                Загрузить комплектации
+              </Button>
+              <input
+                id="compositions-upload"
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={handleImportCompositions}
+              />
             </div>
           </div>
+
+          {/* Индикатор незаполненных составов */}
+          {productsWithoutComposition > 0 && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-center gap-2 text-red-700">
+                <AlertCircle className="w-5 h-5" />
+                <span className="font-semibold">Не заполнен состав: {productsWithoutComposition}</span>
+              </div>
+            </div>
+          )}
 
           {/* Статистика */}
           <div className="grid grid-cols-4 gap-4 mb-6">
@@ -769,12 +1060,95 @@ const ProductSettings = () => {
             </div>
           </div>
 
+          <DialogFooter className="flex justify-between">
+            <Button variant="outline" onClick={handleOpenComposition}>
+              <PackagePlus className="w-4 h-4 mr-2" />
+              Создать комплект
+            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>
+                Отмена
+              </Button>
+              <Button onClick={handleSave}>
+                Сохранить
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Модальное окно комплектации */}
+      <Dialog open={isCompositionModalOpen} onOpenChange={setIsCompositionModalOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Комплектация товара</DialogTitle>
+            <DialogDescription>
+              {selectedProduct?.name} (Артикул: {selectedProduct?.offer_id})
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            <div className="mb-4">
+              <p className="text-sm text-muted-foreground mb-2">
+                Укажите из каких товаров состоит данный артикул. Для обычных товаров укажите сам товар × 1.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              {compositionRows.map((row, index) => (
+                <div key={index} className="flex gap-2 items-center">
+                  <div className="flex-1">
+                    <Input
+                      placeholder="Артикул составляющего товара"
+                      value={row.child_offer_id}
+                      onChange={(e) => {
+                        const newRows = [...compositionRows];
+                        newRows[index].child_offer_id = e.target.value;
+                        setCompositionRows(newRows);
+                      }}
+                    />
+                  </div>
+                  <div className="w-32">
+                    <Input
+                      type="number"
+                      placeholder="Кол-во"
+                      value={row.quantity}
+                      onChange={(e) => {
+                        const newRows = [...compositionRows];
+                        newRows[index].quantity = e.target.value;
+                        setCompositionRows(newRows);
+                      }}
+                    />
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleRemoveCompositionRow(index)}
+                    disabled={compositionRows.length === 1}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-4"
+              onClick={handleAddCompositionRow}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Добавить строку
+            </Button>
+          </div>
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>
+            <Button variant="outline" onClick={() => setIsCompositionModalOpen(false)}>
               Отмена
             </Button>
-            <Button onClick={handleSave}>
-              Сохранить
+            <Button onClick={handleSaveComposition}>
+              Сохранить комплектацию
             </Button>
           </DialogFooter>
         </DialogContent>
