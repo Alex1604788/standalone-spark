@@ -32,21 +32,42 @@ serve(async (req) => {
 
     console.log(`[auto-generate-drafts] Starting for user ${user_id}, marketplace ${marketplace_id || "all"}`);
 
-    // Get marketplace settings to check reply_length
-    let replyLength = response_length;
+    // Get marketplace settings including modes
+    let settings: {
+      reply_length: string;
+      reviews_mode_1: string;
+      reviews_mode_2: string;
+      reviews_mode_3: string;
+      reviews_mode_4: string;
+      reviews_mode_5: string;
+      questions_mode: string;
+    } | null = null;
+
     if (marketplace_id) {
-      const { data: settings } = await supabase
+      const { data } = await supabase
         .from("marketplace_settings")
-        .select("reply_length")
+        .select("reply_length, reviews_mode_1, reviews_mode_2, reviews_mode_3, reviews_mode_4, reviews_mode_5, questions_mode")
         .eq("marketplace_id", marketplace_id)
         .single();
       
-      if (settings?.reply_length) {
-        replyLength = settings.reply_length;
-      }
+      settings = data;
     }
 
+    const replyLength = settings?.reply_length || response_length;
     const maxChars = replyLength === "short" ? 200 : 400;
+
+    // Helper function to get mode for specific rating
+    const getReviewMode = (rating: number): string => {
+      if (!settings) return "semi"; // default to semi-auto
+      switch (rating) {
+        case 1: return settings.reviews_mode_1 || "semi";
+        case 2: return settings.reviews_mode_2 || "semi";
+        case 3: return settings.reviews_mode_3 || "semi";
+        case 4: return settings.reviews_mode_4 || "semi";
+        case 5: return settings.reviews_mode_5 || "semi";
+        default: return "semi";
+      }
+    };
 
     // Get unanswered reviews (segment = 'unanswered' means no drafts exist)
     let reviewsQuery = supabase
@@ -69,6 +90,7 @@ serve(async (req) => {
     console.log(`[auto-generate-drafts] Found ${reviews?.length || 0} unanswered reviews`);
 
     let totalDrafts = 0;
+    let totalScheduled = 0;
     const errors: string[] = [];
 
     // Generate drafts for reviews
@@ -99,6 +121,17 @@ serve(async (req) => {
         const mpId = review.marketplace_id || (Array.isArray(products) 
           ? products[0]?.marketplace_id 
           : products?.marketplace_id);
+
+        // Get mode for this review's rating
+        const mode = getReviewMode(review.rating);
+        
+        // Determine status based on mode
+        // auto = scheduled (will be published automatically)
+        // semi = drafted (requires confirmation)
+        const replyStatus = mode === "auto" ? "scheduled" : "drafted";
+        const replyMode = mode === "auto" ? "auto" : "semi_auto";
+
+        console.log(`[auto-generate-drafts] Review ${review.id} (rating: ${review.rating}) -> mode: ${mode}, status: ${replyStatus}`);
 
         // Generate draft using AI
         const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -148,22 +181,28 @@ ${review.rating <= 2 ? "- Вежливо извиниться за негати�
           continue;
         }
 
-        // Create draft reply
+        // Create reply with appropriate status
         const { error: insertError } = await supabase.from("replies").insert({
           review_id: review.id,
           content: generatedReply,
-          status: "drafted",
-          mode: "semi_auto",
+          status: replyStatus,
+          mode: replyMode,
           user_id: user_id,
           marketplace_id: mpId,
+          scheduled_at: replyStatus === "scheduled" ? new Date().toISOString() : null,
         });
 
         if (insertError) {
           console.error(`[auto-generate-drafts] Insert error for review ${review.id}:`, insertError);
           errors.push(`Review ${review.id}: ${insertError.message}`);
         } else {
-          console.log(`[auto-generate-drafts] ✅ Created draft for review ${review.id}`);
-          totalDrafts++;
+          if (replyStatus === "scheduled") {
+            console.log(`[auto-generate-drafts] ⚡ Scheduled auto-reply for review ${review.id}`);
+            totalScheduled++;
+          } else {
+            console.log(`[auto-generate-drafts] ✅ Created draft for review ${review.id}`);
+            totalDrafts++;
+          }
         }
 
         // Small delay to avoid rate limiting
@@ -174,13 +213,152 @@ ${review.rating <= 2 ? "- Вежливо извиниться за негати�
       }
     }
 
-    console.log(`[auto-generate-drafts] Completed: ${totalDrafts} drafts created, ${errors.length} errors`);
+    // Process questions if questions_mode is not 'off'
+    const questionsMode = settings?.questions_mode || "off";
+    let totalQuestionDrafts = 0;
+    let totalQuestionScheduled = 0;
+
+    if (questionsMode !== "off") {
+      console.log(`[auto-generate-drafts] Processing questions in mode: ${questionsMode}`);
+
+      let questionsQuery = supabase
+        .from("questions")
+        .select("id, text, author_name, marketplace_id, products(name, marketplace_id)")
+        .eq("is_answered", false)
+        .is("deleted_at", null);
+
+      if (marketplace_id) {
+        questionsQuery = questionsQuery.eq("marketplace_id", marketplace_id);
+      }
+
+      const { data: questions, error: questionsError } = await questionsQuery.limit(20);
+
+      if (questionsError) {
+        console.error("Error fetching questions:", questionsError);
+      } else {
+        console.log(`[auto-generate-drafts] Found ${questions?.length || 0} unanswered questions`);
+
+        for (const question of questions || []) {
+          try {
+            // Check no reply exists
+            const { data: existingReply } = await supabase
+              .from("replies")
+              .select("id")
+              .eq("question_id", question.id)
+              .limit(1);
+
+            if (existingReply && existingReply.length > 0) {
+              console.log(`[auto-generate-drafts] Skip question ${question.id}: reply exists`);
+              continue;
+            }
+
+            const products = question.products as any;
+            const productName = Array.isArray(products) 
+              ? products[0]?.name || "Товар" 
+              : products?.name || "Товар";
+            
+            const mpId = question.marketplace_id || (Array.isArray(products) 
+              ? products[0]?.marketplace_id 
+              : products?.marketplace_id);
+
+            const replyStatus = questionsMode === "auto" ? "scheduled" : "drafted";
+            const replyMode = questionsMode === "auto" ? "auto" : "semi_auto";
+
+            console.log(`[auto-generate-drafts] Question ${question.id} -> mode: ${questionsMode}, status: ${replyStatus}`);
+
+            // Generate answer using AI
+            const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${lovableApiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: "google/gemini-2.5-flash",
+                messages: [
+                  {
+                    role: "system",
+                    content: `Ты - профессиональный менеджер маркетплейса. Ответь на вопрос покупателя о товаре.
+
+Товар: ${productName}
+Вопрос от ${question.author_name}: ${question.text}
+
+ТРЕБОВАНИЯ:
+- Максимум ${maxChars} символов
+- Официальный, дружелюбный стиль
+- БЕЗ эмодзи
+- БЕЗ контактов и ссылок
+- Конкретный и полезный ответ
+- Ответ должен быть завершённым, не обрезанным`
+                  },
+                  { role: "user", content: "Сгенерируй ответ" }
+                ],
+              }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error(`[auto-generate-drafts] AI error for question ${question.id}:`, errorText);
+              errors.push(`Question ${question.id}: AI error`);
+              continue;
+            }
+
+            const data = await response.json();
+            const generatedReply = data.choices?.[0]?.message?.content;
+
+            if (!generatedReply) {
+              console.error(`[auto-generate-drafts] Empty reply for question ${question.id}`);
+              errors.push(`Question ${question.id}: empty reply`);
+              continue;
+            }
+
+            // Create reply
+            const { error: insertError } = await supabase.from("replies").insert({
+              question_id: question.id,
+              content: generatedReply,
+              status: replyStatus,
+              mode: replyMode,
+              user_id: user_id,
+              marketplace_id: mpId,
+              scheduled_at: replyStatus === "scheduled" ? new Date().toISOString() : null,
+            });
+
+            if (insertError) {
+              console.error(`[auto-generate-drafts] Insert error for question ${question.id}:`, insertError);
+              errors.push(`Question ${question.id}: ${insertError.message}`);
+            } else {
+              if (replyStatus === "scheduled") {
+                console.log(`[auto-generate-drafts] ⚡ Scheduled auto-reply for question ${question.id}`);
+                totalQuestionScheduled++;
+              } else {
+                console.log(`[auto-generate-drafts] ✅ Created draft for question ${question.id}`);
+                totalQuestionDrafts++;
+              }
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 200));
+          } catch (e) {
+            console.error(`[auto-generate-drafts] Error processing question ${question.id}:`, e);
+            errors.push(`Question ${question.id}: ${e instanceof Error ? e.message : "unknown"}`);
+          }
+        }
+      }
+    }
+
+    console.log(`[auto-generate-drafts] Completed: Reviews - ${totalDrafts} drafts, ${totalScheduled} scheduled. Questions - ${totalQuestionDrafts} drafts, ${totalQuestionScheduled} scheduled. ${errors.length} errors`);
 
     return new Response(
       JSON.stringify({ 
         success: true,
-        drafts_created: totalDrafts,
-        reviews_processed: reviews?.length || 0,
+        reviews: {
+          drafts_created: totalDrafts,
+          scheduled: totalScheduled,
+          processed: reviews?.length || 0,
+        },
+        questions: {
+          drafts_created: totalQuestionDrafts,
+          scheduled: totalQuestionScheduled,
+        },
         errors: errors.length > 0 ? errors : undefined
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
