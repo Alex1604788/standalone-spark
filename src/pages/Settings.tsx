@@ -107,12 +107,14 @@ const Settings = () => {
 
     // Пересчитать статусы существующих черновиков в соответствии с новыми режимами
     // Сначала получаем все отзывы по рейтингам для этого маркетплейса
-    const { data: reviewsByRating } = await supabase
+    const { data: reviewsByRating, error: reviewsError } = await supabase
       .from("reviews")
       .select("id, rating")
       .eq("marketplace_id", selectedMarketplace);
 
-    if (reviewsByRating) {
+    console.log("[Settings] Reviews by rating:", reviewsByRating?.length, reviewsError);
+
+    if (reviewsByRating && reviewsByRating.length > 0) {
       const modeUpdates = [
         { rating: 1, mode: settings.reviews_mode_1 },
         { rating: 2, mode: settings.reviews_mode_2 },
@@ -129,9 +131,11 @@ const Settings = () => {
 
         if (reviewIds.length === 0) continue;
 
+        console.log(`[Settings] Rating ${rating}, mode: ${mode}, reviews: ${reviewIds.length}`);
+
         if (mode === "auto") {
           // Переводим drafted -> scheduled для отзывов с этим рейтингом
-          await supabase
+          const { data: updated, error: updateError } = await supabase
             .from("replies")
             .update({ 
               status: "scheduled", 
@@ -139,10 +143,13 @@ const Settings = () => {
               scheduled_at: new Date().toISOString() 
             })
             .eq("status", "drafted")
-            .in("review_id", reviewIds);
+            .in("review_id", reviewIds)
+            .select("id");
+
+          console.log(`[Settings] Updated to scheduled:`, updated?.length || 0, updateError);
         } else {
           // Если режим = semi, переводим scheduled обратно в drafted
-          await supabase
+          const { data: updated, error: updateError } = await supabase
             .from("replies")
             .update({ 
               status: "drafted", 
@@ -150,7 +157,10 @@ const Settings = () => {
               scheduled_at: null 
             })
             .eq("status", "scheduled")
-            .in("review_id", reviewIds);
+            .in("review_id", reviewIds)
+            .select("id");
+
+          console.log(`[Settings] Updated to drafted:`, updated?.length || 0, updateError);
         }
       }
     }
