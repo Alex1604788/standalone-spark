@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, RefreshCw, Sparkles, Package, HelpCircle, Copy, FileDown } from "lucide-react";
+import { Search, RefreshCw, Sparkles, Package, HelpCircle, Copy, FileDown, Brain } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -169,6 +169,50 @@ const Questions = () => {
       });
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleTrainAI = async () => {
+    if (!selectedQuestion || !replyText.trim()) {
+      toast({
+        title: "Ошибка",
+        description: "Введите текст ответа для обучения ИИ",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("Пользователь не авторизован");
+
+      const { error } = await supabase.from("product_knowledge").insert({
+        product_id: selectedQuestion.product_id,
+        marketplace_id: selectedQuestion.marketplace_id,
+        title: `Вопрос: ${selectedQuestion.text.substring(0, 100)}${selectedQuestion.text.length > 100 ? '...' : ''}`,
+        content: replyText,
+        source_type: "manager",
+        source_question_id: selectedQuestion.id,
+        relevance_score: 1.0,
+        created_by: user.id,
+        tags: ["вопрос-ответ"],
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "✓ ИИ обучена",
+        description: "Знание успешно добавлено в базу",
+      });
+    } catch (error: any) {
+      console.error("Error training AI:", error);
+      toast({
+        title: "Ошибка",
+        description: error.message || "Не удалось сохранить знание",
+        variant: "destructive",
+      });
     }
   };
 
@@ -443,51 +487,61 @@ const Questions = () => {
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="flex flex-col sm:flex-row gap-2">
             <Button variant="outline" onClick={() => setSelectedQuestion(null)}>
               Отмена
             </Button>
-            <Button
-              onClick={async () => {
-                if (!selectedQuestion || !replyText.trim()) return;
-                try {
-                  const {
-                    data: { user },
-                  } = await supabase.auth.getUser();
-                  if (!user) throw new Error("Пользователь не авторизован");
+            <div className="flex gap-2 flex-1 justify-end">
+              <Button
+                variant="secondary"
+                onClick={handleTrainAI}
+                disabled={!replyText.trim()}
+              >
+                <Brain className="h-4 w-4 mr-2" />
+                Обучить ИИ
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (!selectedQuestion || !replyText.trim()) return;
+                  try {
+                    const {
+                      data: { user },
+                    } = await supabase.auth.getUser();
+                    if (!user) throw new Error("Пользователь не авторизован");
 
-                  const { error } = await supabase.from("replies").insert({
-                    question_id: selectedQuestion.id,
-                    marketplace_id: selectedQuestion.marketplace_id,
-                    content: replyText,
-                    mode: "manual",
-                    status: "scheduled",
-                    scheduled_at: new Date().toISOString(),
-                    user_id: user.id,
-                    tone: replyTone,
-                  });
+                    const { error } = await supabase.from("replies").insert({
+                      question_id: selectedQuestion.id,
+                      marketplace_id: selectedQuestion.marketplace_id,
+                      content: replyText,
+                      mode: "manual",
+                      status: "scheduled",
+                      scheduled_at: new Date().toISOString(),
+                      user_id: user.id,
+                      tone: replyTone,
+                    });
 
-                  if (error) throw error;
+                    if (error) throw error;
 
-                  toast({
-                    title: "Ответ отправлен",
-                    description: "Ответ добавлен в очередь на публикацию",
-                  });
-                  setSelectedQuestion(null);
-                  setReplyText("");
-                  fetchQuestions();
-                } catch (error: any) {
-                  toast({
-                    title: "Ошибка",
-                    description: error.message,
-                    variant: "destructive",
-                  });
-                }
-              }}
-              disabled={!replyText.trim()}
-            >
-              Отправить ответ
-            </Button>
+                    toast({
+                      title: "Ответ отправлен",
+                      description: "Ответ добавлен в очередь на публикацию",
+                    });
+                    setSelectedQuestion(null);
+                    setReplyText("");
+                    fetchQuestions();
+                  } catch (error: any) {
+                    toast({
+                      title: "Ошибка",
+                      description: error.message,
+                      variant: "destructive",
+                    });
+                  }
+                }}
+                disabled={!replyText.trim()}
+              >
+                Отправить ответ
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
