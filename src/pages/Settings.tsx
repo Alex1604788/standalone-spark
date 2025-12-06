@@ -105,102 +105,35 @@ const Settings = () => {
       return;
     }
 
-    // Пересчитать статусы существующих черновиков в соответствии с новыми режимами
-    // Сначала получаем все отзывы по рейтингам для этого маркетплейса
-    const { data: reviewsByRating, error: reviewsError } = await supabase
-      .from("reviews")
-      .select("id, rating")
-      .eq("marketplace_id", selectedMarketplace);
-
-    console.log("[Settings] Reviews by rating:", reviewsByRating?.length, reviewsError);
-
-    if (reviewsByRating && reviewsByRating.length > 0) {
-      const modeUpdates = [
-        { rating: 1, mode: settings.reviews_mode_1 },
-        { rating: 2, mode: settings.reviews_mode_2 },
-        { rating: 3, mode: settings.reviews_mode_3 },
-        { rating: 4, mode: settings.reviews_mode_4 },
-        { rating: 5, mode: settings.reviews_mode_5 },
-      ];
-
-      for (const { rating, mode } of modeUpdates) {
-        // Получаем review_ids для этого рейтинга
-        const reviewIds = reviewsByRating
-          .filter(r => r.rating === rating)
-          .map(r => r.id);
-
-        if (reviewIds.length === 0) continue;
-
-        console.log(`[Settings] Rating ${rating}, mode: ${mode}, reviews: ${reviewIds.length}`);
-
-        if (mode === "auto") {
-          // Переводим drafted -> scheduled для отзывов с этим рейтингом
-          const { data: updated, error: updateError } = await supabase
-            .from("replies")
-            .update({ 
-              status: "scheduled", 
-              mode: "auto",
-              scheduled_at: new Date().toISOString() 
-            })
-            .eq("status", "drafted")
-            .in("review_id", reviewIds)
-            .select("id");
-
-          console.log(`[Settings] Updated to scheduled:`, updated?.length || 0, updateError);
-        } else {
-          // Если режим = semi, переводим scheduled обратно в drafted
-          const { data: updated, error: updateError } = await supabase
-            .from("replies")
-            .update({ 
-              status: "drafted", 
-              mode: "semi_auto",
-              scheduled_at: null 
-            })
-            .eq("status", "scheduled")
-            .in("review_id", reviewIds)
-            .select("id");
-
-          console.log(`[Settings] Updated to drafted:`, updated?.length || 0, updateError);
-        }
+    // Вызываем edge function для обновления статусов черновиков
+    const { data: updateResult, error: updateError } = await supabase.functions.invoke(
+      "update-reply-statuses",
+      {
+        body: {
+          marketplace_id: selectedMarketplace,
+          settings: {
+            reviews_mode_1: settings.reviews_mode_1,
+            reviews_mode_2: settings.reviews_mode_2,
+            reviews_mode_3: settings.reviews_mode_3,
+            reviews_mode_4: settings.reviews_mode_4,
+            reviews_mode_5: settings.reviews_mode_5,
+            questions_mode: settings.questions_mode,
+          },
+        },
       }
-    }
-
-    // Аналогично для вопросов
-    const { data: questionIds } = await supabase
-      .from("questions")
-      .select("id")
-      .eq("marketplace_id", selectedMarketplace);
-
-    if (questionIds && questionIds.length > 0) {
-      const qIds = questionIds.map(q => q.id);
-      
-      if (settings.questions_mode === "auto") {
-        await supabase
-          .from("replies")
-          .update({ 
-            status: "scheduled", 
-            mode: "auto",
-            scheduled_at: new Date().toISOString() 
-          })
-          .eq("status", "drafted")
-          .in("question_id", qIds);
-      } else if (settings.questions_mode === "semi") {
-        await supabase
-          .from("replies")
-          .update({ 
-            status: "drafted", 
-            mode: "semi_auto",
-            scheduled_at: null 
-          })
-          .eq("status", "scheduled")
-          .in("question_id", qIds);
-      }
-    }
+    );
 
     setIsLoading(false);
+
+    if (updateError) {
+      console.error("[Settings] Error updating reply statuses:", updateError);
+    } else {
+      console.log("[Settings] Updated statuses:", updateResult);
+    }
+
     toast({
       title: "Сохранено",
-      description: "Настройки обновлены и применены к существующим черновикам",
+      description: `Настройки обновлены. ${updateResult?.updated_to_scheduled || 0} ответов поставлено в очередь.`,
     });
   };
 
