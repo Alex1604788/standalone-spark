@@ -1172,7 +1172,6 @@ export type Database = {
           question_id: string | null
           retry_count: number | null
           review_id: string | null
-          save_to_knowledge: boolean | null
           scheduled_at: string | null
           status: Database["public"]["Enums"]["reply_status"] | null
           tone: string | null
@@ -1192,7 +1191,6 @@ export type Database = {
           question_id?: string | null
           retry_count?: number | null
           review_id?: string | null
-          save_to_knowledge?: boolean | null
           scheduled_at?: string | null
           status?: Database["public"]["Enums"]["reply_status"] | null
           tone?: string | null
@@ -1212,7 +1210,6 @@ export type Database = {
           question_id?: string | null
           retry_count?: number | null
           review_id?: string | null
-          save_to_knowledge?: boolean | null
           scheduled_at?: string | null
           status?: Database["public"]["Enums"]["reply_status"] | null
           tone?: string | null
