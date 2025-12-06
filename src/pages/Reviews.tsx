@@ -69,15 +69,26 @@ const Reviews = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Проверяем, включён ли полуавтомат
-      const { data: userSettings } = await supabase
+      // Проверяем настройки, если нет - создаём с semi_auto по умолчанию
+      let { data: userSettings } = await supabase
         .from("user_settings")
-        .select("semi_auto_mode")
+        .select("semi_auto_mode, auto_reply_enabled")
         .eq("user_id", user.id)
         .single();
 
-      if (!userSettings?.semi_auto_mode) {
-        console.log("[Reviews] Semi-auto mode disabled, skipping auto-generate");
+      // Если настроек нет - создаём с semi_auto_mode = true
+      if (!userSettings) {
+        const { data: newSettings } = await supabase
+          .from("user_settings")
+          .insert({ user_id: user.id, semi_auto_mode: true, auto_reply_enabled: false })
+          .select("semi_auto_mode, auto_reply_enabled")
+          .single();
+        userSettings = newSettings;
+      }
+
+      // Если не включён полуавтомат и не автомат - пропускаем
+      if (!userSettings?.semi_auto_mode && !userSettings?.auto_reply_enabled) {
+        console.log("[Reviews] Neither semi-auto nor auto mode enabled");
         return;
       }
 
@@ -87,12 +98,22 @@ const Reviews = () => {
         .select("id")
         .eq("user_id", user.id);
 
-      if (!marketplaces?.length) return;
+      if (!marketplaces?.length) {
+        console.log("[Reviews] No marketplaces found");
+        return;
+      }
 
-      console.log("[Reviews] Triggering auto-generate drafts...");
+      console.log("[Reviews] Triggering auto-generate drafts for", marketplaces.length, "marketplaces");
       
+      toast({
+        title: "Генерация черновиков...",
+        description: "Автоматически создаём ответы на неотвеченные отзывы",
+      });
+
       // Запускаем генерацию для каждого маркетплейса
       for (const mp of marketplaces) {
+        console.log("[Reviews] Calling auto-generate-drafts for marketplace:", mp.id);
+        
         const { data, error } = await supabase.functions.invoke("auto-generate-drafts", {
           body: { 
             user_id: user.id, 
@@ -103,16 +124,24 @@ const Reviews = () => {
 
         if (error) {
           console.error("[Reviews] Auto-generate error:", error);
-        } else if (data?.drafts_created > 0) {
-          console.log(`[Reviews] Created ${data.drafts_created} drafts for marketplace ${mp.id}`);
           toast({
-            title: "Черновики созданы",
-            description: `Автоматически сгенерировано ${data.drafts_created} ответов`,
+            title: "Ошибка генерации",
+            description: error.message,
+            variant: "destructive"
           });
-          // Обновляем список после генерации
-          fetchReviews();
+        } else {
+          console.log("[Reviews] Auto-generate result:", data);
+          if (data?.drafts_created > 0) {
+            toast({
+              title: "Черновики созданы",
+              description: `Сгенерировано ${data.drafts_created} ответов`,
+            });
+          }
         }
       }
+      
+      // Обновляем список после генерации
+      fetchReviews();
     } catch (e) {
       console.error("[Reviews] Auto-generate error:", e);
     }
