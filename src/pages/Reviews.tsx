@@ -63,9 +63,69 @@ const Reviews = () => {
     setSelectedReviewsIds([]);
   }, [searchQuery, ratingFilter, statusFilter, pageSize]);
 
+  // Автоматическая генерация черновиков в режиме полуавтомат
+  const triggerAutoGenerate = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Проверяем, включён ли полуавтомат
+      const { data: userSettings } = await supabase
+        .from("user_settings")
+        .select("semi_auto_mode")
+        .eq("user_id", user.id)
+        .single();
+
+      if (!userSettings?.semi_auto_mode) {
+        console.log("[Reviews] Semi-auto mode disabled, skipping auto-generate");
+        return;
+      }
+
+      // Получаем маркетплейсы пользователя
+      const { data: marketplaces } = await supabase
+        .from("marketplaces")
+        .select("id")
+        .eq("user_id", user.id);
+
+      if (!marketplaces?.length) return;
+
+      console.log("[Reviews] Triggering auto-generate drafts...");
+      
+      // Запускаем генерацию для каждого маркетплейса
+      for (const mp of marketplaces) {
+        const { data, error } = await supabase.functions.invoke("auto-generate-drafts", {
+          body: { 
+            user_id: user.id, 
+            marketplace_id: mp.id,
+            response_length: responseLength
+          }
+        });
+
+        if (error) {
+          console.error("[Reviews] Auto-generate error:", error);
+        } else if (data?.drafts_created > 0) {
+          console.log(`[Reviews] Created ${data.drafts_created} drafts for marketplace ${mp.id}`);
+          toast({
+            title: "Черновики созданы",
+            description: `Автоматически сгенерировано ${data.drafts_created} ответов`,
+          });
+          // Обновляем список после генерации
+          fetchReviews();
+        }
+      }
+    } catch (e) {
+      console.error("[Reviews] Auto-generate error:", e);
+    }
+  };
+
   useEffect(() => {
     fetchReviews();
     fetchQuestions();
+    
+    // Автогенерация при первой загрузке страницы с неотвеченными
+    if (statusFilter === "unanswered" && page === 1) {
+      triggerAutoGenerate();
+    }
   }, [page, pageSize, ratingFilter, statusFilter]);
 
   // При открытии отзыва загрузить существующий черновик
@@ -247,121 +307,124 @@ const Reviews = () => {
     }
   };
 
-  const handleBulkGenerate = async () => {
+  // Массовая отправка - отправляет существующие черновики или генерирует новые
+  const handleBulkSend = async () => {
     if (selectedReviewsIds.length === 0) return;
     setIsLoading(true);
 
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No user");
 
       let successCount = 0;
       let skippedCount = 0;
       let errorCount = 0;
 
-      console.log(`[BulkGenerate] 🚀 Начинаем обработку ${selectedReviewsIds.length} отзывов`);
+      console.log(`[BulkSend] 🚀 Начинаем отправку ${selectedReviewsIds.length} отзывов`);
 
-      const reviewsToProcess: string[] = [];
+      // 1. Получаем все черновики для выбранных отзывов
+      const { data: drafts, error: draftsError } = await supabase
+        .from("replies")
+        .select("id, review_id, content, status")
+        .in("review_id", selectedReviewsIds)
+        .eq("status", "drafted");
 
-      // 1. Проверяем, нет ли уже ответов
-      for (const reviewId of selectedReviewsIds) {
-        const hasReply = await checkExistingReply(reviewId);
-        if (hasReply) {
-          console.log(`⏭️ Skip ${reviewId}: уже есть ответ`);
-          skippedCount++;
-        } else {
-          reviewsToProcess.push(reviewId);
+      if (draftsError) {
+        console.error("❌ Ошибка загрузки черновиков:", draftsError);
+        toast({ title: "Ошибка", description: "Не удалось загрузить черновики", variant: "destructive" });
+        setIsLoading(false);
+        return;
+      }
+
+      const draftsByReviewId: Record<string, { id: string; content: string }> = {};
+      for (const draft of drafts || []) {
+        if (draft.review_id) {
+          draftsByReviewId[draft.review_id] = { id: draft.id, content: draft.content };
         }
       }
 
-      console.log(
-        `[BulkGenerate] 📊 К обработке (без уже отвеченных): ${reviewsToProcess.length} из ${selectedReviewsIds.length}`,
-      );
+      // 2. Получаем marketplace_id для отзывов без черновиков
+      const reviewsWithoutDrafts = selectedReviewsIds.filter(id => !draftsByReviewId[id]);
+      
+      let marketplaceByReviewId: Record<string, string | null> = {};
+      
+      if (reviewsWithoutDrafts.length > 0) {
+        const { data: reviewRows } = await supabase
+          .from("reviews")
+          .select("id, products!inner(marketplace_id)")
+          .in("id", reviewsWithoutDrafts);
 
-      if (reviewsToProcess.length === 0) {
-        toast({
-          title: "Готово",
-          description: "Для выбранных отзывов уже существуют ответы",
-        });
-        setIsLoading(false);
-        return;
+        for (const row of reviewRows || []) {
+          const mpId = (row as any).products?.marketplace_id ?? null;
+          marketplaceByReviewId[row.id as string] = mpId;
+        }
       }
 
-      // 2. ОДИН запрос в Supabase для всех выбранных отзывов (независимо от страницы)
-      const { data: reviewRows, error: loadError } = await supabase
-        .from("reviews")
-        .select("id, products!inner(marketplace_id)")
-        .in("id", reviewsToProcess);
-
-      if (loadError) {
-        console.error("❌ Ошибка загрузки отзывов для bulk:", loadError);
-        toast({
-          title: "Ошибка",
-          description: "Не удалось получить данные по выбранным отзывам",
-          variant: "destructive",
-        });
-        setIsLoading(false);
-        return;
-      }
-
-      // 3. Строим словарь id → marketplace_id
-      const marketplaceByReviewId: Record<string, string | null> = {};
-      for (const row of reviewRows || []) {
-        const mpId = (row as any).products?.marketplace_id ?? null;
-        marketplaceByReviewId[row.id as string] = mpId;
-      }
-
-      // 4. Генерация и сохранение ответов
-      for (const reviewId of reviewsToProcess) {
-        const marketplaceId = marketplaceByReviewId[reviewId];
-
-        if (typeof marketplaceId === "undefined") {
-          console.warn(`⚠️ Не нашли marketplace_id для review ${reviewId}`);
-          errorCount++;
+      // 3. Обрабатываем каждый выбранный отзыв
+      for (const reviewId of selectedReviewsIds) {
+        // Проверяем, нет ли уже отправленного ответа
+        const hasScheduled = await checkExistingReply(reviewId);
+        if (hasScheduled) {
+          console.log(`⏭️ Skip ${reviewId}: уже запланирован/отправлен`);
+          skippedCount++;
           continue;
         }
 
         try {
-          const { data: aiData, error: aiError } = await supabase.functions.invoke("generate-reply", {
-            body: { reviewId, tone: replyTone, response_length: responseLength },
-          });
+          const existingDraft = draftsByReviewId[reviewId];
 
-          if (aiError || !aiData?.reply) {
-            console.error(`❌ AI error для ${reviewId}:`, aiError);
-            errorCount++;
-            continue;
-          }
+          if (existingDraft) {
+            // Обновляем существующий черновик на scheduled
+            const { error: updateError } = await supabase
+              .from("replies")
+              .update({
+                status: "scheduled",
+                scheduled_at: new Date().toISOString(),
+                user_id: user.id,
+              })
+              .eq("id", existingDraft.id);
 
-          // Дополнительная защита от двойной генерации
-          const doubleCheck = await checkExistingReply(reviewId);
-          if (doubleCheck) {
-            console.warn(`⚠️ Двойная проверка: ответ для ${reviewId} уже создан`);
-            skippedCount++;
-            continue;
-          }
-
-          const { error: saveError } = await supabase.from("replies").insert({
-            review_id: reviewId,
-            content: aiData.reply,
-            tone: replyTone,
-            mode: "semi_auto",
-            status: "scheduled",
-            scheduled_at: new Date().toISOString(),
-            user_id: user.id,
-            marketplace_id: marketplaceId,
-          });
-
-          if (saveError) {
-            console.error(`❌ Ошибка сохранения для ${reviewId}:`, saveError);
-            errorCount++;
+            if (updateError) {
+              console.error(`❌ Ошибка обновления черновика для ${reviewId}:`, updateError);
+              errorCount++;
+            } else {
+              console.log(`✅ Черновик отправлен для ${reviewId}`);
+              successCount++;
+            }
           } else {
-            console.log(`✅ Успешно создан ответ для ${reviewId}`);
-            successCount++;
+            // Нет черновика - генерируем и сразу отправляем
+            const marketplaceId = marketplaceByReviewId[reviewId];
+
+            const { data: aiData, error: aiError } = await supabase.functions.invoke("generate-reply", {
+              body: { reviewId, tone: replyTone, response_length: responseLength },
+            });
+
+            if (aiError || !aiData?.reply) {
+              console.error(`❌ AI error для ${reviewId}:`, aiError);
+              errorCount++;
+              continue;
+            }
+
+            const { error: saveError } = await supabase.from("replies").insert({
+              review_id: reviewId,
+              content: aiData.reply,
+              tone: replyTone,
+              mode: "semi_auto",
+              status: "scheduled",
+              scheduled_at: new Date().toISOString(),
+              user_id: user.id,
+              marketplace_id: marketplaceId,
+            });
+
+            if (saveError) {
+              console.error(`❌ Ошибка сохранения для ${reviewId}:`, saveError);
+              errorCount++;
+            } else {
+              console.log(`✅ Сгенерирован и отправлен ответ для ${reviewId}`);
+              successCount++;
+            }
           }
 
-          // Небольшая пауза, чтобы не долбить функции слишком часто
           await new Promise((resolve) => setTimeout(resolve, 100));
         } catch (e) {
           console.error(`❌ Критическая ошибка для ${reviewId}:`, e);
@@ -370,8 +433,8 @@ const Reviews = () => {
       }
 
       const messages = [];
-      if (successCount > 0) messages.push(`Добавлено: ${successCount}`);
-      if (skippedCount > 0) messages.push(`Пропущено (уже отвечены): ${skippedCount}`);
+      if (successCount > 0) messages.push(`Отправлено: ${successCount}`);
+      if (skippedCount > 0) messages.push(`Пропущено: ${skippedCount}`);
       if (errorCount > 0) messages.push(`Ошибок: ${errorCount}`);
 
       toast({
@@ -384,8 +447,8 @@ const Reviews = () => {
       fetchReviews();
       window.dispatchEvent(new Event("reviews-updated"));
     } catch (e) {
-      console.error("Bulk generate error:", e);
-      toast({ title: "Ошибка", description: "Сбой генерации", variant: "destructive" });
+      console.error("Bulk send error:", e);
+      toast({ title: "Ошибка", description: "Сбой отправки", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -655,7 +718,7 @@ const Reviews = () => {
             <Button
               size="sm"
               className="bg-white text-black hover:bg-gray-200 border-none"
-              onClick={handleBulkGenerate}
+              onClick={handleBulkSend}
               disabled={isLoading}
             >
               {isLoading ? (
