@@ -22,121 +22,85 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log("Auto-generating drafts for unanswered reviews and questions...");
+    // Parse request body for user_id and marketplace_id
+    const body = await req.json().catch(() => ({}));
+    const { user_id, marketplace_id, response_length = "short" } = body;
 
-    // Get user settings to check if semi_auto_mode is enabled
-    const { data: users, error: usersError } = await supabase
-      .from("user_settings")
-      .select("user_id, semi_auto_mode, require_approval_low_rating");
+    if (!user_id) {
+      throw new Error("user_id is required");
+    }
 
-    if (usersError) throw usersError;
+    console.log(`[auto-generate-drafts] Starting for user ${user_id}, marketplace ${marketplace_id || "all"}`);
+
+    // Get marketplace settings to check reply_length
+    let replyLength = response_length;
+    if (marketplace_id) {
+      const { data: settings } = await supabase
+        .from("marketplace_settings")
+        .select("reply_length")
+        .eq("marketplace_id", marketplace_id)
+        .single();
+      
+      if (settings?.reply_length) {
+        replyLength = settings.reply_length;
+      }
+    }
+
+    const maxChars = replyLength === "short" ? 200 : 400;
+
+    // Get unanswered reviews (segment = 'unanswered' means no drafts exist)
+    let reviewsQuery = supabase
+      .from("reviews")
+      .select("id, text, advantages, disadvantages, rating, marketplace_id, products(name, marketplace_id)")
+      .eq("segment", "unanswered")
+      .is("deleted_at", null);
+
+    if (marketplace_id) {
+      reviewsQuery = reviewsQuery.eq("marketplace_id", marketplace_id);
+    }
+
+    const { data: reviews, error: reviewsError } = await reviewsQuery.limit(20);
+
+    if (reviewsError) {
+      console.error("Error fetching reviews:", reviewsError);
+      throw reviewsError;
+    }
+
+    console.log(`[auto-generate-drafts] Found ${reviews?.length || 0} unanswered reviews`);
 
     let totalDrafts = 0;
+    const errors: string[] = [];
 
-    for (const userSettings of users || []) {
-      if (!userSettings.semi_auto_mode) continue;
-
-      // Get unanswered reviews
-      const { data: reviews, error: reviewsError } = await supabase
-        .from("reviews")
-        .select("*, products!inner(marketplace_id, name, marketplaces!inner(user_id))")
-        .eq("is_answered", false)
-        .is("deleted_at", null)
-        .eq("products.marketplaces.user_id", userSettings.user_id)
-        .limit(10);
-
-      if (reviewsError) {
-        console.error("Error fetching reviews:", reviewsError);
-        continue;
-      }
-
-      // Generate drafts for reviews
-      for (const review of reviews || []) {
-        // Check if draft already exists
+    // Generate drafts for reviews
+    for (const review of reviews || []) {
+      try {
+        // Double-check no reply exists
         const { data: existingReply } = await supabase
           .from("replies")
           .select("id")
           .eq("review_id", review.id)
-          .maybeSingle();
+          .limit(1);
 
-        if (existingReply) continue;
-
-        // Check if low rating requires approval
-        if (userSettings.require_approval_low_rating && review.rating <= 2) {
-          // Generate draft
-          const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${lovableApiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "google/gemini-2.5-flash",
-              messages: [
-                {
-                  role: "system",
-                  content: `Ты - профессиональный менеджер. Твоя задача - написать СТРОГО ОФИЦИАЛЬНЫЙ ответ на отзыв.
-                  
-Товар: ${review.products.name}
-Рейтинг: ${review.rating} из 5
-Отзыв: ${review.text || ""}
-
-ТРЕБОВАНИЯ:
-- Максимум 400 символов
-- ТОЛЬКО официальный стиль
-- БЕЗ эмодзи, контактов, ссылок
-- Вежливо извиниться за негативный опыт
-- Предложить обращение в службу поддержки`
-                },
-                { role: "user", content: "Сгенерируй ответ" }
-              ],
-            }),
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            const generatedReply = data.choices[0].message.content;
-
-            // Create draft reply
-            const { error: insertError } = await supabase.from("replies").insert({
-              review_id: review.id,
-              content: generatedReply,
-              status: "drafted",
-              mode: "semi_auto",
-              user_id: userSettings.user_id,
-            });
-
-            if (!insertError) totalDrafts++;
-          }
+        if (existingReply && existingReply.length > 0) {
+          console.log(`[auto-generate-drafts] Skip review ${review.id}: reply exists`);
+          continue;
         }
-      }
 
-      // Get unanswered questions
-      const { data: questions, error: questionsError } = await supabase
-        .from("questions")
-        .select("*, products!inner(marketplace_id, name, marketplaces!inner(user_id))")
-        .eq("is_answered", false)
-        .is("deleted_at", null)
-        .eq("products.marketplaces.user_id", userSettings.user_id)
-        .limit(10);
+        const reviewText = [review.text, review.advantages, review.disadvantages]
+          .filter(Boolean)
+          .join(" ");
 
-      if (questionsError) {
-        console.error("Error fetching questions:", questionsError);
-        continue;
-      }
+        // Get product name - products can be object or array
+        const products = review.products as any;
+        const productName = Array.isArray(products) 
+          ? products[0]?.name || "Товар" 
+          : products?.name || "Товар";
+        
+        const mpId = review.marketplace_id || (Array.isArray(products) 
+          ? products[0]?.marketplace_id 
+          : products?.marketplace_id);
 
-      // Generate drafts for questions
-      for (const question of questions || []) {
-        // Check if draft already exists
-        const { data: existingReply } = await supabase
-          .from("replies")
-          .select("id")
-          .eq("question_id", question.id)
-          .maybeSingle();
-
-        if (existingReply) continue;
-
-        // Generate draft
+        // Generate draft using AI
         const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -148,48 +112,81 @@ serve(async (req) => {
             messages: [
               {
                 role: "system",
-                content: `Ты - профессиональный менеджер. Ответь на вопрос покупателя ОФИЦИАЛЬНО.
-                
-Товар: ${question.products.name}
-Вопрос: ${question.text}
+                content: `Ты - профессиональный менеджер маркетплейса. Напиши ответ на отзыв покупателя.
+
+Товар: ${productName}
+Рейтинг: ${review.rating} из 5
+Отзыв: ${reviewText || "(только оценка)"}
 
 ТРЕБОВАНИЯ:
-- Максимум 400 символов
-- ТОЛЬКО официальный стиль
-- БЕЗ эмодзи, контактов
-- Чёткий профессиональный ответ`
+- Максимум ${maxChars} символов
+- Официальный, дружелюбный стиль
+- БЕЗ эмодзи
+- БЕЗ контактов и ссылок
+- Поблагодарить за отзыв
+${review.rating <= 2 ? "- Вежливо извиниться за негативный опыт" : ""}
+- Ответ должен быть завершённым, не обрезанным`
               },
               { role: "user", content: "Сгенерируй ответ" }
             ],
           }),
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          const generatedReply = data.choices[0].message.content;
-
-          // Create draft reply
-          const { error: insertError } = await supabase.from("replies").insert({
-            question_id: question.id,
-            content: generatedReply,
-            status: "drafted",
-            mode: "semi_auto",
-            user_id: userSettings.user_id,
-          });
-
-          if (!insertError) totalDrafts++;
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`[auto-generate-drafts] AI error for review ${review.id}:`, errorText);
+          errors.push(`Review ${review.id}: AI error`);
+          continue;
         }
+
+        const data = await response.json();
+        const generatedReply = data.choices?.[0]?.message?.content;
+
+        if (!generatedReply) {
+          console.error(`[auto-generate-drafts] Empty reply for review ${review.id}`);
+          errors.push(`Review ${review.id}: empty reply`);
+          continue;
+        }
+
+        // Create draft reply
+        const { error: insertError } = await supabase.from("replies").insert({
+          review_id: review.id,
+          content: generatedReply,
+          status: "drafted",
+          mode: "semi_auto",
+          user_id: user_id,
+          marketplace_id: mpId,
+        });
+
+        if (insertError) {
+          console.error(`[auto-generate-drafts] Insert error for review ${review.id}:`, insertError);
+          errors.push(`Review ${review.id}: ${insertError.message}`);
+        } else {
+          console.log(`[auto-generate-drafts] ✅ Created draft for review ${review.id}`);
+          totalDrafts++;
+        }
+
+        // Small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (e) {
+        console.error(`[auto-generate-drafts] Error processing review ${review.id}:`, e);
+        errors.push(`Review ${review.id}: ${e instanceof Error ? e.message : "unknown"}`);
       }
     }
 
-    console.log(`Auto-generated ${totalDrafts} drafts`);
+    console.log(`[auto-generate-drafts] Completed: ${totalDrafts} drafts created, ${errors.length} errors`);
 
     return new Response(
-      JSON.stringify({ message: `Auto-generated ${totalDrafts} drafts` }),
+      JSON.stringify({ 
+        success: true,
+        drafts_created: totalDrafts,
+        reviews_processed: reviews?.length || 0,
+        errors: errors.length > 0 ? errors : undefined
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
-    console.error("Error auto-generating drafts:", error);
+    console.error("[auto-generate-drafts] Fatal error:", error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
