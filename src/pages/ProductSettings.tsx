@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import * as XLSX from "xlsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -247,22 +248,13 @@ const ProductSettings = () => {
       };
     });
 
-    // Формирование CSV
-    const headers = Object.keys(exportData[0]);
-    const csvContent = [
-      headers.join("\t"),
-      ...exportData.map((row) => headers.map((h) => row[h as keyof typeof row]).join("\t"))
-    ].join("\n");
+    // Создание Excel файла
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Товары");
 
     // Скачивание файла
-    const BOM = "\uFEFF"; // UTF-8 BOM for Excel
-    const blob = new Blob([BOM + csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `товары_${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    XLSX.writeFile(workbook, `товары_${new Date().toISOString().split('T')[0]}.xlsx`);
 
     toast({
       title: "Экспорт завершен",
@@ -275,11 +267,95 @@ const ProductSettings = () => {
     const file = event.target.files?.[0];
     if (!file || !marketplace) return;
 
-    toast({
-      title: "Функция в разработке",
-      description: "Загрузка из Excel будет реализована в следующей версии. Пока используйте ручное редактирование.",
-      variant: "default",
-    });
+    try {
+      // Чтение файла
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet) as Array<{
+        "Артикул": string;
+        "Название товара": string;
+        "Поставщик": string;
+        "Цена закупки": number | string;
+        "Категория": string;
+        "Малая коробка": number | string;
+        "Большая коробка": number | string;
+      }>;
+
+      if (!jsonData || jsonData.length === 0) {
+        toast({
+          title: "Ошибка",
+          description: "Файл пуст или неверный формат",
+          variant: "destructive",
+        });
+        event.target.value = "";
+        return;
+      }
+
+      // Создаем карту поставщиков: имя -> id
+      const supplierNameToId = new Map<string, string>();
+      suppliers?.forEach(s => supplierNameToId.set(s.name.toLowerCase(), s.id));
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      // Обрабатываем каждую строку
+      for (const row of jsonData) {
+        try {
+          const offerId = row["Артикул"]?.toString().trim();
+          if (!offerId) continue;
+
+          // Находим ID поставщика по имени
+          const supplierName = row["Поставщик"]?.toString().trim().toLowerCase();
+          const supplierId = supplierName ? supplierNameToId.get(supplierName) : null;
+
+          // Парсим числа
+          const purchasePrice = row["Цена закупки"] ? parseFloat(row["Цена закупки"].toString()) : null;
+          const smallBox = row["Малая коробка"] ? parseInt(row["Малая коробка"].toString()) : null;
+          const largeBox = row["Большая коробка"] ? parseInt(row["Большая коробка"].toString()) : null;
+
+          // Обновляем данные
+          const { error } = await supabase
+            .from("product_business_data")
+            .upsert({
+              marketplace_id: marketplace.id,
+              offer_id: offerId,
+              supplier_id: supplierId || null,
+              category: row["Категория"]?.toString().trim() || null,
+              purchase_price: purchasePrice,
+              small_box_quantity: smallBox,
+              large_box_quantity: largeBox,
+            });
+
+          if (error) {
+            console.error(`Error updating ${offerId}:`, error);
+            errorCount++;
+          } else {
+            successCount++;
+          }
+        } catch (err) {
+          console.error("Row processing error:", err);
+          errorCount++;
+        }
+      }
+
+      // Обновляем данные
+      await refetchBusinessData();
+
+      toast({
+        title: "Импорт завершен",
+        description: `Успешно: ${successCount}, Ошибок: ${errorCount}`,
+        variant: errorCount > 0 ? "default" : "default",
+      });
+
+    } catch (error) {
+      console.error("Import error:", error);
+      toast({
+        title: "Ошибка импорта",
+        description: "Не удалось загрузить файл. Проверьте формат Excel.",
+        variant: "destructive",
+      });
+    }
 
     // Сброс input для возможности повторной загрузки того же файла
     event.target.value = "";
