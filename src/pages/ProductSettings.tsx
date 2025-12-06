@@ -236,9 +236,11 @@ const ProductSettings = () => {
     const exportData = products.map((product) => {
       const bd = businessDataMap.get(product.external_id);
       const supplierName = bd?.supplier_id ? supplierMap.get(bd.supplier_id) : "";
+      // Артикул OZON (offer_id) берем из business data
+      const offerId = bd?.offer_id || product.external_id;
 
       return {
-        "Артикул": product.external_id,
+        "Артикул": offerId,
         "Название товара": product.name,
         "Поставщик": supplierName || "",
         "Цена закупки": bd?.purchase_price || "",
@@ -445,10 +447,12 @@ const ProductSettings = () => {
 
   // Фильтрация товаров
   const filteredProducts = products?.filter((product) => {
-    // Поиск по названию или артикулу
+    // Поиск по названию или артикулу (offer_id из business data)
+    const bd = businessDataMap.get(product.external_id);
+    const offerId = bd?.offer_id || product.external_id;
     const matchesSearch =
       product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.external_id.toLowerCase().includes(searchQuery.toLowerCase());
+      offerId.toLowerCase().includes(searchQuery.toLowerCase());
 
     // Фильтр по категории
     const matchesCategory =
@@ -604,6 +608,8 @@ const ProductSettings = () => {
                   {filteredProducts?.slice(0, 50).map((product) => {
                     const bd = businessDataMap.get(product.external_id);
                     const supplierName = bd?.supplier_id ? supplierMap.get(bd.supplier_id) : null;
+                    // Артикул OZON (offer_id) берем из business data, если есть
+                    const offerId = bd?.offer_id || product.external_id;
 
                     return (
                       <TableRow key={product.id}>
@@ -622,12 +628,12 @@ const ProductSettings = () => {
                         </TableCell>
                         <TableCell className="font-mono text-sm">
                           <div className="flex items-center gap-2">
-                            <span>{product.external_id}</span>
+                            <span>{offerId}</span>
                             <Button
                               variant="ghost"
                               size="icon"
                               className="h-6 w-6"
-                              onClick={() => copyToClipboard(product.external_id)}
+                              onClick={() => copyToClipboard(offerId)}
                             >
                               <Copy className="h-3 w-3" />
                             </Button>
