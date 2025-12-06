@@ -417,16 +417,31 @@ const ProductSettings = () => {
 
       let successCount = 0;
       let errorCount = 0;
+      const errors: string[] = [];
+
+      // Показываем уведомление о начале загрузки
+      toast({
+        title: "Загрузка данных...",
+        description: `Обрабатываем ${jsonData.length} записей`,
+      });
 
       // Обрабатываем каждую строку
       for (const row of jsonData) {
         try {
           const offerId = row["Артикул"]?.toString().trim();
-          if (!offerId) continue;
+          if (!offerId) {
+            errorCount++;
+            continue;
+          }
 
           // Находим ID поставщика по имени
           const supplierName = row["Поставщик"]?.toString().trim().toLowerCase();
           const supplierId = supplierName ? supplierNameToId.get(supplierName) : null;
+
+          // Предупреждаем если поставщик указан но не найден
+          if (supplierName && !supplierId) {
+            errors.push(`${offerId}: поставщик "${row["Поставщик"]}" не найден`);
+          }
 
           // Парсим числа
           const purchasePrice = row["Цена закупки"] ? parseFloat(row["Цена закупки"].toString()) : null;
@@ -450,6 +465,7 @@ const ProductSettings = () => {
 
           if (error) {
             console.error(`Error updating ${offerId}:`, error);
+            errors.push(`${offerId}: ${error.message}`);
             errorCount++;
           } else {
             successCount++;
@@ -460,13 +476,20 @@ const ProductSettings = () => {
         }
       }
 
-      // Обновляем данные
+      // ВАЖНО: Обновляем данные из базы
       await refetchBusinessData();
 
+      // Показываем детальные ошибки в консоли
+      if (errors.length > 0) {
+        console.log("Ошибки импорта:", errors.slice(0, 10));
+      }
+
+      // Показываем результат импорта
       toast({
-        title: "Импорт завершен",
-        description: `Успешно: ${successCount}, Ошибок: ${errorCount}`,
-        variant: errorCount > 0 ? "default" : "default",
+        title: successCount > 0 ? "✅ Импорт завершен успешно" : "❌ Импорт завершен с ошибками",
+        description: `Загружено: ${successCount} из ${jsonData.length}. Ошибок: ${errorCount}${errors.length > 0 ? '. Проверьте консоль браузера.' : ''}`,
+        variant: errorCount > 0 && successCount === 0 ? "destructive" : "default",
+        duration: 5000,
       });
 
     } catch (error) {
@@ -564,6 +587,12 @@ const ProductSettings = () => {
       let successCount = 0;
       let errorCount = 0;
 
+      // Показываем уведомление о начале загрузки
+      toast({
+        title: "Загрузка комплектаций...",
+        description: `Обрабатываем ${jsonData.length} записей`,
+      });
+
       // Обрабатываем каждую строку
       for (const row of jsonData) {
         try {
@@ -602,8 +631,10 @@ const ProductSettings = () => {
       await refetchCompositions();
 
       toast({
-        title: "Импорт завершен",
-        description: `Успешно: ${successCount}, Ошибок: ${errorCount}`,
+        title: successCount > 0 ? "✅ Импорт комплектаций завершен" : "❌ Импорт завершен с ошибками",
+        description: `Загружено: ${successCount} из ${jsonData.length}. Ошибок: ${errorCount}`,
+        variant: errorCount > 0 && successCount === 0 ? "destructive" : "default",
+        duration: 5000,
       });
 
     } catch (error) {
