@@ -73,24 +73,24 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     // Счётчик "Не отвечено" (segment = 'unanswered')
     const { count: unansweredCount } = await supabase
       .from("reviews")
-      .select("*, products!inner(marketplace_id)", { count: "exact", head: true })
-      .in("products.marketplace_id", marketplaceIds)
+      .select("*", { count: "exact", head: true })
+      .in("marketplace_id", marketplaceIds)
       .eq("segment", "unanswered")
       .is("deleted_at", null);
 
     // Счётчик "Ожидают публикации" (segment = 'pending')
     const { count: pendingCount } = await supabase
       .from("reviews")
-      .select("*, products!inner(marketplace_id)", { count: "exact", head: true })
-      .in("products.marketplace_id", marketplaceIds)
+      .select("*", { count: "exact", head: true })
+      .in("marketplace_id", marketplaceIds)
       .eq("segment", "pending")
       .is("deleted_at", null);
 
     // Счётчик "Архив" (segment = 'archived')
     const { count: archivedCount } = await supabase
       .from("reviews")
-      .select("*, products!inner(marketplace_id)", { count: "exact", head: true })
-      .in("products.marketplace_id", marketplaceIds)
+      .select("*", { count: "exact", head: true })
+      .in("marketplace_id", marketplaceIds)
       .eq("segment", "archived")
       .is("deleted_at", null);
 
