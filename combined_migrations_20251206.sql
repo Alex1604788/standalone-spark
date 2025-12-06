@@ -677,7 +677,7 @@ CREATE TABLE IF NOT EXISTS public.product_knowledge (
     (source_review_id IS NOT NULL) OR
     (source_question_id IS NOT NULL) OR
     (source_reply_id IS NOT NULL) OR
-    (source_type IN ('supplier', 'faq', 'instruction', 'specification'))
+    (source_type IN ('supplier', 'manager', 'faq', 'instruction', 'specification'))
   )
 );
 
