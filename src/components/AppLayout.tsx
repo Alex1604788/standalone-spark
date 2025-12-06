@@ -16,6 +16,7 @@ import {
   Download,
   ChevronDown,
   ChevronRight,
+  Package,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -117,6 +118,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
   const navItems = [
     { path: "/app", label: "Дашборд", icon: LayoutDashboard },
     { path: "/app/marketplaces", label: "Маркетплейсы", icon: ShoppingBag },
+    { path: "/app/products/settings", label: "Настройка товаров", icon: Package },
     { path: "/app/analytics", label: "Аналитика", icon: BarChart3 },
     { path: "/app/settings", label: "Настройки", icon: User },
     { path: "/app/notifications", label: "Уведомления", icon: Bell },
