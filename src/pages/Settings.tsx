@@ -64,10 +64,13 @@ const Settings = () => {
     if (!error && data) {
       setSettings(data);
     } else if (error?.code === 'PGRST116') {
-      // Настройки не найдены, создаём дефолтные
+      // Настройки не найдены, создаём дефолтные с reply_length = short
       const { data: newSettings } = await supabase
         .from("marketplace_settings")
-        .insert({ marketplace_id: selectedMarketplace })
+        .insert({ 
+          marketplace_id: selectedMarketplace,
+          reply_length: 'short'
+        })
         .select()
         .single();
       

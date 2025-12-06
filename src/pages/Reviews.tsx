@@ -34,7 +34,7 @@ const Reviews = () => {
   const [questions, setQuestions] = useState<Question[]>([]);
 
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(100);
   const [totalReviews, setTotalReviews] = useState(0);
   const [totalQuestions, setTotalQuestions] = useState(0);
 
@@ -47,13 +47,14 @@ const Reviews = () => {
 
   const [replyText, setReplyText] = useState("");
   const [replyTone, setReplyTone] = useState("friendly");
-  const [responseLength, setResponseLength] = useState<"short" | "normal">("normal");
+  const [responseLength, setResponseLength] = useState<"short" | "normal">("short");
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isTableLoading, setIsTableLoading] = useState(false);
 
   const [scheduleMode, setScheduleMode] = useState<"now" | "later">("now");
   const [scheduledDateTime, setScheduledDateTime] = useState("");
+  const [existingDraftId, setExistingDraftId] = useState<string | null>(null);
 
   const { toast } = useToast();
 
@@ -66,6 +67,36 @@ const Reviews = () => {
     fetchReviews();
     fetchQuestions();
   }, [page, pageSize, ratingFilter, statusFilter]);
+
+  // При открытии отзыва загрузить существующий черновик
+  useEffect(() => {
+    const loadDraft = async () => {
+      if (!selectedItem) {
+        setReplyText("");
+        setExistingDraftId(null);
+        return;
+      }
+      
+      const isReview = "rating" in selectedItem;
+      const { data: drafts } = await supabase
+        .from("replies")
+        .select("id, content")
+        .eq(isReview ? "review_id" : "question_id", selectedItem.id)
+        .eq("status", "drafted")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      
+      if (drafts && drafts.length > 0) {
+        setReplyText(drafts[0].content);
+        setExistingDraftId(drafts[0].id);
+      } else {
+        setReplyText("");
+        setExistingDraftId(null);
+      }
+    };
+    
+    loadDraft();
+  }, [selectedItem]);
 
   const fetchReviews = async () => {
     setIsTableLoading(true);
@@ -390,28 +421,48 @@ const Reviews = () => {
         return;
       }
 
-      const replyData: any = {
-        content: replyText,
-        tone: replyTone,
-        mode: "manual",
-        user_id: user.id,
-        status: "scheduled",
-        scheduled_at: scheduleMode === "now" ? new Date().toISOString() : new Date(scheduledDateTime).toISOString(),
-        marketplace_id: marketplaceId,
-      };
+      let error;
+      
+      // Если есть существующий черновик - обновляем его
+      if (existingDraftId) {
+        const { error: updateError } = await supabase
+          .from("replies")
+          .update({
+            content: replyText,
+            tone: replyTone,
+            status: "scheduled",
+            scheduled_at: scheduleMode === "now" ? new Date().toISOString() : new Date(scheduledDateTime).toISOString(),
+            user_id: user.id,
+          })
+          .eq("id", existingDraftId);
+        error = updateError;
+      } else {
+        // Создаём новый ответ
+        const replyData: any = {
+          content: replyText,
+          tone: replyTone,
+          mode: "manual",
+          user_id: user.id,
+          status: "scheduled",
+          scheduled_at: scheduleMode === "now" ? new Date().toISOString() : new Date(scheduledDateTime).toISOString(),
+          marketplace_id: marketplaceId,
+        };
 
-      if (isReview) replyData.review_id = selectedItem.id;
-      else replyData.question_id = selectedItem.id;
+        if (isReview) replyData.review_id = selectedItem.id;
+        else replyData.question_id = selectedItem.id;
 
-      const { error } = await supabase.from("replies").insert(replyData);
+        const { error: insertError } = await supabase.from("replies").insert(replyData);
+        error = insertError;
+      }
 
       if (error) {
-        console.error("Insert reply error:", error);
+        console.error("Reply error:", error);
         toast({ title: "Ошибка", description: error.message || "Не удалось создать ответ", variant: "destructive" });
       } else {
         toast({ title: "Успешно", description: "Ответ добавлен в очередь" });
         setSelectedItem(null);
         setReplyText("");
+        setExistingDraftId(null);
         fetchReviews();
         window.dispatchEvent(new Event("reviews-updated"));
       }
@@ -472,33 +523,73 @@ const Reviews = () => {
           </TabsList>
 
           <TabsContent value="reviews" className="space-y-4">
-            {/* Поиск и фильтры над таблицей */}
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div className="relative w-full md:max-w-md">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Поиск по товару или артикулу..."
-                  className="pl-10 h-9"
-                />
+            {/* Поиск, фильтры и пагинация над таблицей */}
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="relative w-full md:max-w-md">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Поиск по товару или артикулу..."
+                    className="pl-10 h-9"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Оценка:</span>
+                  <Select value={ratingFilter} onValueChange={setRatingFilter}>
+                    <SelectTrigger className="w-[130px] h-9">
+                      <SelectValue placeholder="Все" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Все</SelectItem>
+                      <SelectItem value="5">5 ★</SelectItem>
+                      <SelectItem value="4">4 ★</SelectItem>
+                      <SelectItem value="3">3 ★</SelectItem>
+                      <SelectItem value="2">2 ★</SelectItem>
+                      <SelectItem value="1">1 ★</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Оценка:</span>
-                <Select value={ratingFilter} onValueChange={setRatingFilter}>
-                  <SelectTrigger className="w-[130px] h-9">
-                    <SelectValue placeholder="Все" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Все</SelectItem>
-                    <SelectItem value="5">5 ★</SelectItem>
-                    <SelectItem value="4">4 ★</SelectItem>
-                    <SelectItem value="3">3 ★</SelectItem>
-                    <SelectItem value="2">2 ★</SelectItem>
-                    <SelectItem value="1">1 ★</SelectItem>
-                  </SelectContent>
-                </Select>
+              {/* Пагинация и количество сверху */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span>Показывать по:</span>
+                  <Select value={pageSize.toString()} onValueChange={(v) => setPageSize(Number(v))}>
+                    <SelectTrigger className="w-[70px] h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="20">20</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                      <SelectItem value="100">100</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="ml-4">Всего: {totalReviews}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <div className="text-sm font-medium px-3">Стр. {page}</div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => p + 1)}
+                    disabled={filteredReviews.length < pageSize}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </div>
 
@@ -516,22 +607,8 @@ const Reviews = () => {
               />
             )}
 
-            <div className="flex items-center justify-between py-2">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span>Показывать по:</span>
-                <Select value={pageSize.toString()} onValueChange={(v) => setPageSize(Number(v))}>
-                  <SelectTrigger className="w-[70px] h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="20">20</SelectItem>
-                    <SelectItem value="50">50</SelectItem>
-                    <SelectItem value="100">100</SelectItem>
-                  </SelectContent>
-                </Select>
-                <span className="ml-4">Всего: {totalReviews}</span>
-              </div>
-
+            {/* Пагинация снизу */}
+            <div className="flex items-center justify-end py-2">
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
@@ -543,11 +620,11 @@ const Reviews = () => {
                 </Button>
                 <div className="text-sm font-medium px-3">Стр. {page}</div>
                 <Button
-                   variant="outline"
-                   size="sm"
-                   onClick={() => setPage((p) => p + 1)}
-                   disabled={filteredReviews.length < pageSize}
-                 >
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={filteredReviews.length < pageSize}
+                >
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -570,8 +647,8 @@ const Reviews = () => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="normal">Обычный</SelectItem>
                 <SelectItem value="short">Краткий</SelectItem>
+                <SelectItem value="normal">Обычный</SelectItem>
               </SelectContent>
             </Select>
 
@@ -586,7 +663,7 @@ const Reviews = () => {
               ) : (
                 <Sparkles className="w-4 h-4 mr-2 text-purple-600" />
               )}
-              {isLoading ? "Обработка..." : "Сгенерировать ответы"}
+              {isLoading ? "Обработка..." : "Отправить"}
             </Button>
 
             <button
@@ -628,8 +705,8 @@ const Reviews = () => {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="normal">Обычный</SelectItem>
                       <SelectItem value="short">Краткий</SelectItem>
+                      <SelectItem value="normal">Обычный</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button variant="outline" onClick={handleGenerateReply} disabled={isGenerating} className="flex-1">
