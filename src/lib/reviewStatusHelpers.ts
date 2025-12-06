@@ -25,17 +25,17 @@ export function getReviewSegment(item: ReviewWithDetails): ReviewSegment {
     return "archived";
   }
 
-  // Проверяем наличие ответов в процессе обработки
+  // Проверяем наличие ответов в очереди (подтверждённых пользователем)
+  // ВАЖНО: "drafted" НЕ включаем - черновики остаются в "Не отвечено"
   const hasPending = replies.some(
     (r) => 
-      String(r.status) === "drafted" ||
       String(r.status) === "scheduled" || 
       String(r.status) === "publishing" || 
       String(r.status) === "failed" ||
       String(r.status) === "retried"
   );
 
-  // ОЖИДАЮТ ПУБЛИКАЦИИ: есть drafted/scheduled/publishing/failed/retried, но нет published
+  // ОЖИДАЮТ ПУБЛИКАЦИИ: есть scheduled/publishing/failed/retried, но нет published
   if (hasPending) {
     return "pending";
   }
