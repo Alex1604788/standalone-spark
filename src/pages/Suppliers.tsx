@@ -22,8 +22,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, Plus, Edit, Trash2, Truck } from "lucide-react";
+import { Search, Plus, Edit, Trash2, Truck, Upload, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import * as XLSX from "xlsx";
 
 interface Supplier {
   id: string;
@@ -32,6 +33,8 @@ interface Supplier {
   phone?: string;
   email?: string;
   address?: string;
+  payment_delay_days?: number;
+  delivery_time_days?: number;
   notes?: string;
   created_at: string;
 }
@@ -48,6 +51,8 @@ const Suppliers = () => {
     phone: "",
     email: "",
     address: "",
+    payment_delay_days: "",
+    delivery_time_days: "",
     notes: "",
   });
 
@@ -96,6 +101,8 @@ const Suppliers = () => {
       phone: "",
       email: "",
       address: "",
+      payment_delay_days: "",
+      delivery_time_days: "",
       notes: "",
     });
     setIsAddModalOpen(true);
@@ -110,6 +117,8 @@ const Suppliers = () => {
       phone: supplier.phone || "",
       email: supplier.email || "",
       address: supplier.address || "",
+      payment_delay_days: supplier.payment_delay_days?.toString() || "",
+      delivery_time_days: supplier.delivery_time_days?.toString() || "",
       notes: supplier.notes || "",
     });
     setIsEditModalOpen(true);
@@ -136,6 +145,8 @@ const Suppliers = () => {
           phone: formData.phone.trim() || null,
           email: formData.email.trim() || null,
           address: formData.address.trim() || null,
+          payment_delay_days: formData.payment_delay_days ? parseInt(formData.payment_delay_days) : null,
+          delivery_time_days: formData.delivery_time_days ? parseInt(formData.delivery_time_days) : null,
           notes: formData.notes.trim() || null,
         });
 
@@ -178,6 +189,8 @@ const Suppliers = () => {
           phone: formData.phone.trim() || null,
           email: formData.email.trim() || null,
           address: formData.address.trim() || null,
+          payment_delay_days: formData.payment_delay_days ? parseInt(formData.payment_delay_days) : null,
+          delivery_time_days: formData.delivery_time_days ? parseInt(formData.delivery_time_days) : null,
           notes: formData.notes.trim() || null,
         })
         .eq("id", selectedSupplier.id);
@@ -229,6 +242,128 @@ const Suppliers = () => {
     }
   };
 
+  // Экспорт в Excel
+  const handleExportExcel = () => {
+    if (!suppliers || suppliers.length === 0) {
+      toast({
+        title: "Нет данных",
+        description: "Нет поставщиков для экспорта",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const exportData = suppliers.map((supplier) => ({
+      "Название": supplier.name,
+      "Контактное лицо": supplier.contact_person || "",
+      "Телефон": supplier.phone || "",
+      "Email": supplier.email || "",
+      "Адрес": supplier.address || "",
+      "Отсрочка, дн": supplier.payment_delay_days || "",
+      "Срок поставки, дн": supplier.delivery_time_days || "",
+      "Примечания": supplier.notes || "",
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Поставщики");
+
+    const now = new Date();
+    const filename = `поставщики_${now.toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(workbook, filename);
+
+    toast({
+      title: "Экспорт завершен",
+      description: `Выгружено поставщиков: ${suppliers.length}`,
+    });
+  };
+
+  // Импорт из Excel
+  const handleImportExcel = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !marketplace) return;
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet) as Array<{
+        "Название": string;
+        "Контактное лицо"?: string;
+        "Телефон"?: string;
+        "Email"?: string;
+        "Адрес"?: string;
+        "Отсрочка, дн"?: number | string;
+        "Срок поставки, дн"?: number | string;
+        "Примечания"?: string;
+      }>;
+
+      if (!jsonData || jsonData.length === 0) {
+        toast({
+          title: "Ошибка",
+          description: "Файл пуст или неверный формат",
+          variant: "destructive",
+        });
+        event.target.value = "";
+        return;
+      }
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const row of jsonData) {
+        try {
+          const name = row["Название"]?.toString().trim();
+          if (!name) {
+            errorCount++;
+            continue;
+          }
+
+          const { error } = await supabase
+            .from("suppliers")
+            .insert({
+              marketplace_id: marketplace.id,
+              name: name,
+              contact_person: row["Контактное лицо"]?.toString().trim() || null,
+              phone: row["Телефон"]?.toString().trim() || null,
+              email: row["Email"]?.toString().trim() || null,
+              address: row["Адрес"]?.toString().trim() || null,
+              payment_delay_days: row["Отсрочка, дн"] ? parseInt(row["Отсрочка, дн"].toString()) : null,
+              delivery_time_days: row["Срок поставки, дн"] ? parseInt(row["Срок поставки, дн"].toString()) : null,
+              notes: row["Примечания"]?.toString().trim() || null,
+            });
+
+          if (error) {
+            console.error(`Error inserting supplier ${name}:`, error);
+            errorCount++;
+          } else {
+            successCount++;
+          }
+        } catch (err) {
+          console.error("Row processing error:", err);
+          errorCount++;
+        }
+      }
+
+      await refetch();
+
+      toast({
+        title: "Импорт завершен",
+        description: `Успешно: ${successCount}, Ошибок: ${errorCount}`,
+      });
+
+    } catch (error: any) {
+      console.error("Import error:", error);
+      toast({
+        title: "Ошибка импорта",
+        description: error.message || "Не удалось загрузить файл",
+        variant: "destructive",
+      });
+    }
+
+    event.target.value = "";
+  };
+
   // Фильтрация поставщиков
   const filteredSuppliers = suppliers?.filter((supplier) =>
     supplier.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -247,10 +382,27 @@ const Suppliers = () => {
                 Управление списком поставщиков для учёта закупок товаров
               </CardDescription>
             </div>
-            <Button onClick={handleAddClick}>
-              <Plus className="w-4 h-4 mr-2" />
-              Добавить поставщика
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleExportExcel}>
+                <Download className="w-4 h-4 mr-2" />
+                Выгрузить Excel
+              </Button>
+              <Button variant="outline" onClick={() => document.getElementById('supplier-upload')?.click()}>
+                <Upload className="w-4 h-4 mr-2" />
+                Загрузить Excel
+              </Button>
+              <input
+                id="supplier-upload"
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={handleImportExcel}
+              />
+              <Button onClick={handleAddClick}>
+                <Plus className="w-4 h-4 mr-2" />
+                Добавить поставщика
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -280,6 +432,8 @@ const Suppliers = () => {
                     <TableHead>Контактное лицо</TableHead>
                     <TableHead>Телефон</TableHead>
                     <TableHead>Email</TableHead>
+                    <TableHead className="text-center">Отсрочка, дн</TableHead>
+                    <TableHead className="text-center">Срок поставки, дн</TableHead>
                     <TableHead className="text-right">Действия</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -300,6 +454,12 @@ const Suppliers = () => {
                       </TableCell>
                       <TableCell>
                         {supplier.email || <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {supplier.payment_delay_days || <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {supplier.delivery_time_days || <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex gap-2 justify-end">
@@ -419,6 +579,34 @@ const Suppliers = () => {
               />
             </div>
 
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="add-payment-delay" className="text-right">
+                Отсрочка, дн
+              </Label>
+              <Input
+                id="add-payment-delay"
+                type="number"
+                className="col-span-3"
+                value={formData.payment_delay_days}
+                onChange={(e) => setFormData({ ...formData, payment_delay_days: e.target.value })}
+                placeholder="30"
+              />
+            </div>
+
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="add-delivery-time" className="text-right">
+                Срок поставки, дн
+              </Label>
+              <Input
+                id="add-delivery-time"
+                type="number"
+                className="col-span-3"
+                value={formData.delivery_time_days}
+                onChange={(e) => setFormData({ ...formData, delivery_time_days: e.target.value })}
+                placeholder="7"
+              />
+            </div>
+
             <div className="grid grid-cols-4 items-start gap-4">
               <Label htmlFor="add-notes" className="text-right pt-2">
                 Примечания
@@ -519,6 +707,34 @@ const Suppliers = () => {
                 value={formData.address}
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                 placeholder="г. Москва, ул. Примерная, д. 1"
+              />
+            </div>
+
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-payment-delay" className="text-right">
+                Отсрочка, дн
+              </Label>
+              <Input
+                id="edit-payment-delay"
+                type="number"
+                className="col-span-3"
+                value={formData.payment_delay_days}
+                onChange={(e) => setFormData({ ...formData, payment_delay_days: e.target.value })}
+                placeholder="30"
+              />
+            </div>
+
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-delivery-time" className="text-right">
+                Срок поставки, дн
+              </Label>
+              <Input
+                id="edit-delivery-time"
+                type="number"
+                className="col-span-3"
+                value={formData.delivery_time_days}
+                onChange={(e) => setFormData({ ...formData, delivery_time_days: e.target.value })}
+                placeholder="7"
               />
             </div>
 
