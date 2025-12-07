@@ -29,7 +29,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Search, Edit, DollarSign, Package, Truck, Tag, Copy, Download, Upload, X } from "lucide-react";
+import { Search, Edit, DollarSign, Package, Truck, Tag, Copy, Download, Upload, X, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Tooltip,
@@ -98,7 +98,7 @@ const ProductSettings = () => {
     },
   });
 
-  const { data: products, isLoading } = useQuery({
+  const { data: products, isLoading, refetch: refetchProducts } = useQuery({
     queryKey: ["products", marketplace?.id],
     queryFn: async () => {
       if (!marketplace?.id) return [];
@@ -347,6 +347,10 @@ const ProductSettings = () => {
         </CardHeader>
         <CardContent>
           <div className="flex justify-end gap-2 mb-4">
+            <Button variant="outline" onClick={() => { refetchProducts(); refetchBusinessData(); }}>
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Обновить
+            </Button>
             <Button variant="outline" onClick={handleExportExcel}>
               <Download className="w-4 h-4 mr-2" />
               Выгрузить Excel
