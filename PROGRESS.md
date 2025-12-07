@@ -375,7 +375,7 @@ CREATE TABLE product_knowledge (
 - [x] Роуты и меню для новых страниц
 - [x] Страница импорта данных (src/pages/ImportData.tsx)
 - [x] Компоненты импорта (FileUploader, ImportHistory)
-- [ ] Таблица детализации по товарам (SalesTable)
+- [x] Таблица детализации по товарам (SalesTable)
 - [ ] Логика импорта для каждого типа данных (TODO в ImportData.tsx)
 - [ ] Интеграция с Supabase (загрузка реальных данных в Sales Analytics)
 - [ ] Тестирование импорта
@@ -383,4 +383,4 @@ CREATE TABLE product_knowledge (
 
 ---
 
-**Последнее обновление:** 07.12.2025, 04:45 MSK
+**Последнее обновление:** 07.12.2025, 05:15 MSK
