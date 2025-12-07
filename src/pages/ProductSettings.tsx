@@ -102,13 +102,29 @@ const ProductSettings = () => {
     queryKey: ["products", marketplace?.id],
     queryFn: async () => {
       if (!marketplace?.id) return [];
-      const { data, error } = await supabase
-        .from("products")
-        .select("id, external_id, offer_id, name, category, price, image_url")
-        .eq("marketplace_id", marketplace.id)
-        .order("name");
-      if (error) throw error;
-      return data as Product[];
+      // Supabase по умолчанию возвращает только 1000 строк, поэтому используем range
+      const allProducts: Product[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      
+      while (true) {
+        const { data, error } = await supabase
+          .from("products")
+          .select("id, external_id, offer_id, name, category, price, image_url")
+          .eq("marketplace_id", marketplace.id)
+          .order("name")
+          .range(from, from + pageSize - 1);
+        
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        
+        allProducts.push(...(data as Product[]));
+        
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      
+      return allProducts;
     },
     enabled: !!marketplace?.id,
   });
