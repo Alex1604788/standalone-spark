@@ -334,6 +334,9 @@ const ProductSettings = () => {
     setIsImporting(true);
     setImportProgress(0);
     
+    // Даём React время отрисовать начальное состояние
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
     try {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
@@ -348,10 +351,10 @@ const ProductSettings = () => {
       const supplierNameToId = new Map<string, string>();
       suppliers?.forEach((s) => supplierNameToId.set(s.name.toLowerCase(), s.id));
       let successCount = 0;
+      const batchSize = 10; // Обрабатываем пачками для обновления UI
       
       for (let i = 0; i < jsonData.length; i++) {
         const row = jsonData[i];
-        setImportProgress(((i + 1) / jsonData.length) * 100);
         
         const offerId = String(row["Артикул"] || "").trim();
         if (!offerId) continue;
@@ -370,6 +373,13 @@ const ProductSettings = () => {
           large_box_quantity: largeBox,
         }, { onConflict: "marketplace_id,offer_id" });
         if (!error) successCount++;
+        
+        // Обновляем прогресс каждые batchSize записей или в конце
+        if ((i + 1) % batchSize === 0 || i === jsonData.length - 1) {
+          setImportProgress(((i + 1) / jsonData.length) * 100);
+          // Даём React время отрисовать обновление
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
       }
       await refetchBusinessData();
       toast({ title: "Импорт завершен", description: `Успешно: ${successCount}` });
