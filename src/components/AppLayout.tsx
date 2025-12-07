@@ -20,6 +20,7 @@ import {
   Brain,
   Truck,
   TrendingUp,
+  Upload,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -124,6 +125,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     { path: "/app/products/settings", label: "Настройка товаров", icon: Package },
     { path: "/app/products/knowledge", label: "База знаний", icon: Brain },
     { path: "/app/suppliers", label: "Поставщики", icon: Truck },
+    { path: "/app/import-data", label: "Импорт данных", icon: Upload },
     { path: "/app/analytics", label: "Аналитика", icon: BarChart3 },
     { path: "/app/sales-analytics", label: "Sales Analytics", icon: TrendingUp },
     { path: "/app/settings", label: "Настройки", icon: User },
