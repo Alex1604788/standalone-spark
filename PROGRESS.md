@@ -369,15 +369,17 @@ CREATE TABLE product_knowledge (
 ### Sales Analytics MVP
 - [x] План работ создан (docs/SALES_ANALYTICS_PLAN.md)
 - [x] PROGRESS.md обновлен с разделом Sales Analytics
-- [ ] Библиотека расчетов (src/lib/sales-calculations.ts)
+- [x] Библиотека расчетов (src/lib/sales-calculations.ts)
+- [x] Страница Sales Analytics (src/pages/SalesAnalytics.tsx)
+- [x] Компоненты аналитики (PeriodSelector, SalesCards)
+- [x] Роуты и меню для новых страниц
 - [ ] Страница импорта данных (src/pages/ImportData.tsx)
 - [ ] Компоненты импорта (FileUploader, ImportHistory)
-- [ ] Страница Sales Analytics (src/pages/SalesAnalytics.tsx)
-- [ ] Компоненты аналитики (PeriodSelector, SalesCards, SalesTable)
-- [ ] Роуты и меню для новых страниц
+- [ ] Таблица детализации по товарам (SalesTable)
+- [ ] Интеграция с Supabase (загрузка реальных данных)
 - [ ] Тестирование импорта
 - [ ] Тестирование расчетов
 
 ---
 
-**Последнее обновление:** 07.12.2025, 03:45 MSK
+**Последнее обновление:** 07.12.2025, 04:15 MSK
