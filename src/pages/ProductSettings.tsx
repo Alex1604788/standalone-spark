@@ -37,11 +37,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 
 interface Product {
   id: string;
@@ -186,7 +181,7 @@ const ProductSettings = () => {
         large_box_quantity: formData.large_box_quantity ? parseInt(formData.large_box_quantity) : null,
       });
       if (error) throw error;
-      toast({ title: "Сохранено", description: `Данные товара обновлены` });
+      toast({ title: "Сохранено", description: "Данные товара обновлены" });
       refetchBusinessData();
       setIsEditModalOpen(false);
     } catch (error) {
@@ -317,6 +312,16 @@ const ProductSettings = () => {
     setMissingFieldFilter((prev) => (prev === field ? null : field));
   };
 
+  const clearFilters = () => {
+    setArticleSearch("");
+    setNameSearch("");
+    setSupplierSearch("");
+    setCategoryFilter("all");
+    setMissingFieldFilter(null);
+  };
+
+  const hasFilters = articleSearch || nameSearch || supplierSearch || categoryFilter !== "all" || missingFieldFilter;
+
   return (
     <div className="container mx-auto py-6">
       <Card>
@@ -327,35 +332,69 @@ const ProductSettings = () => {
         <CardContent>
           <div className="flex justify-end gap-2 mb-4">
             <Button variant="outline" onClick={handleExportExcel}>
-              <Download className="w-4 h-4 mr-2" />Выгрузить Excel
+              <Download className="w-4 h-4 mr-2" />
+              Выгрузить Excel
             </Button>
             <Button variant="outline" onClick={() => document.getElementById("excel-upload")?.click()}>
-              <Upload className="w-4 h-4 mr-2" />Загрузить Excel
+              <Upload className="w-4 h-4 mr-2" />
+              Загрузить Excel
             </Button>
             <input id="excel-upload" type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
           </div>
 
           <div className="grid grid-cols-3 gap-4 mb-6">
             <Card>
-              <CardHeader className="pb-2"><CardDescription>Всего товаров</CardDescription></CardHeader>
-              <CardContent><div className="text-2xl font-bold">{fieldStats.total}</div></CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2"><CardDescription>Заполнено</CardDescription></CardHeader>
-              <CardContent className="space-y-1 text-sm">
-                <div className="flex justify-between"><span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />Цена</span><span className="text-green-600 font-medium">{fieldStats.purchasePrice.filled}</span></div>
-                <div className="flex justify-between"><span className="flex items-center gap-1"><Package className="w-3 h-3" />Упаковка</span><span className="text-green-600 font-medium">{fieldStats.packaging.filled}</span></div>
-                <div className="flex justify-between"><span className="flex items-center gap-1"><Truck className="w-3 h-3" />Поставщик</span><span className="text-green-600 font-medium">{fieldStats.supplier.filled}</span></div>
-                <div className="flex justify-between"><span className="flex items-center gap-1"><Tag className="w-3 h-3" />Категория</span><span className="text-green-600 font-medium">{fieldStats.category.filled}</span></div>
+              <CardHeader className="pb-2">
+                <CardDescription>Всего товаров</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{fieldStats.total}</div>
               </CardContent>
             </Card>
             <Card>
-              <CardHeader className="pb-2"><CardDescription>Не заполнено</CardDescription></CardHeader>
+              <CardHeader className="pb-2">
+                <CardDescription>Заполнено</CardDescription>
+              </CardHeader>
               <CardContent className="space-y-1 text-sm">
-                <div className="flex justify-between"><span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />Цена</span><span className="text-red-600 font-medium">{fieldStats.purchasePrice.empty}</span></div>
-                <div className="flex justify-between"><span className="flex items-center gap-1"><Package className="w-3 h-3" />Упаковка</span><span className="text-red-600 font-medium">{fieldStats.packaging.empty}</span></div>
-                <div className="flex justify-between"><span className="flex items-center gap-1"><Truck className="w-3 h-3" />Поставщик</span><span className="text-red-600 font-medium">{fieldStats.supplier.empty}</span></div>
-                <div className="flex justify-between"><span className="flex items-center gap-1"><Tag className="w-3 h-3" />Категория</span><span className="text-red-600 font-medium">{fieldStats.category.empty}</span></div>
+                <div className="flex justify-between">
+                  <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />Цена</span>
+                  <span className="text-green-600 font-medium">{fieldStats.purchasePrice.filled}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="flex items-center gap-1"><Package className="w-3 h-3" />Упаковка</span>
+                  <span className="text-green-600 font-medium">{fieldStats.packaging.filled}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="flex items-center gap-1"><Truck className="w-3 h-3" />Поставщик</span>
+                  <span className="text-green-600 font-medium">{fieldStats.supplier.filled}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="flex items-center gap-1"><Tag className="w-3 h-3" />Категория</span>
+                  <span className="text-green-600 font-medium">{fieldStats.category.filled}</span>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Не заполнено</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />Цена</span>
+                  <span className="text-red-600 font-medium">{fieldStats.purchasePrice.empty}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="flex items-center gap-1"><Package className="w-3 h-3" />Упаковка</span>
+                  <span className="text-red-600 font-medium">{fieldStats.packaging.empty}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="flex items-center gap-1"><Truck className="w-3 h-3" />Поставщик</span>
+                  <span className="text-red-600 font-medium">{fieldStats.supplier.empty}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="flex items-center gap-1"><Tag className="w-3 h-3" />Категория</span>
+                  <span className="text-red-600 font-medium">{fieldStats.category.empty}</span>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -368,97 +407,139 @@ const ProductSettings = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-14">Фото</TableHead>
-                    <TableHead className="w-[130px]">Артикул</TableHead>
-                    <TableHead>Название</TableHead>
-                    <TableHead className="w-[140px]">Категория</TableHead>
-                    <TableHead className="w-[140px]">Поставщик</TableHead>
+                    <TableHead className="w-[130px]">
+                      <div className="flex flex-col gap-1">
+                        <span>Артикул</span>
+                        <div className="relative">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                          <Input
+                            placeholder="Поиск..."
+                            value={articleSearch}
+                            onChange={(e) => setArticleSearch(e.target.value)}
+                            className="h-7 pl-7 text-xs"
+                          />
+                        </div>
+                      </div>
+                    </TableHead>
+                    <TableHead>
+                      <div className="flex flex-col gap-1">
+                        <span>Название</span>
+                        <div className="relative">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                          <Input
+                            placeholder="Поиск..."
+                            value={nameSearch}
+                            onChange={(e) => setNameSearch(e.target.value)}
+                            className="h-7 pl-7 text-xs"
+                          />
+                        </div>
+                      </div>
+                    </TableHead>
+                    <TableHead className="w-[140px]">
+                      <div className="flex flex-col gap-1">
+                        <span>Категория</span>
+                        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue placeholder="Все" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Все</SelectItem>
+                            {categories.map((cat) => (
+                              <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </TableHead>
+                    <TableHead className="w-[140px]">
+                      <div className="flex flex-col gap-1">
+                        <span>Поставщик</span>
+                        <div className="relative">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                          <Input
+                            placeholder="Поиск..."
+                            value={supplierSearch}
+                            onChange={(e) => setSupplierSearch(e.target.value)}
+                            className="h-7 pl-7 text-xs"
+                          />
+                        </div>
+                      </div>
+                    </TableHead>
                     <TableHead className="w-[130px]">
                       <div className="flex flex-col gap-1">
                         <span>Заполненность</span>
                         <div className="flex gap-0.5">
-                          <TooltipProvider><Tooltip><TooltipTrigger asChild>
-                            <button onClick={() => toggleMissingFilter("purchase_price")} className={`p-1 rounded ${missingFieldFilter === "purchase_price" ? "text-red-500 bg-red-100" : "text-muted-foreground hover:bg-muted"}`}>
-                              <DollarSign className="w-3 h-3" />
-                            </button>
-                          </TooltipTrigger><TooltipContent><p>Без цены закупки</p></TooltipContent></Tooltip></TooltipProvider>
-                          <TooltipProvider><Tooltip><TooltipTrigger asChild>
-                            <button onClick={() => toggleMissingFilter("packaging")} className={`p-1 rounded ${missingFieldFilter === "packaging" ? "text-red-500 bg-red-100" : "text-muted-foreground hover:bg-muted"}`}>
-                              <Package className="w-3 h-3" />
-                            </button>
-                          </TooltipTrigger><TooltipContent><p>Без упаковки</p></TooltipContent></Tooltip></TooltipProvider>
-                          <TooltipProvider><Tooltip><TooltipTrigger asChild>
-                            <button onClick={() => toggleMissingFilter("supplier")} className={`p-1 rounded ${missingFieldFilter === "supplier" ? "text-red-500 bg-red-100" : "text-muted-foreground hover:bg-muted"}`}>
-                              <Truck className="w-3 h-3" />
-                            </button>
-                          </TooltipTrigger><TooltipContent><p>Без поставщика</p></TooltipContent></Tooltip></TooltipProvider>
-                          <TooltipProvider><Tooltip><TooltipTrigger asChild>
-                            <button onClick={() => toggleMissingFilter("category")} className={`p-1 rounded ${missingFieldFilter === "category" ? "text-red-500 bg-red-100" : "text-muted-foreground hover:bg-muted"}`}>
-                              <Tag className="w-3 h-3" />
-                            </button>
-                          </TooltipTrigger><TooltipContent><p>Без категории</p></TooltipContent></Tooltip></TooltipProvider>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={() => toggleMissingFilter("purchase_price")}
+                                  className={`p-1 rounded ${missingFieldFilter === "purchase_price" ? "text-red-500 bg-red-100" : "text-muted-foreground hover:bg-muted"}`}
+                                >
+                                  <DollarSign className="w-3 h-3" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Без цены закупки</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={() => toggleMissingFilter("packaging")}
+                                  className={`p-1 rounded ${missingFieldFilter === "packaging" ? "text-red-500 bg-red-100" : "text-muted-foreground hover:bg-muted"}`}
+                                >
+                                  <Package className="w-3 h-3" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Без упаковки</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={() => toggleMissingFilter("supplier")}
+                                  className={`p-1 rounded ${missingFieldFilter === "supplier" ? "text-red-500 bg-red-100" : "text-muted-foreground hover:bg-muted"}`}
+                                >
+                                  <Truck className="w-3 h-3" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Без поставщика</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={() => toggleMissingFilter("category")}
+                                  className={`p-1 rounded ${missingFieldFilter === "category" ? "text-red-500 bg-red-100" : "text-muted-foreground hover:bg-muted"}`}
+                                >
+                                  <Tag className="w-3 h-3" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Без категории</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         </div>
                       </div>
                     </TableHead>
-                    <TableHead className="text-right w-[120px]">Действия</TableHead>
-                  </TableRow>
-                  <TableRow className="bg-muted/50">
-                    <TableHead />
-                    <TableHead>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="ghost" size="sm" className={`h-7 w-full justify-start text-xs ${articleSearch ? "bg-primary/10" : ""}`}>
-                            <Search className="w-3 h-3 mr-1" />{articleSearch || "Поиск"}
-                            {articleSearch && <X className="w-3 h-3 ml-auto" onClick={(e) => { e.stopPropagation(); setArticleSearch(""); }} />}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[180px] p-2" align="start">
-                          <Input placeholder="Артикул..." value={articleSearch} onChange={(e) => setArticleSearch(e.target.value)} className="h-8" autoFocus />
-                        </PopoverContent>
-                      </Popover>
-                    </TableHead>
-                    <TableHead>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="ghost" size="sm" className={`h-7 w-full justify-start text-xs ${nameSearch ? "bg-primary/10" : ""}`}>
-                            <Search className="w-3 h-3 mr-1" />{nameSearch ? nameSearch.slice(0, 15) + "..." : "Поиск"}
-                            {nameSearch && <X className="w-3 h-3 ml-auto" onClick={(e) => { e.stopPropagation(); setNameSearch(""); }} />}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[220px] p-2" align="start">
-                          <Input placeholder="Название..." value={nameSearch} onChange={(e) => setNameSearch(e.target.value)} className="h-8" autoFocus />
-                        </PopoverContent>
-                      </Popover>
-                    </TableHead>
-                    <TableHead>
-                      <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                        <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Все" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">Все</SelectItem>
-                          {categories.map((cat) => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </TableHead>
-                    <TableHead>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="ghost" size="sm" className={`h-7 w-full justify-start text-xs ${supplierSearch ? "bg-primary/10" : ""}`}>
-                            <Search className="w-3 h-3 mr-1" />{supplierSearch || "Поиск"}
-                            {supplierSearch && <X className="w-3 h-3 ml-auto" onClick={(e) => { e.stopPropagation(); setSupplierSearch(""); }} />}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[180px] p-2" align="start">
-                          <Input placeholder="Поставщик..." value={supplierSearch} onChange={(e) => setSupplierSearch(e.target.value)} className="h-8" autoFocus />
-                        </PopoverContent>
-                      </Popover>
-                    </TableHead>
-                    <TableHead>
-                      {missingFieldFilter && (
-                        <Button variant="ghost" size="sm" className="h-7 text-xs text-red-500" onClick={() => setMissingFieldFilter(null)}>
-                          <X className="w-3 h-3 mr-1" />Сброс
+                    <TableHead className="text-right w-[120px]">
+                      {hasFilters && (
+                        <Button variant="ghost" size="sm" onClick={clearFilters} className="h-7 text-xs">
+                          <X className="w-3 h-3 mr-1" />
+                          Сброс
                         </Button>
                       )}
                     </TableHead>
-                    <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -484,20 +565,63 @@ const ProductSettings = () => {
                             </Button>
                           </div>
                         </TableCell>
-                        <TableCell className="max-w-md"><span className="line-clamp-2 text-sm">{product.name}</span></TableCell>
-                        <TableCell className="text-sm">{bd?.category || <span className="text-muted-foreground">—</span>}</TableCell>
-                        <TableCell className="text-sm">{supplierName || <span className="text-muted-foreground">—</span>}</TableCell>
+                        <TableCell className="max-w-md">
+                          <span className="line-clamp-2 text-sm">{product.name}</span>
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {bd?.category || <span className="text-muted-foreground">—</span>}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {supplierName || <span className="text-muted-foreground">—</span>}
+                        </TableCell>
                         <TableCell>
                           <div className="flex gap-1.5">
-                            <TooltipProvider><Tooltip><TooltipTrigger><DollarSign className={`w-4 h-4 ${bd?.purchase_price ? "text-green-500" : "text-red-500"}`} /></TooltipTrigger><TooltipContent><p>{bd?.purchase_price ? `${bd.purchase_price} ₽` : "Не указана"}</p></TooltipContent></Tooltip></TooltipProvider>
-                            <TooltipProvider><Tooltip><TooltipTrigger><Package className={`w-4 h-4 ${bd?.small_box_quantity || bd?.large_box_quantity ? "text-green-500" : "text-red-500"}`} /></TooltipTrigger><TooltipContent><p>{bd?.small_box_quantity ? `${bd.small_box_quantity} шт` : "Не указана"}</p></TooltipContent></Tooltip></TooltipProvider>
-                            <TooltipProvider><Tooltip><TooltipTrigger><Truck className={`w-4 h-4 ${bd?.supplier_id ? "text-green-500" : "text-red-500"}`} /></TooltipTrigger><TooltipContent><p>{supplierName || "Не указан"}</p></TooltipContent></Tooltip></TooltipProvider>
-                            <TooltipProvider><Tooltip><TooltipTrigger><Tag className={`w-4 h-4 ${bd?.category ? "text-green-500" : "text-red-500"}`} /></TooltipTrigger><TooltipContent><p>{bd?.category || "Не указана"}</p></TooltipContent></Tooltip></TooltipProvider>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <DollarSign className={`w-4 h-4 ${bd?.purchase_price ? "text-green-500" : "text-red-500"}`} />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{bd?.purchase_price ? `${bd.purchase_price} ₽` : "Не указана"}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <Package className={`w-4 h-4 ${bd?.small_box_quantity || bd?.large_box_quantity ? "text-green-500" : "text-red-500"}`} />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{bd?.small_box_quantity ? `${bd.small_box_quantity} шт` : "Не указана"}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <Truck className={`w-4 h-4 ${bd?.supplier_id ? "text-green-500" : "text-red-500"}`} />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{supplierName || "Не указан"}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <Tag className={`w-4 h-4 ${bd?.category ? "text-green-500" : "text-red-500"}`} />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{bd?.category || "Не указана"}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" onClick={() => handleEditClick(product)}>
-                            <Edit className="w-4 h-4 mr-1" />Редактировать
+                            <Edit className="w-4 h-4 mr-1" />
+                            Редактировать
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -522,33 +646,63 @@ const ProductSettings = () => {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Редактировать товар</DialogTitle>
-            <DialogDescription>{selectedProduct?.name} ({selectedProduct?.offer_id})</DialogDescription>
+            <DialogDescription>
+              {selectedProduct?.name} ({selectedProduct?.offer_id})
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label className="text-right">Поставщик</Label>
               <Select value={formData.supplier_id} onValueChange={(v) => setFormData({ ...formData, supplier_id: v })}>
-                <SelectTrigger className="col-span-3"><SelectValue placeholder="Выберите" /></SelectTrigger>
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Выберите" />
+                </SelectTrigger>
                 <SelectContent>
-                  {suppliers?.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                  {suppliers?.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label className="text-right">Категория</Label>
-              <Input className="col-span-3" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} placeholder="Категория" />
+              <Input
+                className="col-span-3"
+                value={formData.category}
+                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                placeholder="Категория"
+              />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label className="text-right">Цена закупки</Label>
-              <Input type="number" step="0.01" className="col-span-3" value={formData.purchase_price} onChange={(e) => setFormData({ ...formData, purchase_price: e.target.value })} placeholder="₽" />
+              <Input
+                type="number"
+                step="0.01"
+                className="col-span-3"
+                value={formData.purchase_price}
+                onChange={(e) => setFormData({ ...formData, purchase_price: e.target.value })}
+                placeholder="₽"
+              />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label className="text-right">Малая коробка</Label>
-              <Input type="number" className="col-span-3" value={formData.small_box_quantity} onChange={(e) => setFormData({ ...formData, small_box_quantity: e.target.value })} placeholder="шт" />
+              <Input
+                type="number"
+                className="col-span-3"
+                value={formData.small_box_quantity}
+                onChange={(e) => setFormData({ ...formData, small_box_quantity: e.target.value })}
+                placeholder="шт"
+              />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label className="text-right">Большая коробка</Label>
-              <Input type="number" className="col-span-3" value={formData.large_box_quantity} onChange={(e) => setFormData({ ...formData, large_box_quantity: e.target.value })} placeholder="шт" />
+              <Input
+                type="number"
+                className="col-span-3"
+                value={formData.large_box_quantity}
+                onChange={(e) => setFormData({ ...formData, large_box_quantity: e.target.value })}
+                placeholder="шт"
+              />
             </div>
           </div>
           <DialogFooter>
