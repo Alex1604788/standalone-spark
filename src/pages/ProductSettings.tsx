@@ -180,7 +180,7 @@ const ProductSettings = () => {
   // Открыть модальное окно редактирования
   const handleEditClick = (product: Product) => {
     setSelectedProduct(product);
-    const bd = businessDataMap.get(product.external_id);
+    const bd = businessDataMap.get(product.offer_id);
 
     setFormData({
       supplier_id: bd?.supplier_id || "",
@@ -202,7 +202,7 @@ const ProductSettings = () => {
         .from("product_business_data")
         .upsert({
           marketplace_id: marketplace.id,
-          offer_id: selectedProduct.external_id,
+          offer_id: selectedProduct.offer_id,
           supplier_id: formData.supplier_id || null,
           category: formData.category || null,
           purchase_price: formData.purchase_price ? parseFloat(formData.purchase_price) : null,
@@ -236,7 +236,7 @@ const ProductSettings = () => {
 
     // Подготовка данных для экспорта
     const exportData = products.map((product) => {
-      const bd = businessDataMap.get(product.external_id);
+      const bd = businessDataMap.get(product.offer_id);
       const supplierName = bd?.supplier_id ? supplierMap.get(bd.supplier_id) : "";
 
       return {
@@ -365,7 +365,7 @@ const ProductSettings = () => {
 
   // Функция для определения полноты данных
   const getCompletenessStatus = (product: Product): "complete" | "partial" | "empty" => {
-    const bd = businessDataMap.get(product.external_id);
+    const bd = businessDataMap.get(product.offer_id);
 
     if (!bd) return "empty";
 
@@ -383,7 +383,7 @@ const ProductSettings = () => {
 
   // Индикаторы заполненности (4 иконки)
   const CompletenessIndicators = ({ product }: { product: Product }) => {
-    const bd = businessDataMap.get(product.external_id);
+    const bd = businessDataMap.get(product.offer_id);
 
     const hasPrice = !!bd?.purchase_price;
     const hasPackaging = !!bd?.small_box_quantity || !!bd?.large_box_quantity;
@@ -604,7 +604,7 @@ const ProductSettings = () => {
                 </TableHeader>
                 <TableBody>
                   {filteredProducts?.slice(0, 50).map((product) => {
-                    const bd = businessDataMap.get(product.external_id);
+                    const bd = businessDataMap.get(product.offer_id);
                     const supplierName = bd?.supplier_id ? supplierMap.get(bd.supplier_id) : null;
 
                     return (
