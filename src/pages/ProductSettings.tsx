@@ -110,10 +110,10 @@ const ProductSettings = () => {
   });
 
   const { data: products, isLoading, refetch: refetchProducts } = useQuery({
-    queryKey: ["products", marketplace?.id],
+    queryKey: ["products-settings", marketplace?.id],
     queryFn: async () => {
       if (!marketplace?.id) return [];
-      // Supabase по умолчанию возвращает только 1000 строк, поэтому используем range
+      // Supabase по умолчанию возвращает только 1000 строк, поэтому используем пагинацию
       const allProducts: Product[] = [];
       let from = 0;
       const pageSize = 1000;
@@ -129,22 +129,25 @@ const ProductSettings = () => {
         if (error) throw error;
         if (!data || data.length === 0) break;
         
-        allProducts.push(...(data as Product[]));
+        allProducts.push(...data);
         
+        // Если получили меньше записей чем запрашивали - это последняя страница
         if (data.length < pageSize) break;
         from += pageSize;
       }
       
+      console.log(`[ProductSettings] Loaded ${allProducts.length} products`);
       return allProducts;
     },
     enabled: !!marketplace?.id,
+    staleTime: 0, // Всегда перезагружать при монтировании
   });
 
   const { data: businessData, refetch: refetchBusinessData } = useQuery({
-    queryKey: ["product-business-data", marketplace?.id],
+    queryKey: ["product-business-data-settings", marketplace?.id],
     queryFn: async () => {
       if (!marketplace?.id) return [];
-      // Supabase по умолчанию возвращает только 1000 строк, поэтому используем range
+      // Supabase по умолчанию возвращает только 1000 строк, поэтому используем пагинацию
       const allData: ProductBusinessData[] = [];
       let from = 0;
       const pageSize = 1000;
@@ -159,15 +162,18 @@ const ProductSettings = () => {
         if (error) throw error;
         if (!data || data.length === 0) break;
         
-        allData.push(...(data as ProductBusinessData[]));
+        allData.push(...data);
         
+        // Если получили меньше записей чем запрашивали - это последняя страница
         if (data.length < pageSize) break;
         from += pageSize;
       }
       
+      console.log(`[ProductSettings] Loaded ${allData.length} business data records`);
       return allData;
     },
     enabled: !!marketplace?.id,
+    staleTime: 0, // Всегда перезагружать при монтировании
   });
 
   const { data: suppliers } = useQuery({
