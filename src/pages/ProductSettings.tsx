@@ -29,7 +29,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Search, Edit, DollarSign, Package, Truck, Tag, Copy, Download, Upload, X, RefreshCw } from "lucide-react";
+import { Search, Edit, DollarSign, Package, Truck, Tag, Copy, Download, Upload, X, RefreshCw, CheckSquare } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   Tooltip,
@@ -37,6 +37,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface Product {
   id: string;
@@ -84,6 +85,11 @@ const ProductSettings = () => {
     small_box_quantity: "",
     large_box_quantity: "",
   });
+
+  // Массовый выбор товаров
+  const [selectedOfferIds, setSelectedOfferIds] = useState<Set<string>>(new Set());
+  const [isBulkAssignModalOpen, setIsBulkAssignModalOpen] = useState(false);
+  const [bulkSupplierId, setBulkSupplierId] = useState<string>("");
 
   const { data: marketplace } = useQuery({
     queryKey: ["active-marketplace"],
@@ -133,12 +139,28 @@ const ProductSettings = () => {
     queryKey: ["product-business-data", marketplace?.id],
     queryFn: async () => {
       if (!marketplace?.id) return [];
-      const { data, error } = await supabase
-        .from("product_business_data")
-        .select("*")
-        .eq("marketplace_id", marketplace.id);
-      if (error) throw error;
-      return data as ProductBusinessData[];
+      // Supabase по умолчанию возвращает только 1000 строк, поэтому используем range
+      const allData: ProductBusinessData[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      
+      while (true) {
+        const { data, error } = await supabase
+          .from("product_business_data")
+          .select("*")
+          .eq("marketplace_id", marketplace.id)
+          .range(from, from + pageSize - 1);
+        
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        
+        allData.push(...(data as ProductBusinessData[]));
+        
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      
+      return allData;
     },
     enabled: !!marketplace?.id,
   });
@@ -203,6 +225,56 @@ const ProductSettings = () => {
     } catch (error) {
       console.error("Error saving:", error);
       toast({ title: "Ошибка", description: "Не удалось сохранить", variant: "destructive" });
+    }
+  };
+
+  // Массовое назначение поставщика
+  const handleBulkAssignSupplier = async () => {
+    if (!marketplace || !bulkSupplierId || selectedOfferIds.size === 0) return;
+    try {
+      let successCount = 0;
+      for (const offerId of selectedOfferIds) {
+        const { error } = await supabase.from("product_business_data").upsert({
+          marketplace_id: marketplace.id,
+          offer_id: offerId,
+          supplier_id: bulkSupplierId,
+        }, { onConflict: "marketplace_id,offer_id" });
+        if (!error) successCount++;
+      }
+      toast({ 
+        title: "Поставщик назначен", 
+        description: `Обновлено ${successCount} из ${selectedOfferIds.size} товаров` 
+      });
+      setSelectedOfferIds(new Set());
+      setBulkSupplierId("");
+      setIsBulkAssignModalOpen(false);
+      refetchBusinessData();
+    } catch (error) {
+      console.error("Bulk assign error:", error);
+      toast({ title: "Ошибка", description: "Не удалось назначить поставщика", variant: "destructive" });
+    }
+  };
+
+  const toggleSelectProduct = (offerId: string) => {
+    setSelectedOfferIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(offerId)) {
+        newSet.delete(offerId);
+      } else {
+        newSet.add(offerId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (!filteredProducts) return;
+    const visibleOfferIds = filteredProducts.slice(0, 50).map(p => p.offer_id);
+    const allSelected = visibleOfferIds.every(id => selectedOfferIds.has(id));
+    if (allSelected) {
+      setSelectedOfferIds(new Set());
+    } else {
+      setSelectedOfferIds(new Set(visibleOfferIds));
     }
   };
 
@@ -346,20 +418,47 @@ const ProductSettings = () => {
           <CardDescription>Укажите поставщиков, цены закупки и параметры упаковки</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex justify-end gap-2 mb-4">
-            <Button variant="outline" onClick={() => { refetchProducts(); refetchBusinessData(); }}>
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Обновить
-            </Button>
-            <Button variant="outline" onClick={handleExportExcel}>
-              <Download className="w-4 h-4 mr-2" />
-              Выгрузить Excel
-            </Button>
-            <Button variant="outline" onClick={() => document.getElementById("excel-upload")?.click()}>
-              <Upload className="w-4 h-4 mr-2" />
-              Загрузить Excel
-            </Button>
-            <input id="excel-upload" type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
+          <div className="flex justify-between items-center gap-2 mb-4">
+            <div className="flex items-center gap-2">
+              {selectedOfferIds.size > 0 && (
+                <>
+                  <span className="text-sm text-muted-foreground">
+                    Выбрано: {selectedOfferIds.size}
+                  </span>
+                  <Button 
+                    variant="default" 
+                    size="sm"
+                    onClick={() => setIsBulkAssignModalOpen(true)}
+                  >
+                    <Truck className="w-4 h-4 mr-2" />
+                    Назначить поставщика
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => setSelectedOfferIds(new Set())}
+                  >
+                    <X className="w-4 h-4 mr-1" />
+                    Снять выбор
+                  </Button>
+                </>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => { refetchProducts(); refetchBusinessData(); }}>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Обновить
+              </Button>
+              <Button variant="outline" onClick={handleExportExcel}>
+                <Download className="w-4 h-4 mr-2" />
+                Выгрузить Excel
+              </Button>
+              <Button variant="outline" onClick={() => document.getElementById("excel-upload")?.click()}>
+                <Upload className="w-4 h-4 mr-2" />
+                Загрузить Excel
+              </Button>
+              <input id="excel-upload" type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4 mb-6">
@@ -426,6 +525,12 @@ const ProductSettings = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-10">
+                      <Checkbox 
+                        checked={filteredProducts && filteredProducts.slice(0, 50).length > 0 && filteredProducts.slice(0, 50).every(p => selectedOfferIds.has(p.offer_id))}
+                        onCheckedChange={toggleSelectAll}
+                      />
+                    </TableHead>
                     <TableHead className="w-14">Фото</TableHead>
                     <TableHead className="w-[130px]">
                       <div className="flex flex-col gap-1">
@@ -567,7 +672,13 @@ const ProductSettings = () => {
                     const bd = businessDataMap.get(product.offer_id);
                     const supplierName = bd?.supplier_id ? supplierMap.get(bd.supplier_id) : null;
                     return (
-                      <TableRow key={product.id}>
+                      <TableRow key={product.id} className={selectedOfferIds.has(product.offer_id) ? "bg-muted/50" : ""}>
+                        <TableCell>
+                          <Checkbox 
+                            checked={selectedOfferIds.has(product.offer_id)}
+                            onCheckedChange={() => toggleSelectProduct(product.offer_id)}
+                          />
+                        </TableCell>
                         <TableCell>
                           {product.image_url ? (
                             <img src={product.image_url} alt="" className="w-10 h-10 object-cover rounded" />
@@ -728,6 +839,37 @@ const ProductSettings = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>Отмена</Button>
             <Button onClick={handleSave}>Сохранить</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Модальное окно массового назначения поставщика */}
+      <Dialog open={isBulkAssignModalOpen} onOpenChange={setIsBulkAssignModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Назначить поставщика</DialogTitle>
+            <DialogDescription>
+              Выбрано товаров: {selectedOfferIds.size}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label className="mb-2 block">Поставщик</Label>
+            <Select value={bulkSupplierId} onValueChange={setBulkSupplierId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Выберите поставщика" />
+              </SelectTrigger>
+              <SelectContent>
+                {suppliers?.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsBulkAssignModalOpen(false)}>Отмена</Button>
+            <Button onClick={handleBulkAssignSupplier} disabled={!bulkSupplierId}>
+              Назначить
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
