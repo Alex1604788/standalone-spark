@@ -217,7 +217,7 @@ const ProductSettings = () => {
         purchase_price: formData.purchase_price ? parseFloat(formData.purchase_price) : null,
         small_box_quantity: formData.small_box_quantity ? parseInt(formData.small_box_quantity) : null,
         large_box_quantity: formData.large_box_quantity ? parseInt(formData.large_box_quantity) : null,
-      });
+      }, { onConflict: "marketplace_id,offer_id" });
       if (error) throw error;
       toast({ title: "Сохранено", description: "Данные товара обновлены" });
       refetchBusinessData();
@@ -354,7 +354,7 @@ const ProductSettings = () => {
           purchase_price: purchasePrice,
           small_box_quantity: smallBox,
           large_box_quantity: largeBox,
-        });
+        }, { onConflict: "marketplace_id,offer_id" });
         if (!error) successCount++;
       }
       await refetchBusinessData();
@@ -797,12 +797,19 @@ const ProductSettings = () => {
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label className="text-right">Категория</Label>
-              <Input
-                className="col-span-3"
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                placeholder="Категория"
-              />
+              <Select 
+                value={formData.category} 
+                onValueChange={(v) => setFormData({ ...formData, category: v })}
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Выберите категорию" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((cat) => (
+                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label className="text-right">Цена закупки</Label>
