@@ -16,7 +16,7 @@ serve(async (req) => {
       reviewId,
       questionId,
       tone = "friendly",
-      response_length = "normal", // 🆕 short | normal
+      response_length = "normal",
     } = await req.json();
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -29,7 +29,6 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // 🎯 Конфигурация длины ответа
     const lengthConfig = {
       short: {
         maxChars: 200,
@@ -46,11 +45,14 @@ serve(async (req) => {
     let itemData;
     let systemPrompt = "";
     let userPrompt = "";
+    let productId: string | null = null;
+    let offerId: string | null = null;
+    let marketplaceId: string | null = null;
 
     if (reviewId) {
       const { data: review, error } = await supabase
         .from("reviews")
-        .select("*, products(name)")
+        .select("*, products(id, name, offer_id, marketplace_id)")
         .eq("id", reviewId)
         .is("deleted_at", null)
         .single();
@@ -58,6 +60,9 @@ serve(async (req) => {
       if (error) throw error;
 
       itemData = review;
+      productId = review.products?.id;
+      offerId = review.products?.offer_id;
+      marketplaceId = review.marketplace_id;
 
       systemPrompt = `Ты - профессиональный менеджер по работе с клиентами интернет-магазина.
 
@@ -80,17 +85,16 @@ ${review.rating >= 4 ? "- Вырази благодарность за поло�
 
       userPrompt = `Напиши ответ на отзыв покупателя.
 
-Товар: ${review.products.name}
+Товар: ${review.products?.name || "не указан"}
 Рейтинг: ${review.rating} из 5
 Отзыв: "${review.text || ""}"
 ${review.advantages ? `Достоинства: "${review.advantages}"` : ""}
-${review.disadvantages ? `Недостатки: "${review.disadvantages}"` : ""}
+${review.disadvantages ? `Недостатки: "${review.disadvantages}"` : ""}`;
 
-Напиши только текст ответа, без заголовков и форматирования.`;
     } else if (questionId) {
       const { data: question, error } = await supabase
         .from("questions")
-        .select("*, products(name)")
+        .select("*, products(id, name, offer_id, marketplace_id)")
         .eq("id", questionId)
         .is("deleted_at", null)
         .single();
@@ -98,6 +102,9 @@ ${review.disadvantages ? `Недостатки: "${review.disadvantages}"` : ""}
       if (error) throw error;
 
       itemData = question;
+      productId = question.products?.id;
+      offerId = question.products?.offer_id;
+      marketplaceId = question.marketplace_id;
 
       systemPrompt = `Ты - профессиональный менеджер по работе с клиентами интернет-магазина.
 
@@ -118,13 +125,48 @@ ${review.disadvantages ? `Недостатки: "${review.disadvantages}"` : ""}
 
       userPrompt = `Напиши ответ на вопрос покупателя.
 
-Товар: ${question.products.name}
-Вопрос: "${question.text}"
+Товар: ${question.products?.name || "не указан"}
+Вопрос: "${question.text}"`;
 
-Напиши только текст ответа, без заголовков и форматирования.`;
     } else {
       throw new Error("Either reviewId or questionId must be provided");
     }
+
+    // 🆕 Получаем базу знаний для этого товара
+    let knowledgeContext = "";
+    if (offerId && marketplaceId) {
+      console.log(`Fetching knowledge for offer_id: ${offerId}, marketplace_id: ${marketplaceId}`);
+      
+      // Используем функцию get_knowledge_for_product_with_fallback
+      const { data: knowledge, error: knowledgeError } = await supabase
+        .rpc("get_knowledge_for_product_with_fallback", {
+          p_marketplace_id: marketplaceId,
+          p_offer_id: offerId,
+          p_limit: 5,
+        });
+
+      if (knowledgeError) {
+        console.error("Error fetching knowledge:", knowledgeError);
+      } else if (knowledge && knowledge.length > 0) {
+        console.log(`Found ${knowledge.length} knowledge entries`);
+        knowledgeContext = "\n\n📚 БАЗА ЗНАНИЙ О ТОВАРЕ (используй эту информацию для ответа):\n";
+        knowledge.forEach((k: any, i: number) => {
+          knowledgeContext += `\n${i + 1}. ${k.title}:\n${k.content}\n`;
+        });
+      } else {
+        console.log("No knowledge found for this product");
+      }
+    }
+
+    // Добавляем базу знаний в системный промпт
+    if (knowledgeContext) {
+      systemPrompt += `\n\nВАЖНО: При формировании ответа ОБЯЗАТЕЛЬНО используй информацию из базы знаний о товаре, если она релевантна вопросу или отзыву.${knowledgeContext}`;
+    }
+
+    userPrompt += "\n\nНапиши только текст ответа, без заголовков и форматирования.";
+
+    console.log("System prompt length:", systemPrompt.length);
+    console.log("User prompt length:", userPrompt.length);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -164,7 +206,6 @@ ${review.disadvantages ? `Недостатки: "${review.disadvantages}"` : ""}
     const data = await response.json();
     let generatedReply = data.choices[0].message.content;
 
-    // 🧹 Дополнительная очистка на случай, если ИИ всё равно добавил форматирование
     generatedReply = generatedReply
       .trim()
       .replace(/^\*\*Ответ:\*\*\s*/i, "")
