@@ -373,13 +373,14 @@ CREATE TABLE product_knowledge (
 - [x] Страница Sales Analytics (src/pages/SalesAnalytics.tsx)
 - [x] Компоненты аналитики (PeriodSelector, SalesCards)
 - [x] Роуты и меню для новых страниц
-- [ ] Страница импорта данных (src/pages/ImportData.tsx)
-- [ ] Компоненты импорта (FileUploader, ImportHistory)
-- [ ] Таблица детализации по товарам (SalesTable)
-- [ ] Интеграция с Supabase (загрузка реальных данных)
+- [x] Страница импорта данных (src/pages/ImportData.tsx)
+- [x] Компоненты импорта (FileUploader, ImportHistory)
+- [x] Таблица детализации по товарам (SalesTable)
+- [ ] Логика импорта для каждого типа данных (TODO в ImportData.tsx)
+- [ ] Интеграция с Supabase (загрузка реальных данных в Sales Analytics)
 - [ ] Тестирование импорта
 - [ ] Тестирование расчетов
 
 ---
 
-**Последнее обновление:** 07.12.2025, 04:15 MSK
+**Последнее обновление:** 07.12.2025, 05:15 MSK

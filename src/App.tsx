@@ -34,6 +34,7 @@ const ProductSettings = lazy(() => import("./pages/ProductSettings"));
 const ProductKnowledge = lazy(() => import("./pages/ProductKnowledge"));
 const Suppliers = lazy(() => import("./pages/Suppliers"));
 const SalesAnalytics = lazy(() => import("./pages/SalesAnalytics"));
+const ImportData = lazy(() => import("./pages/ImportData"));
 const AppLayout = lazy(() => import("./components/AppLayout"));
 
 const queryClient = new QueryClient();
@@ -100,6 +101,7 @@ const App = () => (
             <Route path="/app/products/knowledge" element={<ProtectedPage><ProductKnowledge /></ProtectedPage>} />
             <Route path="/app/suppliers" element={<ProtectedPage><Suppliers /></ProtectedPage>} />
             <Route path="/app/sales-analytics" element={<ProtectedPage><SalesAnalytics /></ProtectedPage>} />
+            <Route path="/app/import-data" element={<ProtectedPage><ImportData /></ProtectedPage>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
