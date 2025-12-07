@@ -2,6 +2,7 @@ import { useState } from "react";
 import { BarChart3 } from "lucide-react";
 import { PeriodSelector, type Period } from "@/components/analytics/PeriodSelector";
 import { SalesCards } from "@/components/analytics/SalesCards";
+import { SalesTable } from "@/components/analytics/SalesTable";
 import { calculateMetrics, comparePeriods, type ProductSalesData } from "@/lib/sales-calculations";
 
 const SalesAnalytics = () => {
@@ -42,6 +43,63 @@ const SalesAnalytics = () => {
   };
 
   const comparison = comparePeriods(mockData, mockData2);
+
+  // TODO: Заменить на реальные данные из БД
+  // Моковые данные для таблицы (несколько товаров)
+  const mockTableData = [
+    {
+      offerId: "M30/3",
+      productName: "Розетка разборная 3 гнезда",
+      category: "Электрика",
+      supplierName: "ООО Электросвет",
+      period1: comparison.period1,
+      period2: comparison.period2,
+      total: comparison.total,
+      changes: comparison.changes,
+    },
+    {
+      offerId: "K12/5",
+      productName: "Кабель удлинитель 5м",
+      category: "Электрика",
+      supplierName: "ООО Кабельторг",
+      period1: calculateMetrics({
+        offerId: "K12/5",
+        productName: "Кабель удлинитель 5м",
+        salesRevenue: 85000,
+        salesQuantity: 30,
+        purchasePrice: 1800,
+        promotionCost: 5000,
+        storageCost: 2000,
+        acquiringCost: 1500,
+      }),
+      period2: calculateMetrics({
+        offerId: "K12/5",
+        productName: "Кабель удлинитель 5м",
+        salesRevenue: 95000,
+        salesQuantity: 35,
+        purchasePrice: 1800,
+        promotionCost: 6000,
+        storageCost: 2200,
+        acquiringCost: 1800,
+      }),
+      total: calculateMetrics({
+        offerId: "K12/5",
+        productName: "Кабель удлинитель 5м",
+        salesRevenue: 180000,
+        salesQuantity: 65,
+        purchasePrice: 1800,
+        promotionCost: 11000,
+        storageCost: 4200,
+        acquiringCost: 3300,
+      }),
+      changes: {
+        salesRevenueChange: 11.76,
+        grossProfitChange: 12.5,
+        netMarginChange: 8.3,
+        marginPercentChange: 0.8,
+      },
+    },
+  ];
 
   const handleApply = () => {
     setIsLoading(true);
@@ -90,20 +148,12 @@ const SalesAnalytics = () => {
           </div>
         )}
 
-        {/* TODO: Таблица детализации по товарам */}
-        {/* <SalesTable /> */}
-
-        {/* Заглушка для будущей таблицы */}
-        <div className="mt-8 p-8 border-2 border-dashed border-muted rounded-lg text-center text-muted-foreground">
-          <BarChart3 className="w-12 h-12 mx-auto mb-4 opacity-50" />
-          <p className="text-lg font-semibold mb-2">Таблица детализации по товарам</p>
-          <p className="text-sm">
-            Здесь будет таблица с детализацией продаж, маржинальности и прибыльности по каждому товару
-          </p>
-          <p className="text-xs mt-2 text-muted-foreground/70">
-            Компонент в разработке
-          </p>
-        </div>
+        {/* Таблица детализации по товарам */}
+        {!isLoading && (
+          <div className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
+            <SalesTable data={mockTableData} isLoading={isLoading} />
+          </div>
+        )}
       </div>
     </div>
   );
