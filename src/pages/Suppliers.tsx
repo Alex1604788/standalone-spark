@@ -244,25 +244,28 @@ const Suppliers = () => {
 
   // Экспорт в Excel
   const handleExportExcel = () => {
-    if (!suppliers || suppliers.length === 0) {
-      toast({
-        title: "Нет данных",
-        description: "Нет поставщиков для экспорта",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const exportData = suppliers.map((supplier) => ({
-      "Название": supplier.name,
-      "Контактное лицо": supplier.contact_person || "",
-      "Телефон": supplier.phone || "",
-      "Email": supplier.email || "",
-      "Адрес": supplier.address || "",
-      "Отсрочка, дн": supplier.payment_delay_days || "",
-      "Срок поставки, дн": supplier.delivery_time_days || "",
-      "Примечания": supplier.notes || "",
-    }));
+    // Всегда создаем файл с шапкой, даже если нет данных
+    const exportData = suppliers && suppliers.length > 0
+      ? suppliers.map((supplier) => ({
+          "Название": supplier.name,
+          "Контактное лицо": supplier.contact_person || "",
+          "Телефон": supplier.phone || "",
+          "Email": supplier.email || "",
+          "Адрес": supplier.address || "",
+          "Отсрочка, дн": supplier.payment_delay_days || "",
+          "Срок поставки, дн": supplier.delivery_time_days || "",
+          "Примечания": supplier.notes || "",
+        }))
+      : [{
+          "Название": "",
+          "Контактное лицо": "",
+          "Телефон": "",
+          "Email": "",
+          "Адрес": "",
+          "Отсрочка, дн": "",
+          "Срок поставки, дн": "",
+          "Примечания": "",
+        }];
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const workbook = XLSX.utils.book_new();
@@ -274,7 +277,9 @@ const Suppliers = () => {
 
     toast({
       title: "Экспорт завершен",
-      description: `Выгружено поставщиков: ${suppliers.length}`,
+      description: suppliers && suppliers.length > 0
+        ? `Выгружено поставщиков: ${suppliers.length}`
+        : "Выгружен шаблон для заполнения",
     });
   };
 
