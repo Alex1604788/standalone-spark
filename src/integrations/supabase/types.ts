@@ -1427,30 +1427,48 @@ export type Database = {
       }
       suppliers: {
         Row: {
+          address: string | null
+          contact_person: string | null
           created_at: string
+          delivery_time_days: number | null
+          email: string | null
           id: string
           lead_time_days: number | null
           marketplace_id: string
           name: string
           notes: string | null
+          payment_delay_days: number | null
+          phone: string | null
           updated_at: string
         }
         Insert: {
+          address?: string | null
+          contact_person?: string | null
           created_at?: string
+          delivery_time_days?: number | null
+          email?: string | null
           id?: string
           lead_time_days?: number | null
           marketplace_id: string
           name: string
           notes?: string | null
+          payment_delay_days?: number | null
+          phone?: string | null
           updated_at?: string
         }
         Update: {
+          address?: string | null
+          contact_person?: string | null
           created_at?: string
+          delivery_time_days?: number | null
+          email?: string | null
           id?: string
           lead_time_days?: number | null
           marketplace_id?: string
           name?: string
           notes?: string | null
+          payment_delay_days?: number | null
+          phone?: string | null
           updated_at?: string
         }
         Relationships: [
