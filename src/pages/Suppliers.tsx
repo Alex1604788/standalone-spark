@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, Plus, Edit, Trash2, Truck, Upload, Download } from "lucide-react";
+import { Search, Plus, Edit, Trash2, Truck, Upload, Download, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 
@@ -388,6 +388,10 @@ const Suppliers = () => {
               </CardDescription>
             </div>
             <div className="flex gap-2">
+              <Button variant="outline" onClick={() => refetch()}>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Обновить
+              </Button>
               <Button variant="outline" onClick={handleExportExcel}>
                 <Download className="w-4 h-4 mr-2" />
                 Выгрузить Excel
