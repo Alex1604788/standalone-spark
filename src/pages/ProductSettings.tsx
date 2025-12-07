@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Search, Edit, DollarSign, Package, Truck, Tag, Copy, Download, Upload, X, RefreshCw, CheckSquare } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import {
   Tooltip,
@@ -90,6 +91,10 @@ const ProductSettings = () => {
   const [selectedOfferIds, setSelectedOfferIds] = useState<Set<string>>(new Set());
   const [isBulkAssignModalOpen, setIsBulkAssignModalOpen] = useState(false);
   const [bulkSupplierId, setBulkSupplierId] = useState<string>("");
+  
+  // Импорт прогресс
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
 
   const { data: marketplace } = useQuery({
     queryKey: ["active-marketplace"],
@@ -325,6 +330,10 @@ const ProductSettings = () => {
   const handleImportExcel = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !marketplace) return;
+    
+    setIsImporting(true);
+    setImportProgress(0);
+    
     try {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
@@ -333,12 +342,17 @@ const ProductSettings = () => {
       if (!jsonData?.length) {
         toast({ title: "Ошибка", description: "Файл пуст", variant: "destructive" });
         event.target.value = "";
+        setIsImporting(false);
         return;
       }
       const supplierNameToId = new Map<string, string>();
       suppliers?.forEach((s) => supplierNameToId.set(s.name.toLowerCase(), s.id));
       let successCount = 0;
-      for (const row of jsonData) {
+      
+      for (let i = 0; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        setImportProgress(((i + 1) / jsonData.length) * 100);
+        
         const offerId = String(row["Артикул"] || "").trim();
         if (!offerId) continue;
         const supplierName = String(row["Поставщик"] || "").trim().toLowerCase();
@@ -362,6 +376,9 @@ const ProductSettings = () => {
     } catch (error) {
       console.error("Import error:", error);
       toast({ title: "Ошибка импорта", variant: "destructive" });
+    } finally {
+      setIsImporting(false);
+      setImportProgress(0);
     }
     event.target.value = "";
   };
@@ -460,6 +477,16 @@ const ProductSettings = () => {
               <input id="excel-upload" type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
             </div>
           </div>
+          
+          {isImporting && (
+            <div className="mb-4 space-y-2">
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span>Импорт товаров...</span>
+                <span>{Math.round(importProgress)}%</span>
+              </div>
+              <Progress value={importProgress} className="h-2" />
+            </div>
+          )}
 
           <div className="grid grid-cols-3 gap-4 mb-6">
             <Card>
