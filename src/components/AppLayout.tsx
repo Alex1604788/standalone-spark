@@ -54,8 +54,39 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     };
 
     window.addEventListener("reviews-updated", handler);
+
+    // ✅ Real-time подписка на изменения в таблице reviews для обновления счетчиков
+    const reviewsChannel = supabase
+      .channel("reviews-count-updates")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "reviews",
+        },
+        () => {
+          // Обновляем счетчики при любом изменении в reviews
+          fetchCounts();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "replies",
+        },
+        () => {
+          // Обновляем счетчики при изменении replies (триггер обновит segment)
+          fetchCounts();
+        }
+      )
+      .subscribe();
+
     return () => {
       window.removeEventListener("reviews-updated", handler);
+      supabase.removeChannel(reviewsChannel);
     };
   }, []);
 

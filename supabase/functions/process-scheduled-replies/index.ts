@@ -17,21 +17,32 @@ Deno.serve(async (req) => {
 
     console.log('Processing scheduled replies...');
 
-    // Find all replies that should be published now
-    const { data: scheduledReplies, error: fetchError } = await supabase
+    // ✅ ИСПРАВЛЕНИЕ: Для Ozon публикация идет через расширение браузера, 
+    // поэтому process-scheduled-replies должен обрабатывать только НЕ-Ozon маркетплейсы
+    // Find all replies that should be published now (excluding Ozon)
+    const { data: allScheduledReplies, error: fetchError } = await supabase
       .from('replies')
-      .select('id')
+      .select(`
+        id,
+        marketplace_id,
+        marketplace:marketplaces!inner(type)
+      `)
       .eq('status', 'scheduled')
       .is('deleted_at', null)
       .lte('scheduled_at', new Date().toISOString())
       .order('scheduled_at', { ascending: true })
-      .limit(50); // Process up to 50 at a time
+      .limit(100); // Берем больше, потом отфильтруем
 
     if (fetchError) {
       throw fetchError;
     }
 
-    console.log(`Found ${scheduledReplies?.length || 0} replies to publish`);
+    // Фильтруем: исключаем Ozon (для него публикация через расширение)
+    const scheduledReplies = (allScheduledReplies || []).filter(
+      (reply: any) => reply.marketplace?.type !== 'ozon'
+    ).slice(0, 50); // Ограничиваем до 50
+
+    console.log(`Found ${scheduledReplies?.length || 0} replies to publish (excluding Ozon)`);
 
     if (!scheduledReplies || scheduledReplies.length === 0) {
       return new Response(
