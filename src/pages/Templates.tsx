@@ -46,7 +46,7 @@ const Templates = () => {
       .from("reply_templates")
       .select("*")
       .eq("user_id", user.id)
-      .order("rating", { ascending: true, nullsLast: true })
+      .order("rating", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false });
 
     if (error) {

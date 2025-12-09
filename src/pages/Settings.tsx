@@ -92,7 +92,7 @@ const Settings = () => {
       .from("reply_templates")
       .select("*")
       .eq("user_id", user.id)
-      .order("rating", { ascending: true, nullsLast: true })
+      .order("rating", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -250,16 +250,6 @@ const Settings = () => {
 
     closeDialog();
     fetchTemplates();
-  };
-
-  const renderStars = (count: number) => {
-    return (
-      <div className="flex gap-0.5">
-        {Array.from({ length: count }).map((_, i) => (
-          <Star key={i} className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-        ))}
-      </div>
-    );
   };
 
   const fetchSettings = async () => {
