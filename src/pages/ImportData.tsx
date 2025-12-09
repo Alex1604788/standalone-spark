@@ -159,9 +159,6 @@ const ImportData = () => {
       case "storage_costs":
         await importStorageCosts(row, marketplaceId, importBatchId);
         break;
-      case "promotion_costs":
-        await importPromotionCosts(row, marketplaceId, importBatchId);
-        break;
       case "business_data":
         await importBusinessData(row, marketplaceId, importBatchId);
         break;
@@ -227,49 +224,6 @@ const ImportData = () => {
       sku: skuCol ? String(row[skuCol]).trim() : null,
       storage_cost: costCol ? parseFloat(String(row[costCol]).replace(",", ".")) || 0 : 0,
       stock_quantity: stockCol ? parseInt(String(row[stockCol]).replace(/[^\d]/g, "")) || 0 : 0,
-      import_batch_id: importBatchId,
-    });
-
-    if (error) throw error;
-  };
-
-  // Импорт затрат на продвижение
-  const importPromotionCosts = async (row: any, marketplaceId: string, importBatchId: string) => {
-    const findColumn = (keywords: string[]) => {
-      const keys = Object.keys(row);
-      return keys.find(k => keywords.some(kw => k.toLowerCase().includes(kw.toLowerCase())));
-    };
-
-    const skuCol = findColumn(["sku", "ску"]);
-    const typeCol = findColumn(["тип продвижения", "тип", "продвижение"]);
-    const costCol = findColumn(["расход", "стоимость", "ндс"]);
-    const periodCol = findColumn(["период"]);
-
-    if (!skuCol) {
-      throw new Error("Не найдена обязательная колонка: SKU");
-    }
-
-    // Парсинг периода (если есть), иначе используем выбранный период
-    let periodStartDate = periodStart;
-    let periodEndDate = periodEnd;
-
-    if (periodCol && row[periodCol]) {
-      // Пример: "01.12.2024 - 07.12.2024"
-      const periodStr = String(row[periodCol]);
-      const match = periodStr.match(/(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{2}\.\d{2}\.\d{4})/);
-      if (match) {
-        periodStartDate = match[1].split(".").reverse().join("-");
-        periodEndDate = match[2].split(".").reverse().join("-");
-      }
-    }
-
-    const { error } = await supabase.from("promotion_costs").insert({
-      marketplace_id: marketplaceId,
-      period_start: periodStartDate,
-      period_end: periodEndDate,
-      sku: String(row[skuCol]).trim(),
-      promotion_type: typeCol ? String(row[typeCol]).trim() : null,
-      promotion_cost: costCol ? parseFloat(String(row[costCol]).replace(",", ".")) || 0 : 0,
       import_batch_id: importBatchId,
     });
 
@@ -385,9 +339,6 @@ const ImportData = () => {
                   </SelectItem>
                   <SelectItem value="storage_costs">
                     📦 Стоимость размещения (storage_costs)
-                  </SelectItem>
-                  <SelectItem value="promotion_costs">
-                    📢 Затраты на продвижение (promotion_costs)
                   </SelectItem>
                   <SelectItem value="business_data">
                     🏷️ Номенклатура (product_business_data)
