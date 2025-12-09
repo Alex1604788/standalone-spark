@@ -337,7 +337,7 @@ const Templates = () => {
                   Отмена
                 </Button>
                 <Button onClick={handleSubmit}>
-                  {editingTemplate ? "Сохранить" : "Создать"}
+                  {editingTemplate ? "Сохранить изменения" : "Создать шаблон"}
                 </Button>
               </DialogFooter>
             </DialogContent>
