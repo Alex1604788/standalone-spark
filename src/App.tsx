@@ -36,6 +36,12 @@ const Suppliers = lazy(() => import("./pages/Suppliers"));
 const SalesAnalytics = lazy(() => import("./pages/SalesAnalytics"));
 const ImportData = lazy(() => import("./pages/ImportData"));
 const AppLayout = lazy(() => import("./components/AppLayout"));
+const ReviewsQuestionsAnalytics = lazy(() => import("./pages/analytics/ReviewsQuestionsAnalytics"));
+const PricesAnalytics = lazy(() => import("./pages/analytics/PricesAnalytics"));
+const PromotionAnalytics = lazy(() => import("./pages/analytics/PromotionAnalytics"));
+const PromotionsAnalytics = lazy(() => import("./pages/analytics/PromotionsAnalytics"));
+const CompetitorsAnalytics = lazy(() => import("./pages/analytics/CompetitorsAnalytics"));
+const CompetitorsSettings = lazy(() => import("./pages/settings/CompetitorsSettings"));
 
 const queryClient = new QueryClient();
 
@@ -79,16 +85,30 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/auth" element={<Auth />} />
-            <Route path="/app" element={<ProtectedPage><Analytics /></ProtectedPage>} />
-            <Route path="/app/marketplaces" element={<ProtectedPage><Marketplaces /></ProtectedPage>} />
+            {/* Редирект с /app на первую аналитику */}
+            <Route path="/app" element={<Navigate to="/app/analytics/reviews-questions" replace />} />
+            {/* Аналитика */}
+            <Route path="/app/analytics/reviews-questions" element={<ProtectedPage><ReviewsQuestionsAnalytics /></ProtectedPage>} />
+            <Route path="/app/sales-analytics" element={<ProtectedPage><SalesAnalytics /></ProtectedPage>} />
+            <Route path="/app/analytics/prices" element={<ProtectedPage><PricesAnalytics /></ProtectedPage>} />
+            <Route path="/app/analytics/promotion" element={<ProtectedPage><PromotionAnalytics /></ProtectedPage>} />
+            <Route path="/app/analytics/promotions" element={<ProtectedPage><PromotionsAnalytics /></ProtectedPage>} />
+            <Route path="/app/analytics/competitors" element={<ProtectedPage><CompetitorsAnalytics /></ProtectedPage>} />
+            {/* Отзывы и Вопросы */}
             <Route path="/app/reviews/:status" element={<ProtectedPage><Reviews /></ProtectedPage>} />
             <Route path="/app/questions/:status" element={<ProtectedPage><Questions /></ProtectedPage>} />
+            {/* Настройки */}
+            <Route path="/app/settings" element={<ProtectedPage><Settings /></ProtectedPage>} />
+            <Route path="/app/suppliers" element={<ProtectedPage><Suppliers /></ProtectedPage>} />
+            <Route path="/app/products/settings" element={<ProtectedPage><ProductSettings /></ProtectedPage>} />
+            <Route path="/app/settings/competitors" element={<ProtectedPage><CompetitorsSettings /></ProtectedPage>} />
+            {/* Остальные страницы */}
+            <Route path="/app/marketplaces" element={<ProtectedPage><Marketplaces /></ProtectedPage>} />
             <Route path="/app/profile" element={<ProtectedPage><Profile /></ProtectedPage>} />
             <Route path="/app/review-queue" element={<ProtectedPage><ReviewQueue /></ProtectedPage>} />
             <Route path="/app/analytics" element={<ProtectedPage><Analytics /></ProtectedPage>} />
             <Route path="/app/templates" element={<ProtectedPage><Templates /></ProtectedPage>} />
             <Route path="/app/fallback" element={<ProtectedPage><FallbackMode /></ProtectedPage>} />
-            <Route path="/app/settings" element={<ProtectedPage><Settings /></ProtectedPage>} />
             <Route path="/app/connect" element={<ProtectedPage><ConnectMarketplace /></ProtectedPage>} />
             <Route path="/app/connect/ozon" element={<ProtectedPage><ConnectOzonMode /></ProtectedPage>} />
             <Route path="/app/connect/ozon/api" element={<ProtectedPage><ConnectOzonAPI /></ProtectedPage>} />
@@ -97,10 +117,7 @@ const App = () => (
             <Route path="/app/settings/ozon" element={<ProtectedPage><OzonSettings /></ProtectedPage>} />
             <Route path="/app/extension" element={<ProtectedPage><DownloadExtension /></ProtectedPage>} />
             <Route path="/app/notifications" element={<ProtectedPage><Notifications /></ProtectedPage>} />
-            <Route path="/app/products/settings" element={<ProtectedPage><ProductSettings /></ProtectedPage>} />
             <Route path="/app/products/knowledge" element={<ProtectedPage><ProductKnowledge /></ProtectedPage>} />
-            <Route path="/app/suppliers" element={<ProtectedPage><Suppliers /></ProtectedPage>} />
-            <Route path="/app/sales-analytics" element={<ProtectedPage><SalesAnalytics /></ProtectedPage>} />
             <Route path="/app/import-data" element={<ProtectedPage><ImportData /></ProtectedPage>} />
             <Route path="*" element={<NotFound />} />
           </Routes>

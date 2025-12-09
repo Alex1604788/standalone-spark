@@ -6,7 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ChevronLeft, ChevronRight, Loader2, RefreshCw, Sparkles, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, RefreshCw, Sparkles, Search, Send, Clock } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ReviewsTable } from "@/components/reviews/ReviewsTable";
@@ -57,6 +59,11 @@ const Reviews = () => {
   const [scheduleMode, setScheduleMode] = useState<"now" | "later">("now");
   const [scheduledDateTime, setScheduledDateTime] = useState("");
   const [existingDraftId, setExistingDraftId] = useState<string | null>(null);
+  
+  // ✅ Статус процесса автоматической отправки
+  const [scheduledCount, setScheduledCount] = useState(0);
+  const [publishingCount, setPublishingCount] = useState(0);
+  const [lastGenerationTime, setLastGenerationTime] = useState<Date | null>(null);
 
   const { toast } = useToast();
 
@@ -102,10 +109,6 @@ const Reviews = () => {
       let totalScheduled = 0;
       let totalDrafted = 0;
 
-      let totalGenerated = 0;
-      let totalScheduled = 0;
-      let totalDrafted = 0;
-
       // Запускаем генерацию для каждого маркетплейса
       for (const mp of marketplaces) {
         console.log("[Reviews] Calling auto-generate-drafts for marketplace:", mp.id);
@@ -132,6 +135,12 @@ const Reviews = () => {
       // Обновляем список после генерации
       fetchReviews();
       window.dispatchEvent(new Event("reviews-updated"));
+      
+      // ✅ Обновляем статус процесса
+      if (totalScheduled > 0) {
+        setLastGenerationTime(new Date());
+      }
+      await updatePublishingStatus();
 
       // Показываем результат
       const messages = [];
@@ -156,15 +165,77 @@ const Reviews = () => {
     }
   };
 
+  // ✅ Функция для обновления статуса процесса отправки
+  const updatePublishingStatus = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data: marketplaces } = await supabase
+      .from("marketplaces")
+      .select("id")
+      .eq("user_id", user.id);
+
+    if (!marketplaces || marketplaces.length === 0) return;
+    const marketplaceIds = marketplaces.map((m) => m.id);
+
+    // Подсчитываем scheduled ответы
+    const { count: scheduled } = await supabase
+      .from("replies")
+      .select("*", { count: "exact", head: true })
+      .in("marketplace_id", marketplaceIds)
+      .eq("status", "scheduled")
+      .is("deleted_at", null);
+
+    // Подсчитываем publishing ответы
+    const { count: publishing } = await supabase
+      .from("replies")
+      .select("*", { count: "exact", head: true })
+      .in("marketplace_id", marketplaceIds)
+      .eq("status", "publishing")
+      .is("deleted_at", null);
+
+    setScheduledCount(scheduled || 0);
+    setPublishingCount(publishing || 0);
+  };
+
   useEffect(() => {
     fetchReviews();
     fetchQuestions();
+    updatePublishingStatus();
     
-    // Автогенерация при первой загрузке страницы с неотвеченными
-    if (statusFilter === "unanswered" && page === 1) {
-      triggerAutoGenerate();
-    }
+    // ✅ Генерация теперь работает в фоновом режиме через cron job
+    // Автогенерация при открытии страницы отключена
+    // Пользователь может запустить генерацию вручную через кнопку "Автогенерация ответов"
   }, [page, pageSize, ratingFilter, statusFilter]);
+
+  // ✅ Отдельный useEffect для real-time подписки и периодического обновления статуса
+  useEffect(() => {
+    updatePublishingStatus();
+    
+    // ✅ Real-time подписка на изменения в replies для отслеживания статуса отправки
+    const repliesChannel = supabase
+      .channel("replies-status-updates")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "replies",
+        },
+        () => {
+          updatePublishingStatus();
+        }
+      )
+      .subscribe();
+
+    // Обновляем статус каждые 10 секунд
+    const interval = setInterval(updatePublishingStatus, 10000);
+
+    return () => {
+      supabase.removeChannel(repliesChannel);
+      clearInterval(interval);
+    };
+  }, []); // Пустой массив зависимостей - запускается только при монтировании
 
   // При открытии отзыва загрузить существующий черновик
   useEffect(() => {
@@ -215,6 +286,8 @@ const Reviews = () => {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
+      // ✅ Используем inner join для products (как было), но считаем по reviews напрямую
+      // Это исправит несоответствие счетчиков
       let query = supabase
         .from("reviews")
         .select(
@@ -643,33 +716,69 @@ const Reviews = () => {
   return (
     <div className="min-h-screen bg-gray-50/50 pb-20">
       <div className="container mx-auto p-6 space-y-6">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold text-gray-900">Отзывы и вопросы</h1>
-            <HelpIcon content="Раздел для управления отзывами и вопросами покупателей.\n\nСтатусы отзывов:\n• Не отвечено - новые отзывы без ответов\n• Ожидают публикации - ответы созданы и отправляются\n• Архив - отзывы с опубликованными ответами\n\nВы можете:\n• Выбрать несколько отзывов и отправить ответы массово\n• Открыть отзыв и ответить вручную\n• Использовать ИИ для генерации ответа\n• Запустить автоматическую генерацию ответов" />
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={triggerAutoGenerate}
-              disabled={isGenerating}
-            >
-              <Sparkles className={`w-4 h-4 mr-2 ${isGenerating ? "animate-spin" : ""}`} />
-              {isGenerating ? "Генерация..." : "Автогенерация ответов"}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                fetchReviews();
-                fetchQuestions();
-              }}
-              disabled={isTableLoading}
-            >
-              <RefreshCw className={`w-4 h-4 mr-2 ${isTableLoading ? "animate-spin" : ""}`} />
-              Обновить
-            </Button>
+        <div className="flex flex-col gap-3">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-bold text-gray-900">Отзывы и вопросы</h1>
+              <HelpIcon content="Раздел для управления отзывами и вопросами покупателей.\n\nСтатусы отзывов:\n• Не отвечено - новые отзывы без ответов\n• Ожидают публикации - ответы созданы и отправляются\n• Архив - отзывы с опубликованными ответами\n\nВы можете:\n• Выбрать несколько отзывов и отправить ответы массово\n• Открыть отзыв и ответить вручную\n• Использовать ИИ для генерации ответа\n• Запустить автоматическую генерацию ответов" />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={triggerAutoGenerate}
+                disabled={isGenerating}
+              >
+                <Sparkles className={`w-4 h-4 mr-2 ${isGenerating ? "animate-spin" : ""}`} />
+                {isGenerating ? "Генерация..." : "Автогенерация ответов"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  fetchReviews();
+                  fetchQuestions();
+                  updatePublishingStatus();
+                }}
+                disabled={isTableLoading}
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${isTableLoading ? "animate-spin" : ""}`} />
+                Обновить
+              </Button>
+            </div>
           </div>
         </div>
+        
+        {/* ✅ Статус-бар процесса автоматической отправки */}
+        {(scheduledCount > 0 || publishingCount > 0 || lastGenerationTime) && (
+          <Alert className="bg-blue-50 border-blue-200">
+            <AlertDescription className="flex items-center gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-blue-600" />
+                <span className="font-medium text-blue-900">Автоматическая отправка:</span>
+              </div>
+              {scheduledCount > 0 && (
+                <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-white">
+                  <span className="flex items-center gap-1">
+                    <Send className="w-3 h-3" />
+                    {scheduledCount} в очереди
+                  </span>
+                </div>
+              )}
+              {publishingCount > 0 && (
+                <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-white">
+                  <span className="flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    {publishingCount} отправляется
+                  </span>
+                </div>
+              )}
+              {lastGenerationTime && (
+                <span className="text-blue-700 text-xs ml-auto">
+                  Последняя генерация: {lastGenerationTime.toLocaleTimeString('ru-RU')}
+                </span>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
 
         <Tabs defaultValue="reviews" className="space-y-6">
           <TabsList className="bg-white border">
