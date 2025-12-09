@@ -4,11 +4,14 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Star, Save } from "lucide-react";
+import { Star, Save, Sparkles, Plus, Pencil, Trash2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { HelpIcon } from "@/components/HelpIcon";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 
 interface MarketplaceSettings {
   id: string;
@@ -27,12 +30,31 @@ interface MarketplaceSettings {
   use_templates_5?: boolean;
 }
 
+interface Template {
+  id: string;
+  name: string;
+  content: string;
+  tone: string;
+  rating: number | null;
+  use_count: number;
+}
+
 const Settings = () => {
   const { toast } = useToast();
   const [marketplaces, setMarketplaces] = useState<any[]>([]);
   const [selectedMarketplace, setSelectedMarketplace] = useState<string>("");
   const [settings, setSettings] = useState<MarketplaceSettings | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
+  const [formData, setFormData] = useState({
+    name: "",
+    content: "",
+    tone: "friendly",
+    rating: null as number | null,
+  });
 
   useEffect(() => {
     fetchMarketplaces();
@@ -41,6 +63,7 @@ const Settings = () => {
   useEffect(() => {
     if (selectedMarketplace) {
       fetchSettings();
+      fetchTemplates();
     }
   }, [selectedMarketplace]);
 
@@ -59,6 +82,184 @@ const Settings = () => {
         setSelectedMarketplace(data[0].id);
       }
     }
+  };
+
+  const fetchTemplates = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("reply_templates")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("rating", { ascending: true, nullsLast: true })
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching templates:", error);
+    } else {
+      setTemplates(data || []);
+    }
+  };
+
+  const handleGenerateTemplates = async () => {
+    setIsGenerating(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast({
+          title: "Ошибка",
+          description: "Пользователь не авторизован",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke("generate-reply-templates", {
+        body: {
+          user_id: user.id,
+          count: 10,
+        },
+      });
+
+      if (error) throw error;
+
+      if (data?.templates) {
+        const { error: insertError } = await supabase
+          .from("reply_templates")
+          .insert(data.templates.map((t: any) => ({ ...t, user_id: user.id })));
+
+        if (insertError) throw insertError;
+
+        toast({
+          title: "Успешно",
+          description: `Создано ${data.templates.length} шаблонов`,
+        });
+        fetchTemplates();
+      }
+    } catch (error: any) {
+      console.error("Generate templates error:", error);
+      toast({
+        title: "Ошибка",
+        description: error.message || "Не удалось сгенерировать шаблоны",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleDeleteTemplate = async (id: string) => {
+    if (!confirm("Вы уверены, что хотите удалить этот шаблон?")) return;
+
+    const { error } = await supabase.from("reply_templates").delete().eq("id", id);
+
+    if (error) {
+      toast({
+        title: "Ошибка",
+        description: "Не удалось удалить шаблон",
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Успешно",
+        description: "Шаблон удалён",
+      });
+      fetchTemplates();
+    }
+  };
+
+  const openEditDialog = (template: Template) => {
+    setEditingTemplate(template);
+    setFormData({
+      name: template.name,
+      content: template.content,
+      tone: template.tone,
+      rating: template.rating,
+    });
+    setIsDialogOpen(true);
+  };
+
+  const closeDialog = () => {
+    setIsDialogOpen(false);
+    setEditingTemplate(null);
+    setFormData({ name: "", content: "", tone: "friendly", rating: null });
+  };
+
+  const handleSubmitTemplate = async () => {
+    if (!formData.name.trim() || !formData.content.trim()) {
+      toast({
+        title: "Ошибка",
+        description: "Заполните все обязательные поля",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast({
+        title: "Ошибка",
+        description: "Пользователь не авторизован",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (editingTemplate) {
+      const { error } = await supabase
+        .from("reply_templates")
+        .update({
+          ...formData,
+          rating: formData.rating || null,
+        })
+        .eq("id", editingTemplate.id);
+
+      if (error) {
+        toast({
+          title: "Ошибка",
+          description: "Не удалось обновить шаблон",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Успешно",
+          description: "Шаблон обновлён",
+        });
+      }
+    } else {
+      const { error } = await supabase.from("reply_templates").insert({
+        ...formData,
+        rating: formData.rating || null,
+        user_id: user.id,
+      });
+
+      if (error) {
+        toast({
+          title: "Ошибка",
+          description: error.message || "Не удалось создать шаблон",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Успешно",
+          description: "Шаблон создан",
+        });
+      }
+    }
+
+    closeDialog();
+    fetchTemplates();
+  };
+
+  const renderStars = (count: number) => {
+    return (
+      <div className="flex gap-0.5">
+        {Array.from({ length: count }).map((_, i) => (
+          <Star key={i} className="w-3 h-3 fill-yellow-400 text-yellow-400" />
+        ))}
+      </div>
+    );
   };
 
   const fetchSettings = async () => {
@@ -271,6 +472,155 @@ const Settings = () => {
                 <Label htmlFor="questions-auto">Автоматический</Label>
               </div>
             </RadioGroup>
+          </Card>
+
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-semibold">Шаблоны ответов</h3>
+                <HelpIcon content="Шаблоны ответов - это готовые тексты для быстрого ответа на отзывы.\n\nКак это работает:\n1. Создайте шаблоны для разных рейтингов (1-5 звёзд)\n2. Включите использование шаблонов выше для нужных рейтингов\n3. Система будет случайно выбирать шаблон вместо генерации через ИИ\n\nПреимущества:\n• Единообразие ответов\n• Контроль над содержанием\n• Экономия на ИИ-генерации" />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGenerateTemplates}
+                  disabled={isGenerating}
+                >
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  {isGenerating ? "Генерация..." : "Сгенерировать шаблоны"}
+                </Button>
+                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" onClick={() => setEditingTemplate(null)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Создать шаблон
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                      <DialogTitle>
+                        {editingTemplate ? "Редактировать шаблон" : "Новый шаблон"}
+                      </DialogTitle>
+                      <DialogDescription>
+                        Создайте шаблон для быстрых ответов на отзывы
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="name">Название шаблона</Label>
+                        <input
+                          id="name"
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          value={formData.name}
+                          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                          placeholder="Например: Благодарность за 5 звёзд"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="tone">Тон ответа</Label>
+                          <Select
+                            value={formData.tone}
+                            onValueChange={(value) => setFormData({ ...formData, tone: value })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="friendly">Дружелюбный</SelectItem>
+                              <SelectItem value="formal">Формальный</SelectItem>
+                              <SelectItem value="professional">Профессиональный</SelectItem>
+                              <SelectItem value="casual">Непринуждённый</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="rating">Рейтинг отзыва (опционально)</Label>
+                          <Select
+                            value={formData.rating?.toString() || "all"}
+                            onValueChange={(value) => setFormData({ ...formData, rating: value === "all" ? null : parseInt(value) })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Для всех рейтингов</SelectItem>
+                              <SelectItem value="1">1 звезда</SelectItem>
+                              <SelectItem value="2">2 звезды</SelectItem>
+                              <SelectItem value="3">3 звезды</SelectItem>
+                              <SelectItem value="4">4 звезды</SelectItem>
+                              <SelectItem value="5">5 звёзд</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="content">Текст шаблона</Label>
+                        <Textarea
+                          id="content"
+                          placeholder="Введите текст шаблона..."
+                          value={formData.content}
+                          onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                          rows={8}
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={closeDialog}>
+                        Отмена
+                      </Button>
+                      <Button onClick={handleSubmitTemplate}>
+                        {editingTemplate ? "Сохранить изменения" : "Создать шаблон"}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </div>
+            {templates.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                Нет шаблонов. Нажмите "Сгенерировать шаблоны" для автоматического создания или "Создать шаблон" для ручного создания.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {templates.map((template) => (
+                  <div key={template.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{template.name}</span>
+                        {template.rating && (
+                          <Badge variant="secondary" className="flex items-center gap-1">
+                            {renderStars(template.rating)}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{template.content}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Тон: {template.tone} • Использован: {template.use_count} раз
+                        {!template.rating && " • Для всех рейтингов"}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 ml-4">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEditDialog(template)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteTemplate(template.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
 
           <Card className="p-6">
