@@ -376,11 +376,15 @@ CREATE TABLE product_knowledge (
 - [x] Страница импорта данных (src/pages/ImportData.tsx)
 - [x] Компоненты импорта (FileUploader, ImportHistory)
 - [x] Таблица детализации по товарам (SalesTable)
-- [ ] Логика импорта для каждого типа данных (TODO в ImportData.tsx)
+- [x] Логика импорта для каждого типа данных:
+  - [x] ozon_accruals - начисления ОЗОН
+  - [x] storage_costs - затраты на хранение
+  - [x] promotion_costs - затраты на продвижение
+  - [x] product_business_data - номенклатура
 - [ ] Интеграция с Supabase (загрузка реальных данных в Sales Analytics)
 - [ ] Тестирование импорта
 - [ ] Тестирование расчетов
 
 ---
 
-**Последнее обновление:** 07.12.2025, 05:15 MSK
+**Последнее обновление:** 07.12.2025, 05:30 MSK
