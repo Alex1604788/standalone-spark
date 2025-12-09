@@ -21,10 +21,10 @@ const IMPORT_TYPE_LABELS: Record<ImportType, string> = {
 };
 
 const EXPECTED_COLUMNS: Record<ImportType, string[]> = {
-  accruals: ["Тип начисления", "Артикул", "SKU", "Количество"],
-  storage_costs: ["Дата", "Артикул", "SKU", "Стоимость размещения"],
-  promotion_costs: ["SKU", "Тип продвижения", "Расход"],
-  business_data: ["Артикул", "Поставщик", "Категория", "Закупочная цена"],
+  accruals: ["Тип начисления", "Артикул"],  // Минимальные требования
+  storage_costs: ["Дата", "Артикул"],
+  promotion_costs: ["SKU"],
+  business_data: ["Артикул"],
 };
 
 export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploaderProps) => {
