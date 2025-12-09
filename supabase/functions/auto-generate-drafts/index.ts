@@ -130,7 +130,9 @@ serve(async (req) => {
       reviewsQuery = reviewsQuery.eq("marketplace_id", marketplace_id);
     }
 
-    const { data: reviews, error: reviewsError } = await reviewsQuery.limit(20);
+    // Увеличиваем лимит для обработки большего количества отзывов за раз
+    // Для шаблонов это будет очень быстро, для ИИ - с задержками
+    const { data: reviews, error: reviewsError } = await reviewsQuery.limit(50);
 
     if (reviewsError) {
       console.error("Error fetching reviews:", reviewsError);
@@ -265,16 +267,20 @@ ${review.rating <= 2 ? "- Вежливо извиниться за негати�
           errors.push(`Review ${review.id}: ${insertError.message}`);
         } else {
           if (replyStatus === "scheduled") {
-            console.log(`[auto-generate-drafts] ⚡ Scheduled auto-reply for review ${review.id}`);
+            console.log(`[auto-generate-drafts] ⚡ Scheduled auto-reply for review ${review.id} (${useTemplates ? 'template' : 'AI'})`);
             totalScheduled++;
           } else {
-            console.log(`[auto-generate-drafts] ✅ Created draft for review ${review.id}`);
+            console.log(`[auto-generate-drafts] ✅ Created draft for review ${review.id} (${useTemplates ? 'template' : 'AI'})`);
             totalDrafts++;
           }
         }
 
-        // Small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // Задержка только для ИИ-генерации (шаблоны мгновенные)
+        // Для шаблонов задержка не нужна, т.к. это просто выбор из БД
+        if (!useTemplates) {
+          // Задержка для ИИ, чтобы не перегружать API
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       } catch (e) {
         console.error(`[auto-generate-drafts] Error processing review ${review.id}:`, e);
         errors.push(`Review ${review.id}: ${e instanceof Error ? e.message : "unknown"}`);
