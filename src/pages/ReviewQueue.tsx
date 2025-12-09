@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
+import { HelpIcon } from "@/components/HelpIcon";
 
 interface DraftReply {
   id: string;
@@ -206,9 +207,12 @@ const ReviewQueue = () => {
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
       <div className="container mx-auto p-6 space-y-6">
         <div className="space-y-2">
-          <h1 className="text-4xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-            Очередь модерации
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-4xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+              Очередь модерации
+            </h1>
+            <HelpIcon content="Очередь модерации - это черновики ответов, созданные системой в полуавтоматическом режиме.\n\nКак это работает:\n1. Система автоматически создаёт черновики для новых отзывов\n2. Черновики появляются здесь для вашей проверки\n3. Вы можете:\n   • Утвердить ответ - он будет отправлен\n   • Отредактировать ответ перед отправкой\n   • Перегенерировать ответ через ИИ\n   • Удалить черновик\n\nПосле утверждения ответ отправляется на публикацию. Вы можете отменить отправку в течение 30 минут." />
+          </div>
           <p className="text-muted-foreground">
             Просмотрите и утвердите ответы, сгенерированные ИИ
           </p>

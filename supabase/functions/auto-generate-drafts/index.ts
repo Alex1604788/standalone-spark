@@ -32,7 +32,7 @@ serve(async (req) => {
 
     console.log(`[auto-generate-drafts] Starting for user ${user_id}, marketplace ${marketplace_id || "all"}`);
 
-    // Get marketplace settings including modes
+    // Get marketplace settings including modes and template usage flags
     let settings: {
       reply_length: string;
       reviews_mode_1: string;
@@ -41,12 +41,17 @@ serve(async (req) => {
       reviews_mode_4: string;
       reviews_mode_5: string;
       questions_mode: string;
+      use_templates_1?: boolean;
+      use_templates_2?: boolean;
+      use_templates_3?: boolean;
+      use_templates_4?: boolean;
+      use_templates_5?: boolean;
     } | null = null;
 
     if (marketplace_id) {
       const { data } = await supabase
         .from("marketplace_settings")
-        .select("reply_length, reviews_mode_1, reviews_mode_2, reviews_mode_3, reviews_mode_4, reviews_mode_5, questions_mode")
+        .select("reply_length, reviews_mode_1, reviews_mode_2, reviews_mode_3, reviews_mode_4, reviews_mode_5, questions_mode, use_templates_1, use_templates_2, use_templates_3, use_templates_4, use_templates_5")
         .eq("marketplace_id", marketplace_id)
         .single();
       
@@ -66,6 +71,51 @@ serve(async (req) => {
         case 4: return settings.reviews_mode_4 || "semi";
         case 5: return settings.reviews_mode_5 || "semi";
         default: return "semi";
+      }
+    };
+
+    // Helper function to check if templates should be used for rating
+    const shouldUseTemplates = (rating: number): boolean => {
+      if (!settings) return false;
+      switch (rating) {
+        case 1: return settings.use_templates_1 || false;
+        case 2: return settings.use_templates_2 || false;
+        case 3: return settings.use_templates_3 || false;
+        case 4: return settings.use_templates_4 || false;
+        case 5: return settings.use_templates_5 || false;
+        default: return false;
+      }
+    };
+
+    // Helper function to get random template for rating
+    const getRandomTemplate = async (rating: number): Promise<string | null> => {
+      try {
+        // Получаем шаблоны для данного рейтинга или универсальные (rating IS NULL)
+        const { data: templates, error } = await supabase
+          .from("reply_templates")
+          .select("id, content, use_count")
+          .eq("user_id", user_id)
+          .or(`rating.eq.${rating},rating.is.null`)
+          .limit(100);
+
+        if (error || !templates || templates.length === 0) {
+          console.log(`[auto-generate-drafts] No templates found for rating ${rating}`);
+          return null;
+        }
+
+        // Выбираем случайный шаблон
+        const randomTemplate = templates[Math.floor(Math.random() * templates.length)];
+        
+        // Увеличиваем счётчик использования
+        await supabase
+          .from("reply_templates")
+          .update({ use_count: (randomTemplate.use_count || 0) + 1 })
+          .eq("id", randomTemplate.id);
+
+        return randomTemplate.content;
+      } catch (e) {
+        console.error(`[auto-generate-drafts] Error getting template for rating ${rating}:`, e);
+        return null;
       }
     };
 
@@ -133,19 +183,36 @@ serve(async (req) => {
 
         console.log(`[auto-generate-drafts] Review ${review.id} (rating: ${review.rating}) -> mode: ${mode}, status: ${replyStatus}`);
 
-        // Generate draft using AI
-        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${lovableApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
-            messages: [
-              {
-                role: "system",
-                content: `Ты - профессиональный менеджер маркетплейса. Напиши ответ на отзыв покупателя.
+        // ✅ Проверяем, нужно ли использовать шаблоны
+        let generatedReply: string | null = null;
+        let useTemplates = shouldUseTemplates(review.rating);
+
+        if (useTemplates) {
+          // Используем шаблон вместо генерации через ИИ
+          console.log(`[auto-generate-drafts] Using template for review ${review.id} (rating: ${review.rating})`);
+          generatedReply = await getRandomTemplate(review.rating);
+          
+          if (!generatedReply) {
+            console.warn(`[auto-generate-drafts] No template found, falling back to AI generation`);
+            // Fallback to AI if no template found
+            useTemplates = false;
+          }
+        }
+
+        // Если шаблоны не используются или не найдены - генерируем через ИИ
+        if (!useTemplates || !generatedReply) {
+          const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${lovableApiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash",
+              messages: [
+                {
+                  role: "system",
+                  content: `Ты - профессиональный менеджер маркетплейса. Напиши ответ на отзыв покупателя.
 
 Товар: ${productName}
 Рейтинг: ${review.rating} из 5
@@ -159,26 +226,27 @@ serve(async (req) => {
 - Поблагодарить за отзыв
 ${review.rating <= 2 ? "- Вежливо извиниться за негативный опыт" : ""}
 - Ответ должен быть завершённым, не обрезанным`
-              },
-              { role: "user", content: "Сгенерируй ответ" }
-            ],
-          }),
-        });
+                },
+                { role: "user", content: "Сгенерируй ответ" }
+              ],
+            }),
+          });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`[auto-generate-drafts] AI error for review ${review.id}:`, errorText);
-          errors.push(`Review ${review.id}: AI error`);
-          continue;
-        }
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[auto-generate-drafts] AI error for review ${review.id}:`, errorText);
+            errors.push(`Review ${review.id}: AI error`);
+            continue;
+          }
 
-        const data = await response.json();
-        const generatedReply = data.choices?.[0]?.message?.content;
+          const data = await response.json();
+          generatedReply = data.choices?.[0]?.message?.content;
 
-        if (!generatedReply) {
-          console.error(`[auto-generate-drafts] Empty reply for review ${review.id}`);
-          errors.push(`Review ${review.id}: empty reply`);
-          continue;
+          if (!generatedReply) {
+            console.error(`[auto-generate-drafts] Empty reply for review ${review.id}`);
+            errors.push(`Review ${review.id}: empty reply`);
+            continue;
+          }
         }
 
         // Create reply with appropriate status

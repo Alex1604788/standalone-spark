@@ -5,8 +5,10 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Star, Save } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { HelpIcon } from "@/components/HelpIcon";
 
 interface MarketplaceSettings {
   id: string;
@@ -18,6 +20,11 @@ interface MarketplaceSettings {
   reviews_mode_5: string;
   questions_mode: string;
   reply_length: string;
+  use_templates_1?: boolean;
+  use_templates_2?: boolean;
+  use_templates_3?: boolean;
+  use_templates_4?: boolean;
+  use_templates_5?: boolean;
 }
 
 const Settings = () => {
@@ -92,6 +99,11 @@ const Settings = () => {
         reviews_mode_5: settings.reviews_mode_5,
         questions_mode: settings.questions_mode,
         reply_length: settings.reply_length,
+        use_templates_1: settings.use_templates_1 || false,
+        use_templates_2: settings.use_templates_2 || false,
+        use_templates_3: settings.use_templates_3 || false,
+        use_templates_4: settings.use_templates_4 || false,
+        use_templates_5: settings.use_templates_5 || false,
       })
       .eq("id", settings.id);
 
@@ -180,38 +192,64 @@ const Settings = () => {
       {settings && (
         <>
           <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Режимы ответов на отзывы</h3>
+            <div className="flex items-center gap-2 mb-4">
+              <h3 className="text-lg font-semibold">Режимы ответов на отзывы</h3>
+              <HelpIcon content="Выберите режим работы для каждого рейтинга отзывов:\n\n• Полуавтоматический: система создаёт черновики ответов, вы проверяете и отправляете вручную\n• Автоматический: система автоматически генерирует и отправляет ответы без вашего участия\n\nРекомендуется использовать автоматический режим для положительных отзывов (4-5 звёзд), а полуавтоматический - для негативных (1-2 звезды)." />
+            </div>
             <p className="text-sm text-muted-foreground mb-6">
               В полуавтоматическом режиме ИИ генерирует ответы, но отправка требует подтверждения.
               В автоматическом режиме ответы отправляются без подтверждения.
             </p>
             <div className="space-y-4">
               {[1, 2, 3, 4, 5].map((rating) => (
-                <div key={rating} className="flex items-center justify-between border-b pb-4">
-                  <div className="flex items-center gap-3">
-                    {renderStars(rating)}
+                <div key={rating} className="space-y-3 border-b pb-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {renderStars(rating)}
+                    </div>
+                    <RadioGroup
+                      value={settings[`reviews_mode_${rating}` as keyof MarketplaceSettings] as string}
+                      onValueChange={(value) => updateReviewMode(rating, value)}
+                      className="flex gap-4"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="semi" id={`semi-${rating}`} />
+                        <Label htmlFor={`semi-${rating}`}>Полуавтоматический</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="auto" id={`auto-${rating}`} />
+                        <Label htmlFor={`auto-${rating}`}>Автоматический</Label>
+                      </div>
+                    </RadioGroup>
                   </div>
-                  <RadioGroup
-                    value={settings[`reviews_mode_${rating}` as keyof MarketplaceSettings] as string}
-                    onValueChange={(value) => updateReviewMode(rating, value)}
-                    className="flex gap-4"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="semi" id={`semi-${rating}`} />
-                      <Label htmlFor={`semi-${rating}`}>Полуавтоматический</Label>
+                  <div className="flex items-center justify-between pl-8">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor={`use-templates-${rating}`} className="text-sm font-normal cursor-pointer">
+                        Использовать шаблоны ответов
+                      </Label>
+                      <HelpIcon content="Если включено, система будет использовать готовые шаблоны ответов вместо генерации через ИИ.\n\nШаблоны можно создать и настроить в разделе 'Шаблоны ответов'. Система будет случайным образом выбирать шаблон, подходящий для данного рейтинга." />
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="auto" id={`auto-${rating}`} />
-                      <Label htmlFor={`auto-${rating}`}>Автоматический</Label>
-                    </div>
-                  </RadioGroup>
+                    <Switch
+                      id={`use-templates-${rating}`}
+                      checked={settings[`use_templates_${rating}` as keyof MarketplaceSettings] as boolean || false}
+                      onCheckedChange={(checked) => {
+                        setSettings({
+                          ...settings,
+                          [`use_templates_${rating}`]: checked,
+                        });
+                      }}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
           </Card>
 
           <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Режим ответов на вопросы</h3>
+            <div className="flex items-center gap-2 mb-4">
+              <h3 className="text-lg font-semibold">Режим ответов на вопросы</h3>
+              <HelpIcon content="Настройте режим автоматических ответов на вопросы покупателей:\n\n• Отключен: ответы не генерируются автоматически\n• Полуавтоматический: создаются черновики для проверки\n• Автоматический: ответы отправляются автоматически" />
+            </div>
             <RadioGroup
               value={settings.questions_mode}
               onValueChange={(value) => setSettings({ ...settings, questions_mode: value })}
@@ -233,10 +271,16 @@ const Settings = () => {
           </Card>
 
           <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Расширенные настройки</h3>
+            <div className="flex items-center gap-2 mb-4">
+              <h3 className="text-lg font-semibold">Расширенные настройки</h3>
+              <HelpIcon content="Дополнительные параметры для настройки ответов:\n\n• Длина ответа: краткий (до 200 символов) или обычный (до 400 символов)" />
+            </div>
             <div className="space-y-4">
               <div>
-                <Label>Длина ответа</Label>
+                <div className="flex items-center gap-2 mb-2">
+                  <Label>Длина ответа</Label>
+                  <HelpIcon content="Выберите максимальную длину генерируемых ответов:\n\n• Краткий: до 200 символов, 2-3 предложения\n• Обычный: до 400 символов, 3-5 предложений" />
+                </div>
                 <Select
                   value={settings.reply_length}
                   onValueChange={(value) => setSettings({ ...settings, reply_length: value })}

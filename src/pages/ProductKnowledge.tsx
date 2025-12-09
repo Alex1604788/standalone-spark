@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import * as XLSX from "xlsx";
+import { HelpIcon } from "@/components/HelpIcon";
 
 interface KnowledgeItem {
   id: string;
@@ -398,7 +399,10 @@ const ProductKnowledge = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">База знаний о товарах</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold">База знаний о товарах</h1>
+          <HelpIcon content="База знаний о товарах - это хранилище информации, которая используется ИИ для генерации более точных и релевантных ответов на отзывы.\n\nКак это работает:\n1. Вы добавляете информацию о товарах (характеристики, особенности, инструкции)\n2. При генерации ответа ИИ использует эту информацию\n3. Ответы становятся более точными и информативными\n\nЧто можно добавить:\n• Технические характеристики\n• Инструкции по использованию\n• Частые вопросы и ответы\n• Информация от поставщика\n• Особенности товара\n\nВы можете:\n• Добавлять знания вручную\n• Импортировать из Excel файла\n• Экспортировать базу знаний" />
+        </div>
       </div>
 
       {/* Фильтры и действия */}

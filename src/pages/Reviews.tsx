@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ReviewsTable } from "@/components/reviews/ReviewsTable";
 import { ReviewWithDetails, getProductName, getProductArticle } from "@/lib/reviewHelpers";
 import { getReviewSegment, getReviewStatusBadge } from "@/lib/reviewStatusHelpers";
+import { HelpIcon } from "@/components/HelpIcon";
 
 interface Question {
   id: string;
@@ -594,7 +595,10 @@ const Reviews = () => {
     <div className="min-h-screen bg-gray-50/50 pb-20">
       <div className="container mx-auto p-6 space-y-6">
         <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold text-gray-900">Отзывы и вопросы</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold text-gray-900">Отзывы и вопросы</h1>
+            <HelpIcon content="Раздел для управления отзывами и вопросами покупателей.\n\nСтатусы отзывов:\n• Не отвечено - новые отзывы без ответов\n• Ожидают публикации - ответы созданы и отправляются\n• Архив - отзывы с опубликованными ответами\n\nВы можете:\n• Выбрать несколько отзывов и отправить ответы массово\n• Открыть отзыв и ответить вручную\n• Использовать ИИ для генерации ответа" />
+          </div>
           <Button
             variant="outline"
             onClick={() => {
@@ -630,6 +634,7 @@ const Reviews = () => {
 
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Оценка:</span>
+                  <HelpIcon content="Фильтр по рейтингу отзывов (1-5 звёзд). Выберите конкретный рейтинг или 'Все' для отображения всех отзывов." />
                   <Select value={ratingFilter} onValueChange={setRatingFilter}>
                     <SelectTrigger className="w-[130px] h-9">
                       <SelectValue placeholder="Все" />
@@ -734,15 +739,18 @@ const Reviews = () => {
           <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-zinc-900 text-white shadow-xl rounded-full px-6 py-3 flex items-center gap-6 z-50">
             <span className="font-medium whitespace-nowrap">Выбрано: {selectedReviewsIds.length}</span>
 
-            <Select value={responseLength} onValueChange={(v: "short" | "normal") => setResponseLength(v)}>
-              <SelectTrigger className="w-[140px] h-8 bg-white text-black">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="short">Краткий</SelectItem>
-                <SelectItem value="normal">Обычный</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-2">
+              <Select value={responseLength} onValueChange={(v: "short" | "normal") => setResponseLength(v)}>
+                <SelectTrigger className="w-[140px] h-8 bg-white text-black">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="short">Краткий</SelectItem>
+                  <SelectItem value="normal">Обычный</SelectItem>
+                </SelectContent>
+              </Select>
+              <HelpIcon content="Длина ответа для массовой отправки:\n• Краткий - до 200 символов\n• Обычный - до 400 символов\n\nПри массовой отправке:\n• Если есть черновики - они будут отправлены\n• Если черновиков нет - ответы будут сгенерированы через ИИ" />
+            </div>
 
             <Button
               size="sm"
