@@ -317,6 +317,11 @@ export type Database = {
           reviews_mode_4: string | null
           reviews_mode_5: string | null
           updated_at: string | null
+          use_templates_1: boolean | null
+          use_templates_2: boolean | null
+          use_templates_3: boolean | null
+          use_templates_4: boolean | null
+          use_templates_5: boolean | null
         }
         Insert: {
           created_at?: string | null
@@ -330,6 +335,11 @@ export type Database = {
           reviews_mode_4?: string | null
           reviews_mode_5?: string | null
           updated_at?: string | null
+          use_templates_1?: boolean | null
+          use_templates_2?: boolean | null
+          use_templates_3?: boolean | null
+          use_templates_4?: boolean | null
+          use_templates_5?: boolean | null
         }
         Update: {
           created_at?: string | null
@@ -343,6 +353,11 @@ export type Database = {
           reviews_mode_4?: string | null
           reviews_mode_5?: string | null
           updated_at?: string | null
+          use_templates_1?: boolean | null
+          use_templates_2?: boolean | null
+          use_templates_3?: boolean | null
+          use_templates_4?: boolean | null
+          use_templates_5?: boolean | null
         }
         Relationships: [
           {
@@ -1253,6 +1268,7 @@ export type Database = {
           created_at: string
           id: string
           name: string
+          rating: number | null
           tone: string | null
           updated_at: string
           use_count: number | null
@@ -1263,6 +1279,7 @@ export type Database = {
           created_at?: string
           id?: string
           name: string
+          rating?: number | null
           tone?: string | null
           updated_at?: string
           use_count?: number | null
@@ -1273,6 +1290,7 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
+          rating?: number | null
           tone?: string | null
           updated_at?: string
           use_count?: number | null
