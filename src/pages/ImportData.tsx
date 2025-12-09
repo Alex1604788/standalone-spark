@@ -152,22 +152,189 @@ const ImportData = () => {
     marketplaceId: string,
     importBatchId: string
   ) => {
-    // TODO: Здесь реализовать импорт в зависимости от типа
-    // Пока заглушка
     switch (type) {
       case "accruals":
-        // Импорт в ozon_accruals
-        // await supabase.from("ozon_accruals").insert({ ... });
+        await importAccruals(row, marketplaceId, importBatchId);
         break;
       case "storage_costs":
-        // Импорт в storage_costs
+        await importStorageCosts(row, marketplaceId, importBatchId);
         break;
       case "promotion_costs":
-        // Импорт в promotion_costs
+        await importPromotionCosts(row, marketplaceId, importBatchId);
         break;
       case "business_data":
-        // Импорт в product_business_data
+        await importBusinessData(row, marketplaceId, importBatchId);
         break;
+    }
+  };
+
+  // Импорт начислений ОЗОН
+  const importAccruals = async (row: any, marketplaceId: string, importBatchId: string) => {
+    // Поиск колонок по частичному совпадению (Excel может добавлять пробелы)
+    const findColumn = (keywords: string[]) => {
+      const keys = Object.keys(row);
+      return keys.find(k => keywords.some(kw => k.toLowerCase().includes(kw.toLowerCase())));
+    };
+
+    const accrualTypeCol = findColumn(["тип начисления", "тип"]);
+    const offerIdCol = findColumn(["артикул"]);
+    const skuCol = findColumn(["sku", "ску"]);
+    const quantityCol = findColumn(["количество"]);
+    const amountBeforeCol = findColumn(["до вычета", "до комиссии", "продажа"]);
+    const totalCol = findColumn(["итого", "сумма"]);
+    const dateCol = findColumn(["дата"]);
+
+    if (!accrualTypeCol || !offerIdCol) {
+      throw new Error("Не найдены обязательные колонки: Тип начисления, Артикул");
+    }
+
+    const { error } = await supabase.from("ozon_accruals").insert({
+      marketplace_id: marketplaceId,
+      accrual_date: dateCol && row[dateCol] ? new Date(row[dateCol]).toISOString().split("T")[0] : periodStart,
+      offer_id: String(row[offerIdCol]).trim(),
+      sku: skuCol ? String(row[skuCol]).trim() : null,
+      accrual_type: String(row[accrualTypeCol]).trim(),
+      quantity: quantityCol ? parseFloat(String(row[quantityCol]).replace(",", ".")) || 0 : 0,
+      amount_before_commission: amountBeforeCol ? parseFloat(String(row[amountBeforeCol]).replace(",", ".")) || 0 : 0,
+      total_amount: totalCol ? parseFloat(String(row[totalCol]).replace(",", ".")) || 0 : 0,
+      import_batch_id: importBatchId,
+    });
+
+    if (error) throw error;
+  };
+
+  // Импорт стоимости размещения
+  const importStorageCosts = async (row: any, marketplaceId: string, importBatchId: string) => {
+    const findColumn = (keywords: string[]) => {
+      const keys = Object.keys(row);
+      return keys.find(k => keywords.some(kw => k.toLowerCase().includes(kw.toLowerCase())));
+    };
+
+    const dateCol = findColumn(["дата"]);
+    const offerIdCol = findColumn(["артикул"]);
+    const skuCol = findColumn(["sku", "ску"]);
+    const costCol = findColumn(["стоимость размещения", "стоимость", "размещение"]);
+    const stockCol = findColumn(["остаток", "количество", "экземпляр"]);
+
+    if (!dateCol || !offerIdCol) {
+      throw new Error("Не найдены обязательные колонки: Дата, Артикул");
+    }
+
+    const { error } = await supabase.from("storage_costs").insert({
+      marketplace_id: marketplaceId,
+      cost_date: new Date(row[dateCol]).toISOString().split("T")[0],
+      offer_id: String(row[offerIdCol]).trim(),
+      sku: skuCol ? String(row[skuCol]).trim() : null,
+      storage_cost: costCol ? parseFloat(String(row[costCol]).replace(",", ".")) || 0 : 0,
+      stock_quantity: stockCol ? parseInt(String(row[stockCol]).replace(/[^\d]/g, "")) || 0 : 0,
+      import_batch_id: importBatchId,
+    });
+
+    if (error) throw error;
+  };
+
+  // Импорт затрат на продвижение
+  const importPromotionCosts = async (row: any, marketplaceId: string, importBatchId: string) => {
+    const findColumn = (keywords: string[]) => {
+      const keys = Object.keys(row);
+      return keys.find(k => keywords.some(kw => k.toLowerCase().includes(kw.toLowerCase())));
+    };
+
+    const skuCol = findColumn(["sku", "ску"]);
+    const typeCol = findColumn(["тип продвижения", "тип", "продвижение"]);
+    const costCol = findColumn(["расход", "стоимость", "ндс"]);
+    const periodCol = findColumn(["период"]);
+
+    if (!skuCol) {
+      throw new Error("Не найдена обязательная колонка: SKU");
+    }
+
+    // Парсинг периода (если есть), иначе используем выбранный период
+    let periodStartDate = periodStart;
+    let periodEndDate = periodEnd;
+
+    if (periodCol && row[periodCol]) {
+      // Пример: "01.12.2024 - 07.12.2024"
+      const periodStr = String(row[periodCol]);
+      const match = periodStr.match(/(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{2}\.\d{2}\.\d{4})/);
+      if (match) {
+        periodStartDate = match[1].split(".").reverse().join("-");
+        periodEndDate = match[2].split(".").reverse().join("-");
+      }
+    }
+
+    const { error } = await supabase.from("promotion_costs").insert({
+      marketplace_id: marketplaceId,
+      period_start: periodStartDate,
+      period_end: periodEndDate,
+      sku: String(row[skuCol]).trim(),
+      promotion_type: typeCol ? String(row[typeCol]).trim() : null,
+      promotion_cost: costCol ? parseFloat(String(row[costCol]).replace(",", ".")) || 0 : 0,
+      import_batch_id: importBatchId,
+    });
+
+    if (error) throw error;
+  };
+
+  // Импорт бизнес-данных
+  const importBusinessData = async (row: any, marketplaceId: string, importBatchId: string) => {
+    const findColumn = (keywords: string[]) => {
+      const keys = Object.keys(row);
+      return keys.find(k => keywords.some(kw => k.toLowerCase().includes(kw.toLowerCase())));
+    };
+
+    const offerIdCol = findColumn(["артикул"]);
+    const supplierCol = findColumn(["поставщик"]);
+    const categoryCol = findColumn(["категория"]);
+    const typeCol = findColumn(["вид"]);
+    const subtypeCol = findColumn(["подвид"]);
+    const priceCol = findColumn(["закупочная цена", "цена", "закупка"]);
+
+    if (!offerIdCol) {
+      throw new Error("Не найдена обязательная колонка: Артикул");
+    }
+
+    // Поиск поставщика по названию
+    let supplierId = null;
+    if (supplierCol && row[supplierCol]) {
+      const { data: supplier } = await supabase
+        .from("suppliers")
+        .select("id")
+        .ilike("name", String(row[supplierCol]).trim())
+        .single();
+      supplierId = supplier?.id || null;
+    }
+
+    // Проверяем существование записи
+    const { data: existing } = await supabase
+      .from("product_business_data")
+      .select("id")
+      .eq("marketplace_id", marketplaceId)
+      .eq("offer_id", String(row[offerIdCol]).trim())
+      .maybeSingle();
+
+    const dataToSave = {
+      marketplace_id: marketplaceId,
+      offer_id: String(row[offerIdCol]).trim(),
+      supplier_id: supplierId,
+      category: categoryCol ? String(row[categoryCol]).trim() : null,
+      product_type: typeCol ? String(row[typeCol]).trim() : null,
+      product_subtype: subtypeCol ? String(row[subtypeCol]).trim() : null,
+      purchase_price: priceCol ? parseFloat(String(row[priceCol]).replace(",", ".")) || null : null,
+      purchase_price_updated_at: priceCol && row[priceCol] ? new Date().toISOString() : null,
+    };
+
+    if (existing) {
+      // Обновляем существующую запись
+      const { error } = await supabase
+        .from("product_business_data")
+        .update(dataToSave)
+        .eq("id", existing.id);
+      if (error) throw error;
+    } else {
+      // Создаем новую запись
+      const { error } = await supabase.from("product_business_data").insert(dataToSave);
+      if (error) throw error;
     }
   };
 

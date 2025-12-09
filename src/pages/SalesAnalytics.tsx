@@ -3,7 +3,10 @@ import { BarChart3 } from "lucide-react";
 import { PeriodSelector, type Period } from "@/components/analytics/PeriodSelector";
 import { SalesCards } from "@/components/analytics/SalesCards";
 import { SalesTable } from "@/components/analytics/SalesTable";
-import { calculateMetrics, comparePeriods, type ProductSalesData } from "@/lib/sales-calculations";
+import { calculateMetrics, comparePeriods, aggregateData } from "@/lib/sales-calculations";
+import { useSalesAnalytics } from "@/hooks/useSalesAnalytics";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 const SalesAnalytics = () => {
   // Периоды по умолчанию (последние 30 дней vs предыдущие 30 дней)
@@ -21,96 +24,107 @@ const SalesAnalytics = () => {
     endDate: today.toISOString().split("T")[0],
   });
 
-  const [isLoading, setIsLoading] = useState(false);
-
-  // TODO: Заменить на реальные данные из Supabase
-  // Пока используем моковые данные для демонстрации
-  const mockData: ProductSalesData = {
-    offerId: "mock",
-    productName: "Тестовый товар",
-    salesRevenue: 150000,
-    salesQuantity: 50,
-    purchasePrice: 2000,
-    promotionCost: 10000,
-    storageCost: 5000,
-    acquiringCost: 3000,
-  };
-
-  const mockData2: ProductSalesData = {
-    ...mockData,
-    salesRevenue: 180000,
-    salesQuantity: 60,
-  };
-
-  const comparison = comparePeriods(mockData, mockData2);
-
-  // TODO: Заменить на реальные данные из БД
-  // Моковые данные для таблицы (несколько товаров)
-  const mockTableData = [
-    {
-      offerId: "M30/3",
-      productName: "Розетка разборная 3 гнезда",
-      category: "Электрика",
-      supplierName: "ООО Электросвет",
-      period1: comparison.period1,
-      period2: comparison.period2,
-      total: comparison.total,
-      changes: comparison.changes,
+  // Получаем ID первого маркетплейса пользователя
+  const { data: marketplace } = useQuery({
+    queryKey: ["user-marketplace"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("marketplaces")
+        .select("id")
+        .limit(1)
+        .single();
+      if (error) throw error;
+      return data;
     },
-    {
-      offerId: "K12/5",
-      productName: "Кабель удлинитель 5м",
-      category: "Электрика",
-      supplierName: "ООО Кабельторг",
-      period1: calculateMetrics({
-        offerId: "K12/5",
-        productName: "Кабель удлинитель 5м",
-        salesRevenue: 85000,
-        salesQuantity: 30,
-        purchasePrice: 1800,
-        promotionCost: 5000,
-        storageCost: 2000,
-        acquiringCost: 1500,
-      }),
-      period2: calculateMetrics({
-        offerId: "K12/5",
-        productName: "Кабель удлинитель 5м",
-        salesRevenue: 95000,
-        salesQuantity: 35,
-        purchasePrice: 1800,
-        promotionCost: 6000,
-        storageCost: 2200,
-        acquiringCost: 1800,
-      }),
-      total: calculateMetrics({
-        offerId: "K12/5",
-        productName: "Кабель удлинитель 5м",
-        salesRevenue: 180000,
-        salesQuantity: 65,
-        purchasePrice: 1800,
-        promotionCost: 11000,
-        storageCost: 4200,
-        acquiringCost: 3300,
-      }),
-      changes: {
-        salesRevenueChange: 11.76,
-        grossProfitChange: 12.5,
-        netMarginChange: 8.3,
-        marginPercentChange: 0.8,
-      },
-    },
-  ];
+  });
+
+  // Загрузка данных для периода 1
+  const {
+    data: period1Data,
+    isLoading: isLoading1,
+    refetch: refetch1,
+  } = useSalesAnalytics({
+    marketplaceId: marketplace?.id || "",
+    startDate: period1.startDate,
+    endDate: period1.endDate,
+  });
+
+  // Загрузка данных для периода 2
+  const {
+    data: period2Data,
+    isLoading: isLoading2,
+    refetch: refetch2,
+  } = useSalesAnalytics({
+    marketplaceId: marketplace?.id || "",
+    startDate: period2.startDate,
+    endDate: period2.endDate,
+  });
+
+  const isLoading = isLoading1 || isLoading2 || !marketplace;
+
+  // Агрегируем данные и вычисляем метрики
+  const aggregatedPeriod1 = period1Data ? aggregateData(period1Data) : null;
+  const aggregatedPeriod2 = period2Data ? aggregateData(period2Data) : null;
+
+  // Сравнение периодов
+  const comparison =
+    aggregatedPeriod1 && aggregatedPeriod2
+      ? comparePeriods(aggregatedPeriod1, aggregatedPeriod2)
+      : null;
+
+  // Подготовка данных для таблицы (по каждому товару)
+  const tableData =
+    period1Data && period2Data
+      ? period1Data.map((p1) => {
+          // Находим данные для того же товара в период2
+          const p2 = period2Data.find((p) => p.offerId === p1.offerId) || {
+            ...p1,
+            salesRevenue: 0,
+            quantity: 0,
+            promotionCost: 0,
+            storageCost: 0,
+            acquiringCost: 0,
+          };
+
+          // Рассчитываем метрики для обоих периодов
+          const metrics1 = calculateMetrics(p1);
+          const metrics2 = calculateMetrics(p2);
+
+          // Суммарные данные
+          const total = calculateMetrics({
+            ...p1,
+            salesRevenue: p1.salesRevenue + p2.salesRevenue,
+            quantity: p1.quantity + p2.quantity,
+            promotionCost: p1.promotionCost + p2.promotionCost,
+            storageCost: p1.storageCost + p2.storageCost,
+            acquiringCost: p1.acquiringCost + p2.acquiringCost,
+          });
+
+          // Изменения
+          const calculateChange = (v1: number, v2: number) =>
+            v1 !== 0 ? ((v2 - v1) / v1) * 100 : v2 !== 0 ? 100 : 0;
+
+          return {
+            offerId: p1.offerId,
+            productName: p1.productName,
+            category: p1.category || "",
+            supplier: p1.supplier || "",
+            period1: metrics1,
+            period2: metrics2,
+            total,
+            changes: {
+              salesRevenueChange: calculateChange(metrics1.salesRevenue, metrics2.salesRevenue),
+              grossProfitChange: calculateChange(metrics1.grossProfit, metrics2.grossProfit),
+              netMarginChange: calculateChange(metrics1.netMargin, metrics2.netMargin),
+              marginPercentChange: metrics2.marginPercent - metrics1.marginPercent,
+            },
+          };
+        })
+      : [];
 
   const handleApply = () => {
-    setIsLoading(true);
-    // TODO: Загрузить данные из Supabase
-    // - Запросить ozon_accruals за период1 и период2
-    // - Запросить storage_costs
-    // - Запросить promotion_costs
-    // - Объединить с product_business_data для получения закупочных цен
-    // - Рассчитать метрики
-    console.log("Применение фильтра:", { period1, period2 });
-    setTimeout(() => setIsLoading(false), 500);
+    refetch1();
+    refetch2();
   };
 
   return (
@@ -137,7 +151,7 @@ const SalesAnalytics = () => {
         />
 
         {/* Сводные карточки */}
-        {!isLoading && (
+        {!isLoading && comparison && (
           <div className="animate-fade-in-up">
             <SalesCards
               period1={comparison.period1}
@@ -149,9 +163,19 @@ const SalesAnalytics = () => {
         )}
 
         {/* Таблица детализации по товарам */}
-        {!isLoading && (
+        {!isLoading && tableData.length > 0 && (
           <div className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
-            <SalesTable data={mockTableData} isLoading={isLoading} />
+            <SalesTable data={tableData} isLoading={isLoading} />
+          </div>
+        )}
+
+        {/* Сообщение если нет данных */}
+        {!isLoading && tableData.length === 0 && (
+          <div className="text-center py-12 text-muted-foreground">
+            <p className="text-lg">Нет данных за выбранные периоды</p>
+            <p className="text-sm mt-2">
+              Импортируйте данные из OZON через страницу "Импорт данных"
+            </p>
           </div>
         )}
       </div>

@@ -10,12 +10,13 @@
 export interface ProductSalesData {
   offerId: string;
   productName: string;
+  article?: string;               // Артикул (external_id)
   category?: string;
-  supplierName?: string;
+  supplier?: string;              // Название поставщика
 
   // Данные за период
   salesRevenue: number;           // Продажи (руб)
-  salesQuantity: number;          // Продажи (шт)
+  quantity: number;               // Продажи (шт)
   purchasePrice: number;          // Закупочная цена
   promotionCost: number;          // Затраты на продвижение
   storageCost: number;            // Стоимость размещения
@@ -25,7 +26,7 @@ export interface ProductSalesData {
 export interface CalculatedMetrics {
   // Продажи
   salesRevenue: number;           // Продажи (руб)
-  salesQuantity: number;          // Продажи (шт)
+  quantity: number;               // Продажи (шт)
 
   // Валовая прибыль
   grossProfit: number;            // Валовка (руб)
@@ -131,7 +132,7 @@ export function calculateMarginPercent(netMargin: number, salesRevenue: number):
  */
 export function calculateMetrics(data: ProductSalesData): CalculatedMetrics {
   // Себестоимость
-  const cogs = calculateCOGS(data.purchasePrice, data.salesQuantity);
+  const cogs = calculateCOGS(data.purchasePrice, data.quantity);
 
   // Валовая прибыль
   const grossProfit = calculateGrossProfit(data.salesRevenue, cogs);
@@ -155,7 +156,7 @@ export function calculateMetrics(data: ProductSalesData): CalculatedMetrics {
 
   return {
     salesRevenue: data.salesRevenue,
-    salesQuantity: data.salesQuantity,
+    quantity: data.quantity,
     grossProfit,
     markup,
     promotionCost: data.promotionCost,
@@ -183,9 +184,9 @@ export function comparePeriods(
     offerId: period1Data.offerId,
     productName: period1Data.productName,
     category: period1Data.category,
-    supplierName: period1Data.supplierName,
+    supplier: period1Data.supplier,
     salesRevenue: period1Data.salesRevenue + period2Data.salesRevenue,
-    salesQuantity: period1Data.salesQuantity + period2Data.salesQuantity,
+    quantity: period1Data.quantity + period2Data.quantity,
     purchasePrice: period1Data.purchasePrice, // Используем текущую цену
     promotionCost: period1Data.promotionCost + period2Data.promotionCost,
     storageCost: period1Data.storageCost + period2Data.storageCost,
@@ -234,13 +235,63 @@ export function calculateChangePercent(oldValue: number, newValue: number): numb
 // ============================================
 
 /**
+ * Агрегация массива товаров в один суммарный объект
+ */
+export function aggregateData(products: ProductSalesData[]): ProductSalesData {
+  if (products.length === 0) {
+    return {
+      offerId: "aggregate",
+      productName: "Все товары",
+      salesRevenue: 0,
+      quantity: 0,
+      purchasePrice: 0,
+      promotionCost: 0,
+      storageCost: 0,
+      acquiringCost: 0,
+    };
+  }
+
+  const totals = products.reduce(
+    (acc, p) => ({
+      offerId: "aggregate",
+      productName: "Все товары",
+      salesRevenue: acc.salesRevenue + p.salesRevenue,
+      quantity: acc.quantity + p.quantity,
+      purchasePrice: acc.purchasePrice, // Не суммируем, используем weighted average
+      promotionCost: acc.promotionCost + p.promotionCost,
+      storageCost: acc.storageCost + p.storageCost,
+      acquiringCost: acc.acquiringCost + p.acquiringCost,
+    }),
+    {
+      offerId: "aggregate",
+      productName: "Все товары",
+      salesRevenue: 0,
+      quantity: 0,
+      purchasePrice: 0,
+      promotionCost: 0,
+      storageCost: 0,
+      acquiringCost: 0,
+    }
+  );
+
+  // Рассчитываем средневзвешенную закупочную цену
+  const totalQuantity = totals.quantity;
+  if (totalQuantity > 0) {
+    totals.purchasePrice =
+      products.reduce((acc, p) => acc + p.purchasePrice * p.quantity, 0) / totalQuantity;
+  }
+
+  return totals;
+}
+
+/**
  * Суммирование метрик по множеству товаров
  */
 export function aggregateMetrics(metrics: CalculatedMetrics[]): CalculatedMetrics {
   const totals = metrics.reduce(
     (acc, m) => ({
       salesRevenue: acc.salesRevenue + m.salesRevenue,
-      salesQuantity: acc.salesQuantity + m.salesQuantity,
+      quantity: acc.quantity + m.quantity,
       grossProfit: acc.grossProfit + m.grossProfit,
       markup: 0, // Будет пересчитан
       promotionCost: acc.promotionCost + m.promotionCost,
@@ -253,7 +304,7 @@ export function aggregateMetrics(metrics: CalculatedMetrics[]): CalculatedMetric
     }),
     {
       salesRevenue: 0,
-      salesQuantity: 0,
+      quantity: 0,
       grossProfit: 0,
       markup: 0,
       promotionCost: 0,
