@@ -204,6 +204,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     // Проверяем настройки
     const settingsTitles: Record<string, string> = {
       "/app/settings": "Настройки Отзывов и Вопросов",
+      "/app/marketplaces": "Настройка Маркетплейсов",
       "/app/suppliers": "Настройка Поставщиков",
       "/app/products/settings": "Настройка Товаров",
       "/app/settings/competitors": "Настройка Конкурентов",
@@ -412,6 +413,18 @@ const AppLayout = ({ children }: AppLayoutProps) => {
               {settingsOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </CollapsibleTrigger>
             <CollapsibleContent className="ml-4 mt-1 space-y-1">
+              <Link
+                to="/app/marketplaces"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/marketplaces"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span className="text-sm">Маркетплейсов</span>
+              </Link>
               <Link
                 to="/app/settings"
                 onClick={() => setIsMobileMenuOpen(false)}
