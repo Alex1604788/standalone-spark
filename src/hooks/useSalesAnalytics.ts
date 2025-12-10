@@ -127,6 +127,8 @@ export const useSalesAnalytics = ({ marketplaceId, startDate, endDate }: SalesAn
           article: product.article,
           category: business.category,
           supplier: business.supplierName,
+          productType: business.productType,
+          productSubtype: business.productSubtype,
           salesRevenue: Number(item.total_sales) || 0,
           quantity: Number(item.total_quantity) || 0,
           purchasePrice: Number(business.purchasePrice) || 0,
