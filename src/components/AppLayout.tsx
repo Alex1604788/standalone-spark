@@ -208,6 +208,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
       "/app/suppliers": "Настройка Поставщиков",
       "/app/products/settings": "Настройка Товаров",
       "/app/settings/competitors": "Настройка Конкурентов",
+      "/app/settings/ozon-api": "Настройка API OZON Продвижения",
     };
     if (settingsTitles[location.pathname]) return settingsTitles[location.pathname];
 
@@ -472,6 +473,18 @@ const AppLayout = ({ children }: AppLayoutProps) => {
               >
                 <Users className="w-4 h-4" />
                 <span className="text-sm">Конкурентов</span>
+              </Link>
+              <Link
+                to="/app/settings/ozon-api"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/settings/ozon-api"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <Megaphone className="w-4 h-4" />
+                <span className="text-sm">API OZON Продвижения</span>
               </Link>
             </CollapsibleContent>
           </Collapsible>
