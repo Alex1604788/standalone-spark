@@ -246,11 +246,44 @@ const Marketplaces = () => {
       if (functionError) throw functionError;
 
       if (data?.success) {
+        const reviewsSynced = data.stats?.reviews_synced ?? 0;
         toast({
           title: "Синхронизация завершена",
-          description: `Отзывов: ${data.stats?.reviews_synced ?? 0}, Вопросов: ${data.stats?.questions_synced ?? 0}, Товаров: ${data.stats?.products_synced ?? 0}`,
+          description: `Отзывов: ${reviewsSynced}, Вопросов: ${data.stats?.questions_synced ?? 0}, Товаров: ${data.stats?.products_synced ?? 0}`,
         });
         fetchMarketplaces();
+        
+        // ✅ Автоматически запускаем генерацию черновиков после синхронизации, если есть новые отзывы
+        if (reviewsSynced > 0) {
+          try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+              console.log("[Marketplaces] Автоматический запуск генерации черновиков после синхронизации...");
+              const { data: genData, error: genError } = await supabase.functions.invoke("auto-generate-drafts", {
+                body: { 
+                  user_id: user.id, 
+                  marketplace_id: id,
+                }
+              });
+              
+              if (genError) {
+                console.error("[Marketplaces] Ошибка автогенерации:", genError);
+              } else {
+                const genReviews = genData?.reviews || {};
+                const totalGenerated = (genReviews.drafts_created || 0) + (genReviews.scheduled || 0);
+                if (totalGenerated > 0) {
+                  toast({
+                    title: "Генерация ответов запущена",
+                    description: `${genReviews.scheduled || 0} отправлено в очередь, ${genReviews.drafts_created || 0} создано черновиков`,
+                  });
+                }
+              }
+            }
+          } catch (genErr) {
+            console.error("[Marketplaces] Ошибка при автогенерации:", genErr);
+            // Не показываем ошибку пользователю, т.к. это фоновый процесс
+          }
+        }
       } else if (data?.isFallbackMode) {
         toast({ title: "UI-режим", description: data.error });
       } else {

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, Package, Truck, FolderOpen } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PeriodSelector, type Period } from "@/components/analytics/PeriodSelector";
 import { SalesCards } from "@/components/analytics/SalesCards";
 import { SalesTable } from "@/components/analytics/SalesTable";
@@ -134,50 +135,106 @@ const SalesAnalytics = () => {
         <div className="space-y-2">
           <h1 className="text-4xl font-bold bg-gradient-primary bg-clip-text text-transparent flex items-center gap-3">
             <BarChart3 className="w-10 h-10 text-primary" />
-            Sales Analytics
+            Аналитика Продаж
           </h1>
           <p className="text-muted-foreground">
             Анализ продаж, маржинальности и прибыльности товаров
           </p>
         </div>
 
-        {/* Выбор периодов */}
-        <PeriodSelector
-          period1={period1}
-          period2={period2}
-          onPeriod1Change={setPeriod1}
-          onPeriod2Change={setPeriod2}
-          onApply={handleApply}
-        />
+        <Tabs defaultValue="overview" className="space-y-6">
+          <TabsList className="bg-white border">
+            <TabsTrigger value="overview" className="flex items-center gap-2">
+              <BarChart3 className="w-4 h-4" />
+              Обзор
+            </TabsTrigger>
+            <TabsTrigger value="products" className="flex items-center gap-2">
+              <Package className="w-4 h-4" />
+              Товары
+            </TabsTrigger>
+            <TabsTrigger value="suppliers" className="flex items-center gap-2">
+              <Truck className="w-4 h-4" />
+              Поставщики
+            </TabsTrigger>
+            <TabsTrigger value="categories" className="flex items-center gap-2">
+              <FolderOpen className="w-4 h-4" />
+              Категории
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Сводные карточки */}
-        {!isLoading && comparison && (
-          <div className="animate-fade-in-up">
-            <SalesCards
-              period1={comparison.period1}
-              period2={comparison.period2}
-              total={comparison.total}
-              changes={comparison.changes}
+          <TabsContent value="overview" className="space-y-6">
+            {/* Выбор периодов */}
+            <PeriodSelector
+              period1={period1}
+              period2={period2}
+              onPeriod1Change={setPeriod1}
+              onPeriod2Change={setPeriod2}
+              onApply={handleApply}
             />
-          </div>
-        )}
 
-        {/* Таблица детализации по товарам */}
-        {!isLoading && tableData.length > 0 && (
-          <div className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
-            <SalesTable data={tableData} isLoading={isLoading} />
-          </div>
-        )}
+            {/* Сводные карточки */}
+            {!isLoading && comparison && (
+              <div className="animate-fade-in-up">
+                <SalesCards
+                  period1={comparison.period1}
+                  period2={comparison.period2}
+                  total={comparison.total}
+                  changes={comparison.changes}
+                />
+              </div>
+            )}
 
-        {/* Сообщение если нет данных */}
-        {!isLoading && tableData.length === 0 && (
-          <div className="text-center py-12 text-muted-foreground">
-            <p className="text-lg">Нет данных за выбранные периоды</p>
-            <p className="text-sm mt-2">
-              Импортируйте данные из OZON через страницу "Импорт данных"
-            </p>
-          </div>
-        )}
+            {/* Таблица детализации по товарам */}
+            {!isLoading && tableData.length > 0 && (
+              <div className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
+                <SalesTable data={tableData} isLoading={isLoading} />
+              </div>
+            )}
+
+            {/* Сообщение если нет данных */}
+            {!isLoading && tableData.length === 0 && (
+              <div className="text-center py-12 text-muted-foreground">
+                <p className="text-lg">Нет данных за выбранные периоды</p>
+                <p className="text-sm mt-2">
+                  Импортируйте данные из OZON через страницу "Импорт данных"
+                </p>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="products" className="space-y-4">
+            <div className="text-center py-12 text-muted-foreground">
+              <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
+              <p className="text-lg">Раздел в разработке</p>
+              <p className="text-sm mt-2">
+                Здесь будет детальная аналитика по товарам: продажи по товарам, маржинальность,
+                прибыльность, топ товары и многое другое
+              </p>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="suppliers" className="space-y-4">
+            <div className="text-center py-12 text-muted-foreground">
+              <Truck className="w-16 h-16 mx-auto mb-4 opacity-50" />
+              <p className="text-lg">Раздел в разработке</p>
+              <p className="text-sm mt-2">
+                Здесь будет аналитика по поставщикам: продажи по поставщикам, маржинальность,
+                эффективность сотрудничества и многое другое
+              </p>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="categories" className="space-y-4">
+            <div className="text-center py-12 text-muted-foreground">
+              <FolderOpen className="w-16 h-16 mx-auto mb-4 opacity-50" />
+              <p className="text-lg">Раздел в разработке</p>
+              <p className="text-sm mt-2">
+                Здесь будет аналитика по категориям: продажи по категориям, маржинальность,
+                популярные категории и многое другое
+              </p>
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

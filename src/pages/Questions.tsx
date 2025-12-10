@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import * as XLSX from "xlsx";
+import { HelpIcon } from "@/components/HelpIcon";
 
 interface Question {
   id: string;
@@ -308,7 +309,10 @@ const Questions = () => {
     <div className="space-y-6">
       {/* Заголовок страницы (если нужен сверху) */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{pageTitle}</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold">{pageTitle}</h1>
+          <HelpIcon content="Раздел для управления вопросами покупателей о товарах.\n\nСтатусы вопросов:\n• Без ответа - новые вопросы без ответов\n• В очереди - ответы созданы и отправляются\n• Отвечено - вопросы с опубликованными ответами\n• Ошибка - произошла ошибка при отправке\n\nВы можете:\n• Выбрать несколько вопросов и ответить массово\n• Открыть вопрос и ответить вручную\n• Использовать ИИ для генерации ответа\n• Обучить ИИ, добавив вопрос-ответ в базу знаний\n• Экспортировать вопросы для поставщика" />
+        </div>
       </div>
 
       {/* Фильтры */}

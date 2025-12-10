@@ -15,11 +15,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Search, RefreshCw, Upload, Download, Plus, Trash2, Brain } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import * as XLSX from "xlsx";
+import { HelpIcon } from "@/components/HelpIcon";
 
 interface KnowledgeItem {
   id: string;
@@ -39,6 +41,8 @@ const ProductKnowledge = () => {
   const [knowledge, setKnowledge] = useState<KnowledgeItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [newKnowledge, setNewKnowledge] = useState({
     offer_id: "",
@@ -152,6 +156,9 @@ const ProductKnowledge = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setIsImporting(true);
+    setImportProgress(0);
+
     try {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
@@ -164,6 +171,7 @@ const ProductKnowledge = () => {
           description: "Файл пустой",
           variant: "destructive",
         });
+        setIsImporting(false);
         return;
       }
 
@@ -175,10 +183,9 @@ const ProductKnowledge = () => {
           description: "Файл должен содержать колонки: Артикул, Наименование, Текст",
           variant: "destructive",
         });
+        setIsImporting(false);
         return;
       }
-
-      setIsLoading(true);
 
       const {
         data: { user },
@@ -201,7 +208,10 @@ const ProductKnowledge = () => {
       let successCount = 0;
       let errorCount = 0;
 
-      for (const row of jsonData) {
+      for (let i = 0; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        setImportProgress(((i + 1) / jsonData.length) * 100);
+
         try {
           const offerId = row["Артикул"]?.toString().trim();
           const productName = row["Наименование"]?.toString().trim();
@@ -252,7 +262,6 @@ const ProductKnowledge = () => {
         }
       }
 
-      setIsLoading(false);
       await fetchKnowledge();
 
       toast({
@@ -264,12 +273,14 @@ const ProductKnowledge = () => {
       e.target.value = "";
     } catch (error: any) {
       console.error("Error importing file:", error);
-      setIsLoading(false);
       toast({
         title: "Ошибка импорта",
         description: error.message || "Не удалось импортировать файл",
         variant: "destructive",
       });
+    } finally {
+      setIsImporting(false);
+      setImportProgress(0);
     }
   };
 
@@ -388,7 +399,10 @@ const ProductKnowledge = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">База знаний о товарах</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold">База знаний о товарах</h1>
+          <HelpIcon content="База знаний о товарах - это хранилище информации, которая используется ИИ для генерации более точных и релевантных ответов на отзывы.\n\nКак это работает:\n1. Вы добавляете информацию о товарах (характеристики, особенности, инструкции)\n2. При генерации ответа ИИ использует эту информацию\n3. Ответы становятся более точными и информативными\n\nЧто можно добавить:\n• Технические характеристики\n• Инструкции по использованию\n• Частые вопросы и ответы\n• Информация от поставщика\n• Особенности товара\n\nВы можете:\n• Добавлять знания вручную\n• Импортировать из Excel файла\n• Экспортировать базу знаний" />
+        </div>
       </div>
 
       {/* Фильтры и действия */}
@@ -433,6 +447,15 @@ const ProductKnowledge = () => {
             />
           </div>
         </div>
+        {isImporting && (
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>Импорт базы знаний...</span>
+              <span>{Math.round(importProgress)}%</span>
+            </div>
+            <Progress value={importProgress} className="h-2" />
+          </div>
+        )}
       </Card>
 
       {/* Таблица знаний */}

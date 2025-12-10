@@ -317,6 +317,11 @@ export type Database = {
           reviews_mode_4: string | null
           reviews_mode_5: string | null
           updated_at: string | null
+          use_templates_1: boolean | null
+          use_templates_2: boolean | null
+          use_templates_3: boolean | null
+          use_templates_4: boolean | null
+          use_templates_5: boolean | null
         }
         Insert: {
           created_at?: string | null
@@ -330,6 +335,11 @@ export type Database = {
           reviews_mode_4?: string | null
           reviews_mode_5?: string | null
           updated_at?: string | null
+          use_templates_1?: boolean | null
+          use_templates_2?: boolean | null
+          use_templates_3?: boolean | null
+          use_templates_4?: boolean | null
+          use_templates_5?: boolean | null
         }
         Update: {
           created_at?: string | null
@@ -343,6 +353,11 @@ export type Database = {
           reviews_mode_4?: string | null
           reviews_mode_5?: string | null
           updated_at?: string | null
+          use_templates_1?: boolean | null
+          use_templates_2?: boolean | null
+          use_templates_3?: boolean | null
+          use_templates_4?: boolean | null
+          use_templates_5?: boolean | null
         }
         Relationships: [
           {
@@ -1172,7 +1187,6 @@ export type Database = {
           question_id: string | null
           retry_count: number | null
           review_id: string | null
-          save_to_knowledge: boolean | null
           scheduled_at: string | null
           status: Database["public"]["Enums"]["reply_status"] | null
           tone: string | null
@@ -1192,7 +1206,6 @@ export type Database = {
           question_id?: string | null
           retry_count?: number | null
           review_id?: string | null
-          save_to_knowledge?: boolean | null
           scheduled_at?: string | null
           status?: Database["public"]["Enums"]["reply_status"] | null
           tone?: string | null
@@ -1212,7 +1225,6 @@ export type Database = {
           question_id?: string | null
           retry_count?: number | null
           review_id?: string | null
-          save_to_knowledge?: boolean | null
           scheduled_at?: string | null
           status?: Database["public"]["Enums"]["reply_status"] | null
           tone?: string | null
@@ -1256,6 +1268,7 @@ export type Database = {
           created_at: string
           id: string
           name: string
+          rating: number | null
           tone: string | null
           updated_at: string
           use_count: number | null
@@ -1266,6 +1279,7 @@ export type Database = {
           created_at?: string
           id?: string
           name: string
+          rating?: number | null
           tone?: string | null
           updated_at?: string
           use_count?: number | null
@@ -1276,6 +1290,7 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
+          rating?: number | null
           tone?: string | null
           updated_at?: string
           use_count?: number | null
@@ -1430,30 +1445,48 @@ export type Database = {
       }
       suppliers: {
         Row: {
+          address: string | null
+          contact_person: string | null
           created_at: string
+          delivery_time_days: number | null
+          email: string | null
           id: string
           lead_time_days: number | null
           marketplace_id: string
           name: string
           notes: string | null
+          payment_delay_days: number | null
+          phone: string | null
           updated_at: string
         }
         Insert: {
+          address?: string | null
+          contact_person?: string | null
           created_at?: string
+          delivery_time_days?: number | null
+          email?: string | null
           id?: string
           lead_time_days?: number | null
           marketplace_id: string
           name: string
           notes?: string | null
+          payment_delay_days?: number | null
+          phone?: string | null
           updated_at?: string
         }
         Update: {
+          address?: string | null
+          contact_person?: string | null
           created_at?: string
+          delivery_time_days?: number | null
+          email?: string | null
           id?: string
           lead_time_days?: number | null
           marketplace_id?: string
           name?: string
           notes?: string | null
+          payment_delay_days?: number | null
+          phone?: string | null
           updated_at?: string
         }
         Relationships: [

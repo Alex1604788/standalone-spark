@@ -22,8 +22,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, Plus, Edit, Trash2, Truck, Upload, Download } from "lucide-react";
+import { Search, Plus, Edit, Trash2, Truck, Upload, Download, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Progress } from "@/components/ui/progress";
 import * as XLSX from "xlsx";
 
 interface Supplier {
@@ -45,6 +46,8 @@ const Suppliers = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
   const [formData, setFormData] = useState({
     name: "",
     contact_person: "",
@@ -288,6 +291,9 @@ const Suppliers = () => {
     const file = event.target.files?.[0];
     if (!file || !marketplace) return;
 
+    setIsImporting(true);
+    setImportProgress(0);
+
     try {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
@@ -310,13 +316,17 @@ const Suppliers = () => {
           variant: "destructive",
         });
         event.target.value = "";
+        setIsImporting(false);
         return;
       }
 
       let successCount = 0;
       let errorCount = 0;
 
-      for (const row of jsonData) {
+      for (let i = 0; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        setImportProgress(((i + 1) / jsonData.length) * 100);
+
         try {
           const name = row["Название"]?.toString().trim();
           if (!name) {
@@ -364,6 +374,9 @@ const Suppliers = () => {
         description: error.message || "Не удалось загрузить файл",
         variant: "destructive",
       });
+    } finally {
+      setIsImporting(false);
+      setImportProgress(0);
     }
 
     event.target.value = "";
@@ -388,6 +401,10 @@ const Suppliers = () => {
               </CardDescription>
             </div>
             <div className="flex gap-2">
+              <Button variant="outline" onClick={() => refetch()}>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Обновить
+              </Button>
               <Button variant="outline" onClick={handleExportExcel}>
                 <Download className="w-4 h-4 mr-2" />
                 Выгрузить Excel
@@ -409,6 +426,15 @@ const Suppliers = () => {
               </Button>
             </div>
           </div>
+          {isImporting && (
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span>Импорт поставщиков...</span>
+                <span>{Math.round(importProgress)}%</span>
+              </div>
+              <Progress value={importProgress} className="h-2" />
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {/* Поиск */}
