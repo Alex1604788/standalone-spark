@@ -42,6 +42,7 @@ const PromotionAnalytics = lazy(() => import("./pages/analytics/PromotionAnalyti
 const PromotionsAnalytics = lazy(() => import("./pages/analytics/PromotionsAnalytics"));
 const CompetitorsAnalytics = lazy(() => import("./pages/analytics/CompetitorsAnalytics"));
 const CompetitorsSettings = lazy(() => import("./pages/settings/CompetitorsSettings"));
+const OzonApiSettings = lazy(() => import("./pages/settings/OzonApiSettings"));
 
 const queryClient = new QueryClient();
 
@@ -102,6 +103,7 @@ const App = () => (
             <Route path="/app/suppliers" element={<ProtectedPage><Suppliers /></ProtectedPage>} />
             <Route path="/app/products/settings" element={<ProtectedPage><ProductSettings /></ProtectedPage>} />
             <Route path="/app/settings/competitors" element={<ProtectedPage><CompetitorsSettings /></ProtectedPage>} />
+            <Route path="/app/settings/ozon-api" element={<ProtectedPage><OzonApiSettings /></ProtectedPage>} />
             {/* Остальные страницы */}
             <Route path="/app/marketplaces" element={<ProtectedPage><Marketplaces /></ProtectedPage>} />
             <Route path="/app/profile" element={<ProtectedPage><Profile /></ProtectedPage>} />
