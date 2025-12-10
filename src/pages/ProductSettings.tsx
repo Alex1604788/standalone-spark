@@ -54,6 +54,8 @@ interface ProductBusinessData {
   offer_id: string;
   supplier_id: string | null;
   category: string | null;
+  product_type: string | null;
+  product_subtype: string | null;
   purchase_price: number | null;
   small_box_quantity: number | null;
   large_box_quantity: number | null;
@@ -77,6 +79,8 @@ const ProductSettings = () => {
   const [formData, setFormData] = useState({
     supplier_id: "",
     category: "",
+    product_type: "",
+    product_subtype: "",
     purchase_price: "",
     small_box_quantity: "",
     large_box_quantity: "",
@@ -185,6 +189,8 @@ const ProductSettings = () => {
     setFormData({
       supplier_id: bd?.supplier_id || "",
       category: bd?.category || product.category || "",
+      product_type: bd?.product_type || "",
+      product_subtype: bd?.product_subtype || "",
       purchase_price: bd?.purchase_price?.toString() || "",
       small_box_quantity: bd?.small_box_quantity?.toString() || "",
       large_box_quantity: bd?.large_box_quantity?.toString() || "",
@@ -205,6 +211,8 @@ const ProductSettings = () => {
           offer_id: selectedProduct.offer_id,
           supplier_id: formData.supplier_id || null,
           category: formData.category || null,
+          product_type: formData.product_type || null,
+          product_subtype: formData.product_subtype || null,
           purchase_price: formData.purchase_price ? parseFloat(formData.purchase_price) : null,
           small_box_quantity: formData.small_box_quantity ? parseInt(formData.small_box_quantity) : null,
           large_box_quantity: formData.large_box_quantity ? parseInt(formData.large_box_quantity) : null,
@@ -245,6 +253,8 @@ const ProductSettings = () => {
         "Поставщик": supplierName || "",
         "Цена закупки": bd?.purchase_price || "",
         "Категория": bd?.category || "",
+        "Вид номенклатуры": bd?.product_type || "",
+        "Подвид номенклатуры": bd?.product_subtype || "",
         "Малая коробка": bd?.small_box_quantity || "",
         "Большая коробка": bd?.large_box_quantity || "",
       };
@@ -280,6 +290,8 @@ const ProductSettings = () => {
         "Поставщик": string;
         "Цена закупки": number | string;
         "Категория": string;
+        "Вид номенклатуры": string;
+        "Подвид номенклатуры": string;
         "Малая коробка": number | string;
         "Большая коробка": number | string;
       }>;
@@ -324,6 +336,8 @@ const ProductSettings = () => {
               offer_id: offerId,
               supplier_id: supplierId || null,
               category: row["Категория"]?.toString().trim() || null,
+              product_type: row["Вид номенклатуры"]?.toString().trim() || null,
+              product_subtype: row["Подвид номенклатуры"]?.toString().trim() || null,
               purchase_price: purchasePrice,
               small_box_quantity: smallBox,
               large_box_quantity: largeBox,
@@ -719,6 +733,34 @@ const ProductSettings = () => {
                 value={formData.category}
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                 placeholder="Укажите категорию товара"
+              />
+            </div>
+
+            {/* Вид номенклатуры */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="product_type" className="text-right">
+                Вид номенклатуры
+              </Label>
+              <Input
+                id="product_type"
+                className="col-span-3"
+                value={formData.product_type}
+                onChange={(e) => setFormData({ ...formData, product_type: e.target.value })}
+                placeholder="Например: Розетки, Кабели, Выключатели"
+              />
+            </div>
+
+            {/* Подвид номенклатуры */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="product_subtype" className="text-right">
+                Подвид номенклатуры
+              </Label>
+              <Input
+                id="product_subtype"
+                className="col-span-3"
+                value={formData.product_subtype}
+                onChange={(e) => setFormData({ ...formData, product_subtype: e.target.value })}
+                placeholder="Например: Разборные, Накладные"
               />
             </div>
 
