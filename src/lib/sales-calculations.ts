@@ -13,6 +13,8 @@ export interface ProductSalesData {
   article?: string;               // Артикул (external_id)
   category?: string;
   supplier?: string;              // Название поставщика
+  productType?: string;           // Вид номенклатуры
+  productSubtype?: string;        // Подвид номенклатуры
 
   // Данные за период
   salesRevenue: number;           // Продажи (руб)
