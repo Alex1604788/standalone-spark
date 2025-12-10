@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 
-export type ImportType = "accruals" | "storage_costs" | "promotion_costs" | "business_data";
+export type ImportType = "accruals" | "storage_costs";
 
 interface FileUploaderProps {
   importType: ImportType;
@@ -16,15 +16,11 @@ interface FileUploaderProps {
 const IMPORT_TYPE_LABELS: Record<ImportType, string> = {
   accruals: "Начисления ОЗОН",
   storage_costs: "Стоимость размещения",
-  promotion_costs: "Затраты на продвижение",
-  business_data: "Номенклатура",
 };
 
 const EXPECTED_COLUMNS: Record<ImportType, string[]> = {
   accruals: ["Тип начисления", "Артикул"],  // Минимальные требования
   storage_costs: ["Дата", "Артикул"],
-  promotion_costs: ["SKU"],
-  business_data: ["Артикул"],
 };
 
 export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploaderProps) => {

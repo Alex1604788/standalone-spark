@@ -55,6 +55,8 @@ interface ProductBusinessData {
   offer_id: string;
   supplier_id: string | null;
   category: string | null;
+  product_type: string | null;
+  product_subtype: string | null;
   purchase_price: number | null;
   small_box_quantity: number | null;
   large_box_quantity: number | null;
@@ -82,6 +84,8 @@ const ProductSettings = () => {
   const [formData, setFormData] = useState({
     supplier_id: "",
     category: "",
+    product_type: "",
+    product_subtype: "",
     purchase_price: "",
     small_box_quantity: "",
     large_box_quantity: "",
@@ -210,6 +214,8 @@ const ProductSettings = () => {
     setFormData({
       supplier_id: bd?.supplier_id || "",
       category: bd?.category || product.category || "",
+      product_type: bd?.product_type || "",
+      product_subtype: bd?.product_subtype || "",
       purchase_price: bd?.purchase_price?.toString() || "",
       small_box_quantity: bd?.small_box_quantity?.toString() || "",
       large_box_quantity: bd?.large_box_quantity?.toString() || "",
@@ -225,6 +231,8 @@ const ProductSettings = () => {
         offer_id: selectedProduct.offer_id,
         supplier_id: formData.supplier_id || null,
         category: formData.category || null,
+        product_type: formData.product_type || null,
+        product_subtype: formData.product_subtype || null,
         purchase_price: formData.purchase_price ? parseFloat(formData.purchase_price) : null,
         small_box_quantity: formData.small_box_quantity ? parseInt(formData.small_box_quantity) : null,
         large_box_quantity: formData.large_box_quantity ? parseInt(formData.large_box_quantity) : null,
@@ -322,6 +330,8 @@ const ProductSettings = () => {
         "Поставщик": supplierName || "",
         "Цена закупки": bd?.purchase_price || "",
         "Категория": bd?.category || "",
+        "Вид номенклатуры": bd?.product_type || "",
+        "Подвид номенклатуры": bd?.product_subtype || "",
         "Малая коробка": bd?.small_box_quantity || "",
         "Большая коробка": bd?.large_box_quantity || "",
       };
@@ -347,7 +357,18 @@ const ProductSettings = () => {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet) as Array<Record<string, unknown>>;
+      const jsonData = XLSX.utils.sheet_to_json(worksheet) as Array<{
+        "Артикул": string;
+        "Название товара": string;
+        "Поставщик": string;
+        "Цена закупки": number | string;
+        "Категория": string;
+        "Вид номенклатуры": string;
+        "Подвид номенклатуры": string;
+        "Малая коробка": number | string;
+        "Большая коробка": number | string;
+      }>;
+
       if (!jsonData?.length) {
         toast({ title: "Ошибка", description: "Файл пуст", variant: "destructive" });
         event.target.value = "";
@@ -358,10 +379,10 @@ const ProductSettings = () => {
       suppliers?.forEach((s) => supplierNameToId.set(s.name.toLowerCase(), s.id));
       let successCount = 0;
       const batchSize = 10; // Обрабатываем пачками для обновления UI
-      
+
       for (let i = 0; i < jsonData.length; i++) {
         const row = jsonData[i];
-        
+
         const offerId = String(row["Артикул"] || "").trim();
         if (!offerId) continue;
         const supplierName = String(row["Поставщик"] || "").trim().toLowerCase();
@@ -374,12 +395,14 @@ const ProductSettings = () => {
           offer_id: offerId,
           supplier_id: supplierId || null,
           category: String(row["Категория"] || "").trim() || null,
+          product_type: String(row["Вид номенклатуры"] || "").trim() || null,
+          product_subtype: String(row["Подвид номенклатуры"] || "").trim() || null,
           purchase_price: purchasePrice,
           small_box_quantity: smallBox,
           large_box_quantity: largeBox,
         }, { onConflict: "marketplace_id,offer_id" });
         if (!error) successCount++;
-        
+
         // Обновляем прогресс каждые batchSize записей или в конце
         if ((i + 1) % batchSize === 0 || i === jsonData.length - 1) {
           setImportProgress(((i + 1) / jsonData.length) * 100);
@@ -854,6 +877,35 @@ const ProductSettings = () => {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Вид номенклатуры */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="product_type" className="text-right">
+                Вид номенклатуры
+              </Label>
+              <Input
+                id="product_type"
+                className="col-span-3"
+                value={formData.product_type}
+                onChange={(e) => setFormData({ ...formData, product_type: e.target.value })}
+                placeholder="Например: Розетки, Кабели, Выключатели"
+              />
+            </div>
+
+            {/* Подвид номенклатуры */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="product_subtype" className="text-right">
+                Подвид номенклатуры
+              </Label>
+              <Input
+                id="product_subtype"
+                className="col-span-3"
+                value={formData.product_subtype}
+                onChange={(e) => setFormData({ ...formData, product_subtype: e.target.value })}
+                placeholder="Например: Разборные, Накладные"
+              />
+            </div>
+
             <div className="grid grid-cols-4 items-center gap-4">
               <Label className="text-right">Цена закупки</Label>
               <Input
