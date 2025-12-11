@@ -112,16 +112,38 @@ const ImportData = () => {
       const BATCH_SIZE = 500;
       const transformedRows: any[] = [];
 
-      // Логируем первую строку для диагностики
+      // МАКСИМАЛЬНОЕ логирование первой строки для диагностики
       if (fileData.length > 0) {
-        window.console.log("📊 ПЕРВАЯ СТРОКА ДАННЫХ (для диагностики):", {
-          rowIndex: 0,
-          rowKeys: Object.keys(fileData[0]).slice(0, 30),
-          allKeys: Object.keys(fileData[0]),
-          rowSample: Object.fromEntries(
-            Object.entries(fileData[0]).slice(0, 20).map(([k, v]) => [k, String(v).substring(0, 100)])
-          )
+        const firstRow = fileData[0];
+        const firstRowKeys = Object.keys(firstRow);
+        
+        window.console.log("=".repeat(80));
+        window.console.log("📊📊📊 ПЕРВАЯ СТРОКА ДАННЫХ (КРИТИЧЕСКАЯ ДИАГНОСТИКА) 📊📊📊");
+        window.console.log("=".repeat(80));
+        window.console.log("Все колонки в первой строке:", firstRowKeys);
+        window.console.log("Количество колонок:", firstRowKeys.length);
+        window.console.log("Первые 30 колонок:", firstRowKeys.slice(0, 30));
+        window.console.log("Образец данных (первые 20 колонок):", Object.fromEntries(
+          Object.entries(firstRow).slice(0, 20).map(([k, v]) => [k, String(v).substring(0, 100)])
+        ));
+        
+        // Проверяем, есть ли колонки с похожими названиями
+        const normalizedKeys = firstRowKeys.map(k => ({
+          original: k,
+          normalized: normalize(k),
+          containsType: normalize(k).includes("тип"),
+          containsNacisl: normalize(k).includes("начисл"),
+          containsArtikul: normalize(k).includes("артикул")
+        }));
+        
+        window.console.log("Поиск похожих колонок:", {
+          keysWithType: normalizedKeys.filter(k => k.containsType).map(k => k.original),
+          keysWithNacisl: normalizedKeys.filter(k => k.containsNacisl).map(k => k.original),
+          keysWithArtikul: normalizedKeys.filter(k => k.containsArtikul).map(k => k.original),
+          allNormalized: normalizedKeys.slice(0, 30)
         });
+        
+        window.console.log("=".repeat(80));
       }
 
       for (let i = 0; i < fileData.length; i++) {
@@ -138,17 +160,41 @@ const ImportData = () => {
           failedCount++;
           errors.push(`Строка ${i + 1}: ${error.message}`);
           
-          // Детальное логирование для первых 10 ошибок
-          if (i < 10) {
-            window.console.error(`❌ Ошибка в строке ${i + 1}:`, {
-              error: error.message,
-              rowKeys: Object.keys(row).slice(0, 30),
-              rowSample: Object.fromEntries(
-                Object.entries(row).slice(0, 15).map(([k, v]) => [k, String(v).substring(0, 50)])
-              )
+          // МАКСИМАЛЬНОЕ логирование для первых 5 ошибок
+          if (i < 5) {
+            window.console.error("=".repeat(80));
+            window.console.error(`❌❌❌ ОШИБКА В СТРОКЕ ${i + 1} ❌❌❌`);
+            window.console.error("=".repeat(80));
+            window.console.error("Сообщение об ошибке:", error.message);
+            window.console.error("Все ключи строки:", Object.keys(row));
+            window.console.error("Количество ключей:", Object.keys(row).length);
+            window.console.error("Образец данных строки:", Object.fromEntries(
+              Object.entries(row).slice(0, 30).map(([k, v]) => [k, String(v).substring(0, 100)])
+            ));
+            
+            // Пытаемся найти колонки вручную
+            const rowKeys = Object.keys(row);
+            const normalizedRowKeys = rowKeys.map(k => ({
+              original: k,
+              normalized: normalize(k),
+              matchesType: normalize(k).includes("тип"),
+              matchesNacisl: normalize(k).includes("начисл"),
+              matchesArtikul: normalize(k).includes("артикул")
+            }));
+            
+            window.console.error("Поиск колонок в строке:", {
+              keysMatchingType: normalizedRowKeys.filter(k => k.matchesType).map(k => k.original),
+              keysMatchingNacisl: normalizedRowKeys.filter(k => k.matchesNacisl).map(k => k.original),
+              keysMatchingArtikul: normalizedRowKeys.filter(k => k.matchesArtikul).map(k => k.original),
+              allNormalizedKeys: normalizedRowKeys.slice(0, 30)
             });
+            
+            window.console.error("=".repeat(80));
           }
           console.error(`Error transforming row ${i + 1}:`, error);
+          
+          // Останавливаем после первых 5 ошибок для диагностики (если нужно)
+          // if (i >= 4) break;
         }
       }
 
