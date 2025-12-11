@@ -185,4 +185,134 @@ export const FileUploader = ({
       if (importType === "accruals") {
         const hasAccrualType = fileColumns.some((c) => {
           const n = normalizeForSearch(c);
-          re
+          return (
+            n === "тип начисления" ||
+            n.includes("тип начисл") ||
+            n.includes("tip nachis") // латиницей на всякий случай
+          );
+        });
+
+        const hasOfferId = fileColumns.some((c) => {
+          const n = normalizeForSearch(c);
+          return (
+            n === "артикул" ||
+            n.includes("артикул") ||
+            n.includes("artikul")
+          );
+        });
+
+        if (!hasAccrualType || !hasOfferId) {
+          console.error("❌ КРИТИЧЕСКАЯ ОШИБКА: не найдены обязательные колонки", {
+            fileColumns,
+            normalized: fileColumns.map((c) => normalizeForSearch(c)),
+          });
+
+          toast({
+            title: "Не найдены обязательные колонки",
+            description:
+              "Ожидаются колонки «Тип начисления» и «Артикул». Проверьте, что вы загрузили отчёт по начислениям ОЗОН, а не другой тип отчёта. Полный список колонок выведен в консоль (F12).",
+            variant: "destructive",
+          });
+
+          setIsProcessing(false);
+          setSelectedFile(null);
+          if (fileInputRef.current) fileInputRef.current.value = "";
+          return;
+        }
+      }
+
+      toast({
+        title: "Файл загружен",
+        description: `Найдено строк: ${jsonData.length}`,
+      });
+
+      // 7. Отдаём очищенные данные дальше
+      onFileSelect(jsonData, file.name);
+    } catch (error: any) {
+      console.error("❌ ОШИБКА при парсинге Excel в FileUploader:", error);
+      toast({
+        title: "Ошибка при чтении файла",
+        description: error?.message || "Не удалось прочитать Excel файл",
+        variant: "destructive",
+      });
+      setSelectedFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleClear = () => {
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+    onClear?.();
+  };
+
+  const handleClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx,.xls"
+          onChange={handleFileChange}
+          className="hidden"
+        />
+
+        {!selectedFile ? (
+          <div
+            onClick={handleClick}
+            className="border-2 border-dashed border-muted hover:border-primary rounded-lg p-8 text-center cursor-pointer transition-colors"
+          >
+            <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+            <h3 className="text-lg font-semibold mb-2">
+              Загрузить {IMPORT_TYPE_LABELS[importType]}
+            </h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Нажмите для выбора Excel файла или перетащите файл сюда
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Поддерживаются форматы: .xlsx, .xls
+            </p>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between p-4 border border-primary rounded-lg bg-primary/5">
+            <div className="flex items-center gap-3">
+              <FileSpreadsheet className="w-8 h-8 text-primary" />
+              <div>
+                <p className="font-semibold">{selectedFile.name}</p>
+                <p className="text-sm text-muted-foreground">
+                  {(selectedFile.size / 1024).toFixed(2)} KB
+                  {isProcessing && " • Обработка..."}
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleClear}
+              disabled={isProcessing}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
+
+        <div className="mt-4 p-3 bg-muted/50 rounded-lg">
+          <p className="text-xs font-semibold mb-2">Ожидаемые колонки:</p>
+          <p className="text-xs text-muted-foreground">
+            {EXPECTED_COLUMNS[importType].join(", ")}
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
