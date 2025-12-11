@@ -57,8 +57,68 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
 
-      // Конвертируем в JSON
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+      // Сначала читаем как массив массивов, чтобы найти строку с заголовками
+      const rawData = XLSX.utils.sheet_to_json(worksheet, { 
+        header: 1, 
+        defval: "" 
+      }) as any[][];
+
+      if (rawData.length === 0) {
+        toast({
+          title: "Файл пуст",
+          description: "Excel файл не содержит данных",
+          variant: "destructive",
+        });
+        setSelectedFile(null);
+        return;
+      }
+
+      // Функция для нормализации значения
+      const normalizeValue = (val: any): string => {
+        if (val === null || val === undefined) return "";
+        return String(val).trim().toLowerCase();
+      };
+
+      // Функция для проверки, является ли строка заголовками
+      const isHeaderRow = (row: any[]): boolean => {
+        const rowValues = row.map(normalizeValue).filter(v => v);
+        if (rowValues.length < 2) return false;
+        
+        // Проверяем наличие ключевых слов для начислений ОЗОН
+        if (importType === "accruals") {
+          const hasAccrualType = rowValues.some(v => 
+            v.includes("тип начисления") || v.includes("тип") && v.includes("начисл")
+          );
+          const hasOfferId = rowValues.some(v => v.includes("артикул"));
+          return hasAccrualType && hasOfferId;
+        }
+        
+        // Для других типов проверяем наличие ожидаемых колонок
+        const expectedColumns = EXPECTED_COLUMNS[importType];
+        return expectedColumns.some(col => 
+          rowValues.some(v => normalizeValue(col) === v || v.includes(normalizeValue(col)))
+        );
+      };
+
+      // Ищем строку с заголовками (проверяем первые 10 строк)
+      let headerRowIndex = -1;
+      for (let i = 0; i < Math.min(10, rawData.length); i++) {
+        if (isHeaderRow(rawData[i])) {
+          headerRowIndex = i;
+          break;
+        }
+      }
+
+      // Если не нашли заголовки, используем первую строку
+      if (headerRowIndex === -1) {
+        headerRowIndex = 0;
+      }
+
+      // Конвертируем в JSON, начиная со строки с заголовками
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+        defval: "",
+        range: headerRowIndex
+      });
 
       if (jsonData.length === 0) {
         toast({
@@ -109,10 +169,16 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
 
       // Логирование для отладки
       console.log("🔍 Проверка колонок файла:", {
+        headerRowIndex,
         fileColumns,
+        fileColumnsCount: fileColumns.length,
+        firstRowSample: Object.fromEntries(
+          Object.entries(firstRow).slice(0, 5).map(([k, v]) => [k, String(v).substring(0, 50)])
+        ),
         expectedColumns,
         missingColumns,
         importType,
+        rawDataFirstRows: rawData.slice(0, 3).map(row => row.slice(0, 5)),
       });
 
       if (missingColumns.length > 0) {
