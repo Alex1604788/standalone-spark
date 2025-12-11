@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Upload, FileSpreadsheet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,16 +28,39 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  
+  // Логирование при монтировании компонента
+  useEffect(() => {
+    console.log("🎨 FileUploader компонент загружен", { 
+      importType, 
+      timestamp: new Date().toISOString(),
+      hasFileInput: !!fileInputRef.current
+    });
+  }, [importType]);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    console.log("🚀 handleFileChange вызвана", { importType });
+    // ОЧЕНЬ РАННЕЕ логирование - должно появиться первым
+    console.log("=".repeat(50));
+    console.log("🚀🚀🚀 handleFileChange ВЫЗВАНА 🚀🚀🚀", { 
+      importType,
+      timestamp: new Date().toISOString(),
+      eventType: event.type,
+      filesCount: event.target.files?.length || 0
+    });
+    console.log("=".repeat(50));
+    
     const file = event.target.files?.[0];
     if (!file) {
-      console.log("❌ Файл не выбран");
+      console.error("❌ ФАЙЛ НЕ ВЫБРАН");
       return;
     }
 
-    console.log("📁 Выбран файл:", { name: file.name, size: file.size, type: file.type });
+    console.log("📁 ВЫБРАН ФАЙЛ:", { 
+      name: file.name, 
+      size: file.size, 
+      type: file.type,
+      lastModified: new Date(file.lastModified).toISOString()
+    });
 
     // Проверка расширения
     const validExtensions = [".xlsx", ".xls"];
