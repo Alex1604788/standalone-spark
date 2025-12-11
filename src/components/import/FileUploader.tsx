@@ -158,24 +158,37 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
         if (rowValues.length < 2) continue;
         
         if (importType === "accruals") {
+          // Более гибкая проверка: ищем "тип начисления" или комбинацию "тип" + "начисл"
           const hasAccrualType = rowValues.some(v => {
             const normalized = v.toLowerCase();
-            return normalized.includes("тип начисления") || 
+            // Точное совпадение или комбинация
+            return normalized === "тип начисления" ||
+                   normalized.includes("тип начисления") ||
                    (normalized.includes("тип") && normalized.includes("начисл"));
           });
-          const hasOfferId = rowValues.some(v => 
-            v.toLowerCase().includes("артикул")
-          );
+          // Ищем "артикул" (может быть с заглавной буквы или в другом регистре)
+          const hasOfferId = rowValues.some(v => {
+            const normalized = v.toLowerCase();
+            return normalized === "артикул" || normalized.includes("артикул");
+          });
+          
+          // Дополнительная проверка: если в строке есть много текстовых значений (признак заголовков)
+          const textCellsCount = row.filter(cell => {
+            const val = String(cell || "").trim();
+            return val.length > 3 && !/^\d+([\.,]\d+)?$/.test(val); // Не только числа
+          }).length;
           
           console.log(`🔍 Строка ${i}:`, {
             rowValues: rowValues.slice(0, 15),
             rowPreview: row.slice(0, 15).map(cell => String(cell).substring(0, 40)),
             hasAccrualType,
             hasOfferId,
+            textCellsCount,
             isHeader: hasAccrualType && hasOfferId
           });
           
-          if (hasAccrualType && hasOfferId) {
+          // Если найдены оба обязательных заголовка И в строке достаточно текстовых ячеек
+          if (hasAccrualType && hasOfferId && textCellsCount >= 5) {
             headerRowIndex = i;
             console.log(`✅ Найдена строка с заголовками на индексе ${i}:`, row.slice(0, 20).map(cell => String(cell).substring(0, 50)));
             break;
@@ -183,28 +196,35 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
         }
       }
 
-      // Если не нашли точное совпадение, ищем по частичным совпадениям
+      // Если не нашли точное совпадение, ищем по частичным совпадениям (более гибко)
       if (headerRowIndex === -1) {
         console.warn("⚠️ Не найдена строка с точными заголовками, ищем по частичным совпадениям");
-        for (let i = 0; i < Math.min(30, rawData.length); i++) {
+        for (let i = 0; i < Math.min(50, rawData.length); i++) {
           const row = rawData[i];
           if (!row || row.every(cell => !cell || String(cell).trim() === "")) {
             continue;
           }
           
           const rowValues = row.map(normalizeValue).filter(v => v && v.length > 0);
-          if (rowValues.length < 5) continue;
+          if (rowValues.length < 3) continue;
           
-          // Для начислений ОЗОН ищем хотя бы одно из ключевых слов
+          // Для начислений ОЗОН ищем оба ключевых слова (но более гибко)
           if (importType === "accruals") {
-            const hasAccrualType = rowValues.some(v => 
-              v.includes("тип") || v.includes("начисл")
-            );
-            const hasOfferId = rowValues.some(v => v.includes("артикул"));
+            // Ищем "тип" и "начисл" в разных ячейках или вместе
+            const hasAccrualType = rowValues.some(v => {
+              const normalized = v.toLowerCase();
+              return normalized.includes("тип") && normalized.includes("начисл");
+            });
+            // Ищем "артикул"
+            const hasOfferId = rowValues.some(v => {
+              const normalized = v.toLowerCase();
+              return normalized.includes("артикул");
+            });
             
-            if (hasAccrualType || hasOfferId) {
+            // Если найдены оба, используем эту строку
+            if (hasAccrualType && hasOfferId) {
               headerRowIndex = i;
-              console.log(`⚠️ Найдена строка ${i} с частичными совпадениями:`, row.slice(0, 15).map(cell => String(cell).substring(0, 50)));
+              console.log(`⚠️ Найдена строка ${i} с частичными совпадениями (оба ключевых слова):`, row.slice(0, 15).map(cell => String(cell).substring(0, 50)));
               break;
             }
           }
