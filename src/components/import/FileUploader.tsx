@@ -81,44 +81,111 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
 
       // Функция для проверки, является ли строка заголовками
       const isHeaderRow = (row: any[]): boolean => {
-        const rowValues = row.map(normalizeValue).filter(v => v);
+        const rowValues = row.map(normalizeValue).filter(v => v && v.length > 0);
         if (rowValues.length < 2) return false;
         
         // Проверяем наличие ключевых слов для начислений ОЗОН
         if (importType === "accruals") {
-          const hasAccrualType = rowValues.some(v => 
-            v.includes("тип начисления") || v.includes("тип") && v.includes("начисл")
+          // Ищем "тип начисления" или комбинацию "тип" + "начисл"
+          const hasAccrualType = rowValues.some(v => {
+            const normalized = v.toLowerCase();
+            return normalized.includes("тип начисления") || 
+                   (normalized.includes("тип") && normalized.includes("начисл"));
+          });
+          // Ищем "артикул"
+          const hasOfferId = rowValues.some(v => 
+            v.toLowerCase().includes("артикул")
           );
-          const hasOfferId = rowValues.some(v => v.includes("артикул"));
+          
+          console.log(`🔍 Проверка строки на заголовки:`, {
+            rowValues: rowValues.slice(0, 10),
+            hasAccrualType,
+            hasOfferId,
+            isHeader: hasAccrualType && hasOfferId
+          });
+          
           return hasAccrualType && hasOfferId;
         }
         
         // Для других типов проверяем наличие ожидаемых колонок
         const expectedColumns = EXPECTED_COLUMNS[importType];
         return expectedColumns.some(col => 
-          rowValues.some(v => normalizeValue(col) === v || v.includes(normalizeValue(col)))
+          rowValues.some(v => {
+            const normalizedCol = normalizeValue(col);
+            return normalizedCol === v || v.includes(normalizedCol);
+          })
         );
       };
 
-      // Ищем строку с заголовками (проверяем первые 10 строк)
+      // Ищем строку с заголовками (проверяем первые 20 строк)
       let headerRowIndex = -1;
-      for (let i = 0; i < Math.min(10, rawData.length); i++) {
-        if (isHeaderRow(rawData[i])) {
+      console.log("🔍 Поиск строки с заголовками в первых", Math.min(20, rawData.length), "строках");
+      
+      for (let i = 0; i < Math.min(20, rawData.length); i++) {
+        const row = rawData[i];
+        if (isHeaderRow(row)) {
           headerRowIndex = i;
+          console.log(`✅ Найдена строка с заголовками на индексе ${i}:`, row.slice(0, 10));
           break;
         }
       }
 
-      // Если не нашли заголовки, используем первую строку
+      // Если не нашли заголовки, пробуем использовать первую непустую строку с достаточным количеством колонок
       if (headerRowIndex === -1) {
-        headerRowIndex = 0;
+        console.warn("⚠️ Не найдена строка с заголовками, ищем первую строку с данными");
+        for (let i = 0; i < Math.min(20, rawData.length); i++) {
+          const row = rawData[i];
+          const nonEmptyCells = row.filter(cell => {
+            const val = normalizeValue(cell);
+            return val.length > 0 && !/^\d+$/.test(val); // Не только цифры
+          });
+          if (nonEmptyCells.length >= 5) {
+            headerRowIndex = i;
+            console.log(`⚠️ Используем строку ${i} как заголовки (не найдены точные совпадения):`, row.slice(0, 10));
+            break;
+          }
+        }
+        
+        // Если все еще не нашли, используем первую строку
+        if (headerRowIndex === -1) {
+          headerRowIndex = 0;
+          console.warn("⚠️ Используем первую строку как заголовки (последний вариант)");
+        }
       }
 
-      // Конвертируем в JSON, начиная со строки с заголовками
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
-        defval: "",
-        range: headerRowIndex
-      });
+      // Конвертируем в JSON, используя найденную строку как заголовки
+      // Если нашли строку с заголовками, используем её явно
+      let jsonData: any[];
+      
+      if (headerRowIndex >= 0) {
+        // Берем заголовки из найденной строки
+        const headerRow = rawData[headerRowIndex];
+        const headers = headerRow.map((cell, idx) => {
+          const val = String(cell || `Column${idx + 1}`).trim();
+          return val || `Column${idx + 1}`;
+        });
+        
+        // Читаем данные начиная со следующей строки после заголовков
+        const dataRows = rawData.slice(headerRowIndex + 1);
+        
+        // Преобразуем в объекты с использованием заголовков
+        jsonData = dataRows
+          .filter(row => row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== ""))
+          .map(row => {
+            const obj: Record<string, any> = {};
+            headers.forEach((header, idx) => {
+              obj[header] = row[idx] !== undefined ? row[idx] : "";
+            });
+            return obj;
+          });
+        
+        console.log(`✅ Использованы заголовки из строки ${headerRowIndex}:`, headers.slice(0, 10));
+      } else {
+        // Fallback: используем стандартный парсинг
+        jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+          defval: "",
+        });
+      }
 
       if (jsonData.length === 0) {
         toast({
