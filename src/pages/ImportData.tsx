@@ -113,7 +113,7 @@ const ImportData = () => {
       const errors: string[] = [];
 
       // 2. Преобразуем все строки в объекты для вставки
-      const BATCH_SIZE = 500;
+      const BATCH_SIZE = 100; // Уменьшили размер батча, чтобы не перегружать браузер
       const transformedRows: any[] = [];
 
       // МАКСИМАЛЬНОЕ логирование первой строки для диагностики
@@ -153,12 +153,23 @@ const ImportData = () => {
       // Логируем прогресс преобразования
       const totalRows = fileData.length;
       const logInterval = Math.max(1, Math.floor(totalRows / 100)); // Логируем каждые 1% или каждую строку для маленьких файлов
+      const PROCESSING_BATCH = 1000; // Обрабатываем по 1000 строк за раз, затем делаем паузу
       
       window.console.log(`🔄 Начинаем преобразование ${totalRows} строк...`);
       window.console.log(`📊 Будем логировать каждые ${logInterval} строк`);
+      window.console.log(`⏸️ Пауза каждые ${PROCESSING_BATCH} строк для предотвращения зависания браузера`);
 
       for (let i = 0; i < fileData.length; i++) {
         const row = fileData[i];
+        
+        // Делаем паузу каждые PROCESSING_BATCH строк, чтобы браузер не зависал
+        if (i > 0 && i % PROCESSING_BATCH === 0) {
+          const progress = ((i / totalRows) * 100).toFixed(1);
+          window.console.log(`⏸️ Пауза после ${i} строк (${progress}%)...`);
+          setImportProgress((i / totalRows) * 50); // 50% - это преобразование, 50% - вставка
+          // Небольшая пауза, чтобы браузер мог обработать события
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
         
         // Логируем прогресс
         if (i % logInterval === 0 || i < 10) {
@@ -226,13 +237,18 @@ const ImportData = () => {
       for (let i = 0; i < transformedRows.length; i += BATCH_SIZE) {
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
         const chunk = transformedRows.slice(i, i + BATCH_SIZE);
-        const progress = ((i + chunk.length) / fileData.length) * 100;
+        const progress = 50 + ((i + chunk.length) / fileData.length) * 50; // 50-100% для вставки
         
         setImportProgress(progress);
         
         window.console.log(`📦 Батч ${batchNumber}/${totalBatches}: вставляем строки ${i + 1}–${i + chunk.length} (${progress.toFixed(1)}%)`);
 
         try {
+          // Добавляем задержку между батчами, чтобы избежать 429 ошибок
+          if (batchNumber > 1) {
+            await new Promise(resolve => setTimeout(resolve, 100)); // 100мс задержка между батчами
+          }
+          
           const { error } = await supabase.from(tableName).insert(chunk);
 
           if (error) {
@@ -240,6 +256,13 @@ const ImportData = () => {
             failedCount += chunk.length;
             errors.push(`Ошибка при вставке строк ${i + 1}–${i + chunk.length}: ${error.message}`);
             window.console.error(`❌ Ошибка в батче ${batchNumber}:`, error);
+            
+            // Если ошибка 429 (Too Many Requests), делаем большую паузу
+            if (error.message?.includes('429') || error.code === 'PGRST429') {
+              window.console.warn(`⚠️ Получена ошибка 429, делаем паузу 5 секунд...`);
+              await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+            
             console.error(`Error inserting batch ${batchNumber}:`, error);
           } else {
             successCount += chunk.length;
@@ -249,6 +272,13 @@ const ImportData = () => {
           failedCount += chunk.length;
           errors.push(`Ошибка при вставке строк ${i + 1}–${i + chunk.length}: ${error.message}`);
           window.console.error(`❌ Ошибка в батче ${batchNumber}:`, error);
+          
+          // Если ошибка 429, делаем большую паузу
+          if (error.message?.includes('429') || error.status === 429) {
+            window.console.warn(`⚠️ Получена ошибка 429, делаем паузу 5 секунд...`);
+            await new Promise(resolve => setTimeout(resolve, 5000));
+          }
+          
           console.error(`Error inserting batch ${batchNumber}:`, error);
         }
       }
