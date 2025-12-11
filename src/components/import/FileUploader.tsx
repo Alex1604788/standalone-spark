@@ -117,6 +117,7 @@ export const FileUploader = ({
           );
           
           // КРИТИЧЕСКОЕ ЛОГИРОВАНИЕ: показываем все найденные колонки
+          // КРИТИЧЕСКОЕ ЛОГИРОВАНИЕ: показываем все найденные колонки
           window.console.log("=".repeat(80));
           window.console.log("🔍🔍🔍 ВСЕ НАЙДЕННЫЕ КОЛОНКИ В ФАЙЛЕ 🔍🔍🔍");
           window.console.log("=".repeat(80));
@@ -130,15 +131,31 @@ export const FileUploader = ({
             normalized: col.toLowerCase().replace(/\s+/g, " ").trim(),
             containsType: col.toLowerCase().includes("тип"),
             containsNacisl: col.toLowerCase().includes("начисл"),
-            containsArtikul: col.toLowerCase().includes("артикул")
+            containsArtikul: col.toLowerCase().includes("артикул"),
+            // Показываем коды символов для диагностики проблем с кодировкой
+            charCodes: col.split('').slice(0, 20).map(c => c.charCodeAt(0))
           }));
           
+          const keysWithType = normalizedColumns.filter(c => c.containsType).map(c => c.original);
+          const keysWithNacisl = normalizedColumns.filter(c => c.containsNacisl).map(c => c.original);
+          const keysWithArtikul = normalizedColumns.filter(c => c.containsArtikul).map(c => c.original);
+          
           window.console.log("Поиск похожих колонок:", {
-            keysWithType: normalizedColumns.filter(c => c.containsType).map(c => c.original),
-            keysWithNacisl: normalizedColumns.filter(c => c.containsNacisl).map(c => c.original),
-            keysWithArtikul: normalizedColumns.filter(c => c.containsArtikul).map(c => c.original),
+            keysWithType,
+            keysWithNacisl,
+            keysWithArtikul,
             allNormalized: normalizedColumns.slice(0, 50)
           });
+          
+          // КРИТИЧЕСКОЕ: показываем alert с найденными колонками
+          if (keysWithType.length === 0 || keysWithArtikul.length === 0) {
+            const message = `⚠️ НЕ НАЙДЕНЫ ОБЯЗАТЕЛЬНЫЕ КОЛОНКИ!\n\n` +
+              `Найдено колонок с "тип": ${keysWithType.length}\n` +
+              `Найдено колонок с "артикул": ${keysWithArtikul.length}\n\n` +
+              `Первые 10 колонок:\n${fileColumns.slice(0, 10).join('\n')}\n\n` +
+              `Откройте консоль (F12) для полного списка.`;
+            alert(message);
+          }
           
           window.console.log("=".repeat(80));
         }

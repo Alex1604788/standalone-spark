@@ -156,15 +156,31 @@ const ImportData = () => {
           normalized: normalize(k),
           containsType: normalize(k).includes("тип"),
           containsNacisl: normalize(k).includes("начисл"),
-          containsArtikul: normalize(k).includes("артикул")
+          containsArtikul: normalize(k).includes("артикул"),
+          // Показываем коды символов для диагностики проблем с кодировкой
+          charCodes: k.split('').slice(0, 20).map(c => c.charCodeAt(0))
         }));
         
+        const keysWithType = normalizedKeys.filter(k => k.containsType).map(k => k.original);
+        const keysWithNacisl = normalizedKeys.filter(k => k.containsNacisl).map(k => k.original);
+        const keysWithArtikul = normalizedKeys.filter(k => k.containsArtikul).map(k => k.original);
+        
         window.console.log("Поиск похожих колонок:", {
-          keysWithType: normalizedKeys.filter(k => k.containsType).map(k => k.original),
-          keysWithNacisl: normalizedKeys.filter(k => k.containsNacisl).map(k => k.original),
-          keysWithArtikul: normalizedKeys.filter(k => k.containsArtikul).map(k => k.original),
+          keysWithType,
+          keysWithNacisl,
+          keysWithArtikul,
           allNormalized: normalizedKeys.slice(0, 30)
         });
+        
+        // КРИТИЧЕСКОЕ: показываем alert если колонки не найдены
+        if (keysWithType.length === 0 || keysWithArtikul.length === 0) {
+          const message = `❌ КРИТИЧЕСКАЯ ОШИБКА: Не найдены обязательные колонки!\n\n` +
+            `Найдено колонок с "тип": ${keysWithType.length}\n` +
+            `Найдено колонок с "артикул": ${keysWithArtikul.length}\n\n` +
+            `Первые 10 колонок в данных:\n${firstRowKeys.slice(0, 10).join('\n')}\n\n` +
+            `Откройте консоль (F12) для полного списка и деталей.`;
+          alert(message);
+        }
         
         window.console.log("=".repeat(80));
       }
