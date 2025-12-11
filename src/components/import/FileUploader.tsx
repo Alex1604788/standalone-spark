@@ -23,6 +23,23 @@ const EXPECTED_COLUMNS: Record<ImportType, string[]> = {
   storage_costs: ["Дата", "Артикул"],
 };
 
+/**
+ * Удаляем невидимые/служебные символы (BOM, zero-width, управляющие),
+ * приводим пробелы к одному, режем по краям и в нижний регистр для поиска.
+ */
+const normalizeForSearch = (s: string) =>
+  s
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * Чистим заголовок, но без приведения к lower — это пойдёт в ключи объекта.
+ */
+const cleanHeaderKey = (s: string) =>
+  s.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "").trim();
+
 export const FileUploader = ({
   importType,
   onFileSelect,
@@ -32,14 +49,6 @@ export const FileUploader = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-
-  // Нормализация строки с удалением невидимых символов (BOM, ZERO WIDTH SPACE и т.д.)
-  const normalize = (s: string) =>
-    s
-      .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "") // удалить скрытые символы (BOM, ZERO WIDTH SPACE и т.д.)
-      .toLowerCase()
-      .replace(/\s+/g, " ")
-      .trim();
 
   const handleFileChange = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -74,13 +83,13 @@ export const FileUploader = ({
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
 
-      // 3. Сначала читаем как массив массивов, чтобы найти строку с заголовками
-      const rawData = XLSX.utils.sheet_to_json(worksheet, { 
-        header: 1, 
-        defval: "" 
-      }) as any[][];
+      // 3. конвертируем лист в JSON
+      const rawJson = XLSX.utils.sheet_to_json(worksheet, {
+        defval: "",
+        raw: false,
+      }) as any[];
 
-      if (rawData.length === 0) {
+      if (!rawJson.length) {
         toast({
           title: "Файл пуст",
           description: "Excel файл не содержит данных",
@@ -90,126 +99,26 @@ export const FileUploader = ({
         return;
       }
 
-      // 4. Ищем строку с заголовками (для начислений ОЗОН ищем "Тип начисления" и "Артикул")
-      let headerRowIndex = -1;
-      
-      if (importType === "accruals") {
-        // ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ первой строки
-        if (rawData.length > 0) {
-          const firstRow = rawData[0];
-          window.console.log("=".repeat(80));
-          window.console.log("🔍 ПРОВЕРКА ПЕРВОЙ СТРОКИ (ШАПКА ТАБЛИЦЫ)");
-          window.console.log("=".repeat(80));
-          window.console.log("Первая строка (сырые данные):", firstRow);
-          window.console.log("Первая строка (первые 20 ячеек):", firstRow.slice(0, 20));
-          
-          const firstRowValues = firstRow.map(cell => String(cell || "").trim());
-          window.console.log("Первая строка (как строки, первые 20):", firstRowValues.slice(0, 20));
-          
-          const firstRowNormalized = firstRowValues.map(v => normalize(v));
-          window.console.log("Первая строка (нормализованные, первые 20):", firstRowNormalized.slice(0, 20));
-          
-          // Ищем "тип начисления" - может быть в одной ячейке или в разных
-          const hasAccrualType = firstRowNormalized.some(v => {
-            const result = v === "тип начисления" || (v.includes("тип") && v.includes("начисл"));
-            if (result) {
-              window.console.log(`✅ Найдено "тип начисления" в значении: "${v}"`);
-            }
-            return result;
-          });
-          
-          const hasOfferId = firstRowNormalized.some(v => {
-            const result = v === "артикул" || v.includes("артикул");
-            if (result) {
-              window.console.log(`✅ Найдено "артикул" в значении: "${v}"`);
-            }
-            return result;
-          });
-          
-          window.console.log("Результаты проверки первой строки:", {
-            hasAccrualType,
-            hasOfferId,
-            isHeader: hasAccrualType && hasOfferId
-          });
-          window.console.log("=".repeat(80));
-          
-          if (hasAccrualType && hasOfferId) {
-            headerRowIndex = 0;
-            window.console.log("✅ Первая строка содержит заголовки!");
-          }
-        }
-        
-        // Если первая строка не подошла, ищем в следующих строках
-        if (headerRowIndex === -1) {
-          for (let i = 1; i < Math.min(20, rawData.length); i++) {
-            const row = rawData[i];
-            if (!row || row.every(cell => !cell || String(cell).trim() === "")) {
-              continue;
-            }
-            
-            const rowValues = row.map(cell => normalize(String(cell || ""))).filter(v => v.length > 0);
-            if (rowValues.length < 2) continue;
-            
-            // Ищем "тип начисления" и "артикул"
-            const hasAccrualType = rowValues.some(v => v === "тип начисления" || (v.includes("тип") && v.includes("начисл")));
-            const hasOfferId = rowValues.some(v => v === "артикул" || v.includes("артикул"));
-            
-            if (hasAccrualType && hasOfferId) {
-              headerRowIndex = i;
-              window.console.log(`✅ Найдена строка с заголовками на индексе ${i}`);
-              break;
-            }
-          }
-        }
-      } else {
-        // Для других типов используем первую непустую строку
-        headerRowIndex = rawData.findIndex(row =>
-          row && row.some(cell => String(cell ?? "").trim() !== "")
-        );
+      // 4. Чистим заголовки от BOM/невидимых символов и
+      //    пересобираем объекты с "чистыми" ключами
+      const firstRawRow = rawJson[0] as Record<string, any>;
+      const originalColumns = Object.keys(firstRawRow);
+
+      const headerMap: Record<string, string> = {};
+      for (const col of originalColumns) {
+        const cleaned = cleanHeaderKey(col);
+        headerMap[col] = cleaned || col;
       }
 
-      // 5. Если заголовки не найдены, используем первую строку (fallback)
-      if (headerRowIndex === -1) {
-        window.console.warn("⚠️ Заголовки не найдены, используем первую строку как fallback");
-        headerRowIndex = 0;
-      }
-
-      // 6. Берем заголовки из найденной строки
-      const headerRow = rawData[headerRowIndex];
-      const headers = headerRow.map((cell, idx) => {
-        const val = String(cell || `Column${idx + 1}`).trim();
-        return val || `Column${idx + 1}`;
+      const jsonData = rawJson.map((row) => {
+        const newRow: Record<string, any> = {};
+        Object.entries(row).forEach(([key, value]) => {
+          const mappedKey = headerMap[key] ?? key;
+          newRow[mappedKey] = value;
+        });
+        return newRow;
       });
-      
-      // 7. Читаем данные начиная со следующей строки после заголовков
-      const dataRows = rawData.slice(headerRowIndex + 1);
-      
-      // 8. Преобразуем в объекты с использованием заголовков
-      const jsonData = dataRows
-        .filter(row => row && row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== ""))
-        .map(row => {
-          const obj: Record<string, any> = {};
-          headers.forEach((header, idx) => {
-            obj[header] = row[idx] !== undefined ? row[idx] : "";
-          });
-          return obj;
-        });
-      
-      window.console.log(`✅ Использованы заголовки из строки ${headerRowIndex}:`, headers.slice(0, 20));
-      window.console.log(`✅ Всего заголовков: ${headers.length}`);
-      window.console.log(`✅ Найдено строк данных: ${jsonData.length}`);
 
-      if (!jsonData.length) {
-        toast({
-          title: "Файл пуст",
-          description: "Excel файл не содержит данных",
-          variant: "destructive",
-        });
-        setSelectedFile(null);
-        return;
-      }
-
-      // 4. просто логируем колонки для себя, НО не блокируем импорт
       const firstRow = jsonData[0] as Record<string, any>;
       const fileColumns = Object.keys(firstRow);
 
@@ -217,71 +126,42 @@ export const FileUploader = ({
         importType,
         fileName: file.name,
         sheet: firstSheetName,
-        columns: fileColumns,
-        firstRowSample: Object.fromEntries(
+        originalColumns,
+        cleanedColumns: fileColumns,
+        sampleRow: Object.fromEntries(
           Object.entries(firstRow)
             .slice(0, 10)
             .map(([k, v]) => [k, String(v).substring(0, 50)])
         ),
       });
 
-      // (если очень хочешь мягкую проверку — можно просто warning в консоль)
+      // 5. Мягкая проверка обязательных колонок
       if (importType === "accruals") {
         const hasAccrualType = fileColumns.some((c) => {
-          const n = normalize(c);
+          const n = normalizeForSearch(c);
           return n === "тип начисления" || n.includes("тип начисл");
         });
+
         const hasOfferId = fileColumns.some((c) => {
-          const n = normalize(c);
+          const n = normalizeForSearch(c);
           return n === "артикул" || n.includes("артикул");
         });
+
         if (!hasAccrualType || !hasOfferId) {
-          console.warn(
-            "⚠️ FileUploader: не нашли явные колонки 'Тип начисления' или 'Артикул', но импорт не блокируем"
-          );
-          
-          // КРИТИЧЕСКОЕ ЛОГИРОВАНИЕ: показываем все найденные колонки
-          // КРИТИЧЕСКОЕ ЛОГИРОВАНИЕ: показываем все найденные колонки
-          window.console.log("=".repeat(80));
-          window.console.log("🔍🔍🔍 ВСЕ НАЙДЕННЫЕ КОЛОНКИ В ФАЙЛЕ 🔍🔍🔍");
-          window.console.log("=".repeat(80));
-          window.console.log("Всего колонок:", fileColumns.length);
-          window.console.log("Все колонки (первые 50):", fileColumns.slice(0, 50));
-          window.console.log("Все колонки (полный список):", fileColumns);
-          
-          // Показываем нормализованные версии для поиска
-          const normalizedColumns = fileColumns.map(col => ({
-            original: col,
-            normalized: col.toLowerCase().replace(/\s+/g, " ").trim(),
-            containsType: col.toLowerCase().includes("тип"),
-            containsNacisl: col.toLowerCase().includes("начисл"),
-            containsArtikul: col.toLowerCase().includes("артикул"),
-            // Показываем коды символов для диагностики проблем с кодировкой
-            charCodes: col.split('').slice(0, 20).map(c => c.charCodeAt(0))
-          }));
-          
-          const keysWithType = normalizedColumns.filter(c => c.containsType).map(c => c.original);
-          const keysWithNacisl = normalizedColumns.filter(c => c.containsNacisl).map(c => c.original);
-          const keysWithArtikul = normalizedColumns.filter(c => c.containsArtikul).map(c => c.original);
-          
-          window.console.log("Поиск похожих колонок:", {
-            keysWithType,
-            keysWithNacisl,
-            keysWithArtikul,
-            allNormalized: normalizedColumns.slice(0, 50)
+          console.warn("⚠️ Обязательные колонки не найдены", {
+            fileColumns,
+            normalized: fileColumns.map((c) => normalizeForSearch(c)),
           });
-          
-          // КРИТИЧЕСКОЕ: показываем alert с найденными колонками
-          if (keysWithType.length === 0 || keysWithArtikul.length === 0) {
-            const message = `⚠️ НЕ НАЙДЕНЫ ОБЯЗАТЕЛЬНЫЕ КОЛОНКИ!\n\n` +
-              `Найдено колонок с "тип": ${keysWithType.length}\n` +
-              `Найдено колонок с "артикул": ${keysWithArtikul.length}\n\n` +
-              `Первые 10 колонок:\n${fileColumns.slice(0, 10).join('\n')}\n\n` +
-              `Откройте консоль (F12) для полного списка.`;
-            alert(message);
-          }
-          
-          window.console.log("=".repeat(80));
+
+          toast({
+            title: "Не найдены обязательные колонки",
+            description:
+              "Ожидаются колонки «Тип начисления» и «Артикул». Откройте файл и проверьте названия заголовков. Полный список колонок есть в консоли (F12).",
+            variant: "destructive",
+          });
+          // можно вернуть, если хочешь блокировать импорт:
+          // setIsProcessing(false);
+          // return;
         }
       }
 
@@ -290,7 +170,7 @@ export const FileUploader = ({
         description: `Найдено строк: ${jsonData.length}`,
       });
 
-      // 5. отдаём данные дальше — дальше работает твой ImportData.tsx
+      // 6. Отдаём уже ОЧИЩЕННЫЕ данные наружу
       onFileSelect(jsonData, file.name);
     } catch (error: any) {
       console.error("❌ ОШИБКА при парсинге Excel в FileUploader:", error);
