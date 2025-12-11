@@ -21,6 +21,7 @@ const ImportData = () => {
   const [periodEnd, setPeriodEnd] = useState<string>("");
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
+  const [importStatus, setImportStatus] = useState<string>(""); // Текущий статус импорта
   const [importResult, setImportResult] = useState<{
     success: number;
     failed: number;
@@ -58,11 +59,16 @@ const ImportData = () => {
 
   const handleImport = async () => {
     // САМОЕ РАННЕЕ логирование - должно появиться сразу при клике
-    alert("🚀 ИМПОРТ ЗАПУЩЕН! Откройте консоль (F12) для просмотра логов.");
     window.console.log("=".repeat(80));
     window.console.log("🚀🚀🚀 НАЧАЛО ИМПОРТА 🚀🚀🚀");
     window.console.log("=".repeat(80));
     window.console.log("Время запуска:", new Date().toISOString());
+    
+    // Показываем toast вместо alert
+    toast({
+      title: "Импорт запущен",
+      description: "Откройте консоль (F12) для просмотра детальных логов",
+    });
     
     if (!fileData || !marketplace) {
       window.console.error("❌ Ошибка: нет fileData или marketplace", { fileData: !!fileData, marketplace: !!marketplace });
@@ -92,11 +98,14 @@ const ImportData = () => {
 
     setIsImporting(true);
     setImportProgress(0);
+    setImportStatus("Инициализация импорта...");
     setImportResult(null);
+    
+    let importLog: any = null; // Объявляем здесь, чтобы использовать в catch
 
     try {
       // 1. Создаем лог импорта
-      const { data: importLog, error: logError } = await supabase
+      const { data: importLogData, error: logError } = await supabase
         .from("import_logs")
         .insert({
           marketplace_id: marketplace.id,
@@ -111,8 +120,12 @@ const ImportData = () => {
 
       if (logError) throw logError;
       
-      window.console.log("✅ Лог импорта создан:", importLog.id);
+      importLog = importLogData; // Сохраняем для использования в catch
+      
+      window.console.log("✅ Лог импорта создан:", importLogData?.id);
       window.console.log("📊 Начинаем обработку файла...");
+      
+      setImportStatus("Преобразование данных...");
 
       let successCount = 0;
       let failedCount = 0;
@@ -172,7 +185,9 @@ const ImportData = () => {
         if (i > 0 && i % PROCESSING_BATCH === 0) {
           const progress = ((i / totalRows) * 100).toFixed(1);
           window.console.log(`⏸️ Пауза после ${i} строк (${progress}%)...`);
-          setImportProgress((i / totalRows) * 50); // 50% - это преобразование, 50% - вставка
+          const progressPercent = (i / totalRows) * 50; // 50% - это преобразование, 50% - вставка
+          setImportProgress(progressPercent);
+          setImportStatus(`Преобразование данных: ${i + 1} / ${totalRows} строк (${progress}%)`);
           // Небольшая пауза, чтобы браузер мог обработать события
           await new Promise(resolve => setTimeout(resolve, 10));
         }
@@ -184,7 +199,7 @@ const ImportData = () => {
         }
         
         try {
-          const transformed = transformRow(row, importType, marketplace.id, importLog.id, i);
+          const transformed = transformRow(row, importType, marketplace.id, importLog?.id || "", i);
           transformedRows.push(transformed);
           
           // Логируем успешное преобразование первых 3 строк
@@ -239,6 +254,8 @@ const ImportData = () => {
       
       window.console.log(`📦 Начинаем вставку ${transformedRows.length} строк батчами по ${BATCH_SIZE}`);
       window.console.log(`📦 Всего батчей: ${totalBatches}`);
+      
+      setImportStatus("Вставка данных в базу...");
 
       for (let i = 0; i < transformedRows.length; i += BATCH_SIZE) {
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
@@ -246,6 +263,7 @@ const ImportData = () => {
         const progress = 50 + ((i + chunk.length) / fileData.length) * 50; // 50-100% для вставки
         
         setImportProgress(progress);
+        setImportStatus(`Вставка данных: батч ${batchNumber}/${totalBatches} (${progress.toFixed(1)}%)`);
         
         window.console.log(`📦 Батч ${batchNumber}/${totalBatches}: вставляем строки ${i + 1}–${i + chunk.length} (${progress.toFixed(1)}%)`);
 
@@ -304,7 +322,7 @@ const ImportData = () => {
           error_message: errors.length > 0 ? errors.slice(0, 5).join("\\n") : null,
           completed_at: new Date().toISOString(),
         })
-        .eq("id", importLog.id);
+        .eq("id", importLog?.id);
 
       setImportResult({
         success: successCount,
@@ -353,6 +371,8 @@ const ImportData = () => {
     } finally {
       window.console.log("🏁 Импорт завершен (finally блок)");
       setIsImporting(false);
+      setImportStatus("");
+      setImportProgress(0);
       window.console.log("✅ Состояние установлено: isImporting=false");
     }
   };
@@ -652,9 +672,14 @@ const ImportData = () => {
               {isImporting && (
                 <div className="mt-4 space-y-2">
                   <Progress value={importProgress} />
-                  <p className="text-sm text-center text-muted-foreground">
-                    {Math.round(importProgress)}%
-                  </p>
+                  <div className="flex items-center justify-between text-sm">
+                    <p className="text-muted-foreground">
+                      {importStatus || `Прогресс: ${Math.round(importProgress)}%`}
+                    </p>
+                    <p className="font-medium">
+                      {Math.round(importProgress)}%
+                    </p>
+                  </div>
                 </div>
               )}
             </CardContent>
