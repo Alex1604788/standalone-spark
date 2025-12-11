@@ -86,7 +86,8 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
       // Функция для нормализации значения
       const normalizeValue = (val: any): string => {
         if (val === null || val === undefined) return "";
-        return String(val).trim().toLowerCase();
+        // Убираем все лишние пробелы (включая неразрывные пробелы)
+        return String(val).trim().replace(/\s+/g, " ").toLowerCase();
       };
 
       // Функция для проверки, является ли строка заголовками
@@ -159,18 +160,41 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
         
         if (importType === "accruals") {
           // Более гибкая проверка: ищем "тип начисления" или комбинацию "тип" + "начисл"
-          const hasAccrualType = rowValues.some(v => {
-            const normalized = v.toLowerCase();
-            // Точное совпадение или комбинация
-            return normalized === "тип начисления" ||
-                   normalized.includes("тип начисления") ||
-                   (normalized.includes("тип") && normalized.includes("начисл"));
-          });
-          // Ищем "артикул" (может быть с заглавной буквы или в другом регистре)
-          const hasOfferId = rowValues.some(v => {
-            const normalized = v.toLowerCase();
-            return normalized === "артикул" || normalized.includes("артикул");
-          });
+          // Проверяем как отдельные значения, так и комбинации
+          let hasAccrualType = false;
+          let hasOfferId = false;
+          
+          // Проверяем каждое значение
+          for (const v of rowValues) {
+            const normalized = normalizeValue(v);
+            
+            // Проверка "тип начисления"
+            if (!hasAccrualType) {
+              if (normalized === "тип начисления" ||
+                  normalized.includes("тип начисления") ||
+                  (normalized.includes("тип") && normalized.includes("начисл")) ||
+                  normalized === "тип" || normalized === "начисления") {
+                hasAccrualType = true;
+              }
+            }
+            
+            // Проверка "артикул"
+            if (!hasOfferId) {
+              if (normalized === "артикул" || 
+                  normalized.includes("артикул") ||
+                  normalized === "артикул продавца" ||
+                  normalized === "артикул товара") {
+                hasOfferId = true;
+              }
+            }
+          }
+          
+          // Также проверяем комбинацию значений (может быть в разных ячейках)
+          if (!hasAccrualType) {
+            const hasType = rowValues.some(v => normalizeValue(v).includes("тип"));
+            const hasNacisl = rowValues.some(v => normalizeValue(v).includes("начисл"));
+            hasAccrualType = hasType && hasNacisl;
+          }
           
           // Дополнительная проверка: если в строке есть много текстовых значений (признак заголовков)
           const textCellsCount = row.filter(cell => {
@@ -178,14 +202,42 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
             return val.length > 3 && !/^\d+([\.,]\d+)?$/.test(val); // Не только числа
           }).length;
           
-          console.log(`🔍 Строка ${i}:`, {
-            rowValues: rowValues.slice(0, 15),
-            rowPreview: row.slice(0, 15).map(cell => String(cell).substring(0, 40)),
-            hasAccrualType,
-            hasOfferId,
-            textCellsCount,
-            isHeader: hasAccrualType && hasOfferId
-          });
+          // Детальное логирование для строк 0-5 (где должны быть заголовки)
+          if (i <= 5) {
+            console.log(`🔍 Строка ${i} (ДЕТАЛЬНО):`, {
+              rowIndex: i,
+              allRowValues: rowValues, // Все значения, не только первые 15
+              allRowCells: row.map((cell, idx) => ({
+                index: idx,
+                raw: cell,
+                string: String(cell),
+                normalized: normalizeValue(cell),
+                length: String(cell).length
+              })).slice(0, 20), // Первые 20 ячеек
+              hasAccrualType,
+              hasOfferId,
+              textCellsCount,
+              isHeader: hasAccrualType && hasOfferId,
+              // Проверяем каждое значение на наличие ключевых слов
+              accrualTypeMatches: rowValues.filter(v => {
+                const normalized = v.toLowerCase();
+                return normalized.includes("тип") || normalized.includes("начисл");
+              }),
+              offerIdMatches: rowValues.filter(v => {
+                const normalized = v.toLowerCase();
+                return normalized.includes("артикул");
+              })
+            });
+          } else {
+            console.log(`🔍 Строка ${i}:`, {
+              rowValues: rowValues.slice(0, 15),
+              rowPreview: row.slice(0, 15).map(cell => String(cell).substring(0, 40)),
+              hasAccrualType,
+              hasOfferId,
+              textCellsCount,
+              isHeader: hasAccrualType && hasOfferId
+            });
+          }
           
           // Если найдены оба обязательных заголовка И в строке достаточно текстовых ячеек
           if (hasAccrualType && hasOfferId && textCellsCount >= 5) {
