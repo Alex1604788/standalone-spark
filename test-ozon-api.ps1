@@ -73,14 +73,14 @@ Write-Host "ШАГ 2: Запрос статистики за последние 
 
 $statsUrl = "https://api-performance.ozon.ru/api/client/statistics"
 
-# Даты за последние 7 дней
-$endDate = Get-Date -Format "yyyy-MM-dd"
-$startDate = (Get-Date).AddDays(-7).ToString("yyyy-MM-dd")
+# Даты за последние 7 дней (ISO 8601 формат)
+$endDate = Get-Date
+$startDate = (Get-Date).AddDays(-7)
 
 $statsBody = @{
-    date_from = $startDate
-    date_to = $endDate
-    group_by = "DATE"
+    from = $endDate.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+    to = $startDate.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+    groupBy = "DATE"
 } | ConvertTo-Json
 
 Write-Host "URL: $statsUrl" -ForegroundColor Gray
