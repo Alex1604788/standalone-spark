@@ -202,70 +202,82 @@ serve(async (req) => {
 
     console.error(`STEP 5: Found ${campaignIds.length} campaigns`);
 
-    // 5. Запрашиваем статистику по кампаниям из OZON Performance API (JSON endpoint)
+    // 5. Запрашиваем статистику по кампаниям (OZON ограничивает до 10 кампаний за запрос)
     console.error("STEP 6: Fetching performance data from", formatDate(startDateObj), "to", formatDate(endDateObj));
-    console.error("Requesting stats for campaigns:", JSON.stringify(campaignIds));
 
-    const performanceResponse = await fetch("https://api-performance.ozon.ru:443/api/client/statistics/json", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Authorization": `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        campaigns: campaignIds,
-        from: startDateObj.toISOString(),
-        to: endDateObj.toISOString(),
-        groupBy: "DATE", // Группировка по дням!
-      }),
-      redirect: "follow",
-    }).catch((err) => {
-      console.error("Performance API fetch failed:", err.message);
-      throw new Error(`Failed to fetch performance data: ${err.message}`);
-    });
+    // Разбиваем кампании на chunks по 10 штук
+    const chunkSize = 10;
+    const campaignChunks = [];
+    for (let i = 0; i < campaignIds.length; i += chunkSize) {
+      campaignChunks.push(campaignIds.slice(i, i + chunkSize));
+    }
 
-    if (!performanceResponse.ok) {
-      const errorText = await performanceResponse.text();
-      console.error("Performance API error:", errorText);
+    console.error(`STEP 7: Split into ${campaignChunks.length} chunks (max 10 campaigns per request)`);
 
-      // Note: "empty campaign" error should not occur now that we fetch campaign IDs first
-      if (errorText.includes("empty campaign")) {
+    let allStats: OzonPerformanceStats[] = [];
+
+    // Запрашиваем статистику для каждого chunk
+    for (let i = 0; i < campaignChunks.length; i++) {
+      const chunk = campaignChunks[i];
+      console.error(`Requesting chunk ${i + 1}/${campaignChunks.length} with ${chunk.length} campaigns:`, JSON.stringify(chunk));
+
+      const performanceResponse = await fetch("https://api-performance.ozon.ru:443/api/client/statistics/json", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          campaigns: chunk,
+          from: startDateObj.toISOString(),
+          to: endDateObj.toISOString(),
+          groupBy: "DATE",
+        }),
+        redirect: "follow",
+      }).catch((err) => {
+        console.error(`Performance API fetch failed for chunk ${i + 1}:`, err.message);
+        throw new Error(`Failed to fetch performance data: ${err.message}`);
+      });
+
+      if (!performanceResponse.ok) {
+        const errorText = await performanceResponse.text();
+        console.error(`Performance API error for chunk ${i + 1}:`, errorText);
         return new Response(
           JSON.stringify({
-            error: "Empty campaign error occurred despite fetching campaign list",
+            error: "Failed to fetch performance data",
             details: errorText,
-            campaigns_sent: campaignIds
+            chunk: i + 1,
+            total_chunks: campaignChunks.length
           }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: performanceResponse.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      return new Response(
-        JSON.stringify({ error: "Failed to fetch performance data", details: errorText }),
-        { status: performanceResponse.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      const performanceData = await performanceResponse.json();
+      console.error(`Chunk ${i + 1} response:`, JSON.stringify(performanceData).substring(0, 300));
+
+      // Проверяем, вернул ли API UUID (асинхронный режим)
+      if (performanceData.UUID) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "OZON API returned UUID (async mode)",
+            details: "The API requires polling. UUID: " + performanceData.UUID,
+            uuid: performanceData.UUID,
+            message: "JSON endpoint also works asynchronously. Need to implement polling logic."
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const chunkStats: OzonPerformanceStats[] = performanceData.rows || [];
+      console.error(`Chunk ${i + 1} returned ${chunkStats.length} rows`);
+      allStats = allStats.concat(chunkStats);
     }
 
-    const performanceData = await performanceResponse.json();
-    console.log("Performance API response:", JSON.stringify(performanceData).substring(0, 500));
-
-    // Проверяем, вернул ли API UUID (асинхронный режим) или данные напрямую
-    if (performanceData.UUID) {
-      // API работает асинхронно - вернул UUID вместо данных
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "OZON API returned UUID (async mode)",
-          details: "The API requires polling. UUID: " + performanceData.UUID,
-          uuid: performanceData.UUID,
-          message: "JSON endpoint also works asynchronously. Need to implement polling logic."
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const stats: OzonPerformanceStats[] = performanceData.rows || [];
+    console.error(`STEP 8: Collected total ${allStats.length} stat rows from all chunks`);
+    const stats = allStats;
 
     if (stats.length === 0) {
       return new Response(
