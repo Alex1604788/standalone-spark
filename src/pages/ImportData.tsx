@@ -395,8 +395,13 @@ const ImportData = () => {
 
   // Вспомогательные функции для парсинга
   
-  // Нормализация строки для поиска колонок
-  const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  // Нормализация строки для поиска колонок с удалением невидимых символов (BOM, ZERO WIDTH SPACE и т.д.)
+  const normalize = (s: string) =>
+    s
+      .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "") // удалить скрытые символы (BOM, ZERO WIDTH SPACE и т.д.)
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
   
   // Улучшенный поиск колонок
   const findColumn = (row: any, keywords: string[]) => {
