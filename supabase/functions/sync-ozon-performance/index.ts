@@ -77,7 +77,7 @@ serve(async (req) => {
       // Получаем новый токен
       console.log("Requesting token for client_id:", creds.client_id);
 
-      const tokenResponse = await fetch("https://performance.ozon.ru/api/client/token", {
+      const tokenResponse = await fetch("https://api-performance.ozon.ru/api/client/token", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
