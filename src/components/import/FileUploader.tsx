@@ -107,13 +107,19 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
             v.toLowerCase().includes("артикул")
           );
           
+          // Показываем больше информации для диагностики
+          const rowPreview = row.slice(0, 15).map(cell => String(cell).substring(0, 40));
+          
           console.log(`🔍 Проверка строки на заголовки:`, {
-            rowValues: rowValues.slice(0, 10),
+            rowIndex: "будет добавлен в цикле",
+            rowValues: rowValues.slice(0, 15),
+            rowPreview,
             hasAccrualType,
             hasOfferId,
             isHeader: hasAccrualType && hasOfferId
           });
           
+          // Требуем оба условия для точного совпадения
           return hasAccrualType && hasOfferId;
         }
         
@@ -127,26 +133,53 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
         );
       };
 
-      // Ищем строку с заголовками (проверяем первые 30 строк, пропуская пустые)
+      // Ищем строку с заголовками (проверяем первые 50 строк, пропуская пустые)
       let headerRowIndex = -1;
       console.log("🔍 Поиск строки с заголовками. Всего строк в файле:", rawData.length);
-      console.log("🔍 Первые 5 строк файла:", rawData.slice(0, 5).map((row, idx) => ({
+      console.log("🔍 Первые 10 строк файла:", rawData.slice(0, 10).map((row, idx) => ({
         index: idx,
-        row: row.slice(0, 10).map(cell => String(cell).substring(0, 30))
+        cells: row.slice(0, 15).map(cell => {
+          const str = String(cell || "").trim();
+          return str.substring(0, 40);
+        }),
+        nonEmptyCount: row.filter(cell => cell && String(cell).trim() !== "").length
       })));
       
       // Сначала ищем точное совпадение
-      for (let i = 0; i < Math.min(30, rawData.length); i++) {
+      for (let i = 0; i < Math.min(50, rawData.length); i++) {
         const row = rawData[i];
         // Пропускаем полностью пустые строки
         if (!row || row.every(cell => !cell || String(cell).trim() === "")) {
           continue;
         }
         
-        if (isHeaderRow(row)) {
-          headerRowIndex = i;
-          console.log(`✅ Найдена строка с заголовками на индексе ${i}:`, row.slice(0, 15).map(cell => String(cell).substring(0, 50)));
-          break;
+        // Временно переопределяем функцию для логирования с индексом
+        const rowValues = row.map(normalizeValue).filter(v => v && v.length > 0);
+        if (rowValues.length < 2) continue;
+        
+        if (importType === "accruals") {
+          const hasAccrualType = rowValues.some(v => {
+            const normalized = v.toLowerCase();
+            return normalized.includes("тип начисления") || 
+                   (normalized.includes("тип") && normalized.includes("начисл"));
+          });
+          const hasOfferId = rowValues.some(v => 
+            v.toLowerCase().includes("артикул")
+          );
+          
+          console.log(`🔍 Строка ${i}:`, {
+            rowValues: rowValues.slice(0, 15),
+            rowPreview: row.slice(0, 15).map(cell => String(cell).substring(0, 40)),
+            hasAccrualType,
+            hasOfferId,
+            isHeader: hasAccrualType && hasOfferId
+          });
+          
+          if (hasAccrualType && hasOfferId) {
+            headerRowIndex = i;
+            console.log(`✅ Найдена строка с заголовками на индексе ${i}:`, row.slice(0, 20).map(cell => String(cell).substring(0, 50)));
+            break;
+          }
         }
       }
 
@@ -178,28 +211,47 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
         }
       }
 
-      // Если все еще не нашли, используем первую непустую строку с достаточным количеством колонок
+      // Если все еще не нашли, ищем строку, которая выглядит как заголовки (текстовые значения, не данные)
       if (headerRowIndex === -1) {
-        console.warn("⚠️ Не найдена строка с заголовками, ищем первую строку с данными");
-        for (let i = 0; i < Math.min(30, rawData.length); i++) {
+        console.warn("⚠️ Не найдена строка с заголовками, ищем строку, которая выглядит как заголовки");
+        for (let i = 0; i < Math.min(50, rawData.length); i++) {
           const row = rawData[i];
           if (!row) continue;
           
-          const nonEmptyCells = row.filter(cell => {
+          // Ищем строку, где большинство ячеек - это текст (не числа, не даты)
+          const textCells = row.filter(cell => {
             const val = normalizeValue(cell);
-            return val.length > 0 && !/^\d+$/.test(val) && !/^[0-9\s\-\.]+$/.test(val); // Не только цифры и даты
+            if (val.length === 0) return false;
+            // Исключаем чисто числовые значения, даты, и мусорные символы
+            if (/^\d+$/.test(val)) return false; // Только цифры
+            if (/^[0-9\s\-\.\/]+$/.test(val)) return false; // Даты
+            if (val.length < 2) return false; // Слишком короткие
+            // Исключаем строки с множеством повторяющихся символов (мусор)
+            if (/(.)\1{4,}/.test(val)) return false; // Повторяющиеся символы
+            return true;
           });
-          if (nonEmptyCells.length >= 3) {
-            headerRowIndex = i;
-            console.log(`⚠️ Используем строку ${i} как заголовки (не найдены точные совпадения):`, row.slice(0, 15).map(cell => String(cell).substring(0, 50)));
-            break;
+          
+          // Если в строке достаточно текстовых ячеек и они выглядят как заголовки
+          if (textCells.length >= 5) {
+            const rowText = row.slice(0, 10).map(cell => String(cell).substring(0, 30)).join(" ");
+            // Проверяем, что это не похоже на данные (нет множества цифр, дат и т.д.)
+            const hasTooManyNumbers = (rowText.match(/\d{4,}/g) || []).length > 2;
+            if (!hasTooManyNumbers) {
+              headerRowIndex = i;
+              console.log(`⚠️ Используем строку ${i} как заголовки (выглядит как заголовки):`, row.slice(0, 15).map(cell => String(cell).substring(0, 50)));
+              break;
+            }
           }
         }
         
-        // Если все еще не нашли, используем первую строку
+        // Если все еще не нашли, НЕ используем строку 0 - лучше показать ошибку
         if (headerRowIndex === -1) {
-          headerRowIndex = 0;
-          console.warn("⚠️ Используем первую строку как заголовки (последний вариант)");
+          console.error("❌ Не удалось найти строку с заголовками в первых 50 строках файла!");
+          console.error("❌ Первые 10 строк файла для анализа:", rawData.slice(0, 10).map((row, idx) => ({
+            index: idx,
+            cells: row.slice(0, 10).map(cell => String(cell).substring(0, 50))
+          })));
+          // Не устанавливаем headerRowIndex = 0, чтобы показать ошибку
         }
       }
 
@@ -233,10 +285,15 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
         console.log(`✅ Всего заголовков: ${headers.length}`);
         console.log(`✅ Найдено строк данных: ${jsonData.length}`);
       } else {
-        // Fallback: используем стандартный парсинг
-        jsonData = XLSX.utils.sheet_to_json(worksheet, { 
-          defval: "",
+        // Заголовки не найдены - показываем ошибку
+        console.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось найти строку с заголовками!");
+        toast({
+          title: "Неверная структура файла",
+          description: "Не удалось найти строку с заголовками в файле. Убедитесь, что файл содержит колонки 'Тип начисления' и 'Артикул'. Проверьте консоль браузера (F12) для деталей.",
+          variant: "destructive",
         });
+        setSelectedFile(null);
+        return;
       }
 
       if (jsonData.length === 0) {
