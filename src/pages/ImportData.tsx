@@ -82,6 +82,10 @@ const ImportData = () => {
         Object.entries(fileData[0]).slice(0, 20).map(([k, v]) => [k, String(v).substring(0, 100)])
       ) : null
     });
+    
+    // Оценка времени импорта
+    const estimatedTime = Math.ceil(fileData.length / 1000); // Примерно 1 секунда на 1000 строк преобразования
+    window.console.log(`⏱️ Оценочное время преобразования: ~${estimatedTime} секунд для ${fileData.length} строк`);
 
     setIsImporting(true);
     setImportProgress(0);
@@ -146,8 +150,22 @@ const ImportData = () => {
         window.console.log("=".repeat(80));
       }
 
+      // Логируем прогресс преобразования
+      const totalRows = fileData.length;
+      const logInterval = Math.max(1, Math.floor(totalRows / 100)); // Логируем каждые 1% или каждую строку для маленьких файлов
+      
+      window.console.log(`🔄 Начинаем преобразование ${totalRows} строк...`);
+      window.console.log(`📊 Будем логировать каждые ${logInterval} строк`);
+
       for (let i = 0; i < fileData.length; i++) {
         const row = fileData[i];
+        
+        // Логируем прогресс
+        if (i % logInterval === 0 || i < 10) {
+          const progress = ((i / totalRows) * 100).toFixed(1);
+          window.console.log(`📈 Прогресс преобразования: ${i + 1}/${totalRows} (${progress}%)`);
+        }
+        
         try {
           const transformed = transformRow(row, importType, marketplace.id, importLog.id, i);
           transformedRows.push(transformed);
@@ -200,10 +218,19 @@ const ImportData = () => {
 
       // 3. Вставляем данные батчами
       const tableName = importType === "accruals" ? "ozon_accruals" : "storage_costs";
+      const totalBatches = Math.ceil(transformedRows.length / BATCH_SIZE);
+      
+      window.console.log(`📦 Начинаем вставку ${transformedRows.length} строк батчами по ${BATCH_SIZE}`);
+      window.console.log(`📦 Всего батчей: ${totalBatches}`);
 
       for (let i = 0; i < transformedRows.length; i += BATCH_SIZE) {
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
         const chunk = transformedRows.slice(i, i + BATCH_SIZE);
-        setImportProgress(((i + chunk.length) / fileData.length) * 100);
+        const progress = ((i + chunk.length) / fileData.length) * 100;
+        
+        setImportProgress(progress);
+        
+        window.console.log(`📦 Батч ${batchNumber}/${totalBatches}: вставляем строки ${i + 1}–${i + chunk.length} (${progress.toFixed(1)}%)`);
 
         try {
           const { error } = await supabase.from(tableName).insert(chunk);
@@ -212,16 +239,24 @@ const ImportData = () => {
             // Помечаем, что эти строки не удалось импортировать
             failedCount += chunk.length;
             errors.push(`Ошибка при вставке строк ${i + 1}–${i + chunk.length}: ${error.message}`);
-            console.error(`Error inserting batch ${Math.floor(i / BATCH_SIZE) + 1}:`, error);
+            window.console.error(`❌ Ошибка в батче ${batchNumber}:`, error);
+            console.error(`Error inserting batch ${batchNumber}:`, error);
           } else {
             successCount += chunk.length;
+            window.console.log(`✅ Батч ${batchNumber} успешно вставлен: ${chunk.length} строк`);
           }
         } catch (error: any) {
           failedCount += chunk.length;
           errors.push(`Ошибка при вставке строк ${i + 1}–${i + chunk.length}: ${error.message}`);
-          console.error(`Error inserting batch ${Math.floor(i / BATCH_SIZE) + 1}:`, error);
+          window.console.error(`❌ Ошибка в батче ${batchNumber}:`, error);
+          console.error(`Error inserting batch ${batchNumber}:`, error);
         }
       }
+      
+      window.console.log("=".repeat(80));
+      window.console.log("✅ ИМПОРТ ЗАВЕРШЕН");
+      window.console.log(`✅ Успешно: ${successCount}, Ошибок: ${failedCount}`);
+      window.console.log("=".repeat(80));
 
       // 3. Обновляем лог импорта
       await supabase
