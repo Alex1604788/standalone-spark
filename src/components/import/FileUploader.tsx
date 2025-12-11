@@ -24,21 +24,56 @@ const EXPECTED_COLUMNS: Record<ImportType, string[]> = {
 };
 
 /**
- * Удаляем невидимые/служебные символы (BOM, zero-width, управляющие),
- * приводим пробелы к одному, режем по краям и в нижний регистр для поиска.
+ * Ozon/Excel иногда отдает строки в виде "䄀爀琀椀欀甀氀",
+ * что на самом деле UTF-16LE ASCII (A r t i k u l), прочитанный неправильно.
+ * Преобразуем такие строки обратно в нормальный ASCII.
+ */
+const fixWeirdUtf16 = (s: string): string => {
+  if (!s) return s;
+
+  const codes = Array.from(s).map((ch) => ch.charCodeAt(0));
+
+  // считаем, сколько символов имеют вид 0xXX00 (ASCII, сдвинутый в старший байт)
+  const beAsciiCount = codes.filter((c) => {
+    const low = c & 0xff;
+    const high = c >> 8;
+    return low === 0 && high >= 0x20 && high <= 0x7e;
+  }).length;
+
+  // если таких >= 60% — считаем, что это как раз тот случай
+  if (beAsciiCount >= Math.max(1, Math.round(codes.length * 0.6))) {
+    const fixedCodes = codes.map((c) => {
+      const low = c & 0xff;
+      const high = c >> 8;
+      if (low === 0 && high >= 0x20 && high <= 0x7e) {
+        return high; // ASCII код
+      }
+      return c;
+    });
+    return String.fromCharCode(...fixedCodes);
+  }
+
+  return s;
+};
+
+/**
+ * Удаляем BOM, zero-width, управляющие символы,
+ * нормализуем пробелы и регистр — для поиска.
  */
 const normalizeForSearch = (s: string) =>
-  s
+  fixWeirdUtf16(s)
     .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
 
 /**
- * Чистим заголовок, но без приведения к lower — это пойдёт в ключи объекта.
+ * Чистим заголовок для использования в качестве ключа объекта.
  */
 const cleanHeaderKey = (s: string) =>
-  s.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "").trim();
+  fixWeirdUtf16(s)
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
+    .trim();
 
 export const FileUploader = ({
   importType,
@@ -73,7 +108,12 @@ export const FileUploader = ({
     try {
       // 1. читаем файл
       const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: "array" });
+
+      // пробуем более "безопасное" чтение через Uint8Array
+      const data = new Uint8Array(arrayBuffer);
+      const workbook = XLSX.read(data, {
+        type: "array",
+      });
 
       if (!workbook.SheetNames.length) {
         throw new Error("В файле нет листов");
@@ -99,8 +139,7 @@ export const FileUploader = ({
         return;
       }
 
-      // 4. Чистим заголовки от BOM/невидимых символов и
-      //    пересобираем объекты с "чистыми" ключами
+      // 4. Чистим заголовки от BOM/невидимых символов и utf16-кракозябр
       const firstRawRow = rawJson[0] as Record<string, any>;
       const originalColumns = Object.keys(firstRawRow);
 
@@ -110,11 +149,18 @@ export const FileUploader = ({
         headerMap[col] = cleaned || col;
       }
 
+      // 5. Пересобираем строки с "чистыми" ключами и исправляем значения-строки
       const jsonData = rawJson.map((row) => {
         const newRow: Record<string, any> = {};
         Object.entries(row).forEach(([key, value]) => {
           const mappedKey = headerMap[key] ?? key;
-          newRow[mappedKey] = value;
+          let v = value;
+          if (typeof v === "string") {
+            v = fixWeirdUtf16(
+              v.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
+            );
+          }
+          newRow[mappedKey] = v;
         });
         return newRow;
       });
@@ -135,125 +181,8 @@ export const FileUploader = ({
         ),
       });
 
-      // 5. Мягкая проверка обязательных колонок
+      // 6. Проверка обязательных колонок (для начислений)
       if (importType === "accruals") {
         const hasAccrualType = fileColumns.some((c) => {
           const n = normalizeForSearch(c);
-          return n === "тип начисления" || n.includes("тип начисл");
-        });
-
-        const hasOfferId = fileColumns.some((c) => {
-          const n = normalizeForSearch(c);
-          return n === "артикул" || n.includes("артикул");
-        });
-
-        if (!hasAccrualType || !hasOfferId) {
-          console.warn("⚠️ Обязательные колонки не найдены", {
-            fileColumns,
-            normalized: fileColumns.map((c) => normalizeForSearch(c)),
-          });
-
-          toast({
-            title: "Не найдены обязательные колонки",
-            description:
-              "Ожидаются колонки «Тип начисления» и «Артикул». Откройте файл и проверьте названия заголовков. Полный список колонок есть в консоли (F12).",
-            variant: "destructive",
-          });
-          // можно вернуть, если хочешь блокировать импорт:
-          // setIsProcessing(false);
-          // return;
-        }
-      }
-
-      toast({
-        title: "Файл загружен",
-        description: `Найдено строк: ${jsonData.length}`,
-      });
-
-      // 6. Отдаём уже ОЧИЩЕННЫЕ данные наружу
-      onFileSelect(jsonData, file.name);
-    } catch (error: any) {
-      console.error("❌ ОШИБКА при парсинге Excel в FileUploader:", error);
-      toast({
-        title: "Ошибка при чтении файла",
-        description: error?.message || "Не удалось прочитать Excel файл",
-        variant: "destructive",
-      });
-      setSelectedFile(null);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleClear = () => {
-    setSelectedFile(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-    onClear?.();
-  };
-
-  const handleClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  return (
-    <Card>
-      <CardContent className="pt-6">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".xlsx,.xls"
-          onChange={handleFileChange}
-          className="hidden"
-        />
-
-        {!selectedFile ? (
-          <div
-            onClick={handleClick}
-            className="border-2 border-dashed border-muted hover:border-primary rounded-lg p-8 text-center cursor-pointer transition-colors"
-          >
-            <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-lg font-semibold mb-2">
-              Загрузить {IMPORT_TYPE_LABELS[importType]}
-            </h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Нажмите для выбора Excel файла или перетащите файл сюда
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Поддерживаются форматы: .xlsx, .xls
-            </p>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between p-4 border border-primary rounded-lg bg-primary/5">
-            <div className="flex items-center gap-3">
-              <FileSpreadsheet className="w-8 h-8 text-primary" />
-              <div>
-                <p className="font-semibold">{selectedFile.name}</p>
-                <p className="text-sm text-muted-foreground">
-                  {(selectedFile.size / 1024).toFixed(2)} KB
-                  {isProcessing && " • Обработка..."}
-                </p>
-              </div>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleClear}
-              disabled={isProcessing}
-            >
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
-        )}
-
-        <div className="mt-4 p-3 bg-muted/50 rounded-lg">
-          <p className="text-xs font-semibold mb-2">Ожидаемые колонки:</p>
-          <p className="text-xs text-muted-foreground">
-            {EXPECTED_COLUMNS[importType].join(", ")}
-          </p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-};
+          re
