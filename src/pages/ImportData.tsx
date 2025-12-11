@@ -57,7 +57,12 @@ const ImportData = () => {
   };
 
   const handleImport = async () => {
+    window.console.log("=".repeat(60));
+    window.console.log("🚀🚀🚀 НАЧАЛО ИМПОРТА 🚀🚀🚀");
+    window.console.log("=".repeat(60));
+    
     if (!fileData || !marketplace) {
+      window.console.error("❌ Ошибка: нет fileData или marketplace", { fileData: !!fileData, marketplace: !!marketplace });
       toast({
         title: "Ошибка",
         description: "Выберите файл и маркетплейс",
@@ -65,6 +70,18 @@ const ImportData = () => {
       });
       return;
     }
+
+    window.console.log("📊 Информация о файле для импорта:", {
+      importType,
+      fileDataLength: fileData.length,
+      marketplaceId: marketplace.id,
+      periodStart,
+      periodEnd,
+      firstRowKeys: fileData.length > 0 ? Object.keys(fileData[0]).slice(0, 30) : [],
+      firstRowSample: fileData.length > 0 ? Object.fromEntries(
+        Object.entries(fileData[0]).slice(0, 20).map(([k, v]) => [k, String(v).substring(0, 100)])
+      ) : null
+    });
 
     setIsImporting(true);
     setImportProgress(0);
@@ -95,14 +112,42 @@ const ImportData = () => {
       const BATCH_SIZE = 500;
       const transformedRows: any[] = [];
 
+      // Логируем первую строку для диагностики
+      if (fileData.length > 0) {
+        window.console.log("📊 ПЕРВАЯ СТРОКА ДАННЫХ (для диагностики):", {
+          rowIndex: 0,
+          rowKeys: Object.keys(fileData[0]).slice(0, 30),
+          allKeys: Object.keys(fileData[0]),
+          rowSample: Object.fromEntries(
+            Object.entries(fileData[0]).slice(0, 20).map(([k, v]) => [k, String(v).substring(0, 100)])
+          )
+        });
+      }
+
       for (let i = 0; i < fileData.length; i++) {
         const row = fileData[i];
         try {
-          const transformed = transformRow(row, importType, marketplace.id, importLog.id);
+          const transformed = transformRow(row, importType, marketplace.id, importLog.id, i);
           transformedRows.push(transformed);
+          
+          // Логируем успешное преобразование первых 3 строк
+          if (i < 3) {
+            window.console.log(`✅ Строка ${i + 1} успешно преобразована:`, transformed);
+          }
         } catch (error: any) {
           failedCount++;
           errors.push(`Строка ${i + 1}: ${error.message}`);
+          
+          // Детальное логирование для первых 10 ошибок
+          if (i < 10) {
+            window.console.error(`❌ Ошибка в строке ${i + 1}:`, {
+              error: error.message,
+              rowKeys: Object.keys(row).slice(0, 30),
+              rowSample: Object.fromEntries(
+                Object.entries(row).slice(0, 15).map(([k, v]) => [k, String(v).substring(0, 50)])
+              )
+            });
+          }
           console.error(`Error transforming row ${i + 1}:`, error);
         }
       }
@@ -180,10 +225,31 @@ const ImportData = () => {
   const findColumn = (row: any, keywords: string[]) => {
     const normalizedKeywords = keywords.map(normalize);
     const keys = Object.keys(row);
-    return keys.find(k => {
-      const nk = normalize(k);
-      return normalizedKeywords.some(kw => nk.includes(kw));
+    
+    window.console.log("🔍 findColumn вызван:", {
+      keywords,
+      normalizedKeywords,
+      availableKeys: keys.slice(0, 20),
+      allKeysCount: keys.length,
+      rowSample: Object.fromEntries(
+        Object.entries(row).slice(0, 10).map(([k, v]) => [k, String(v).substring(0, 50)])
+      )
     });
+    
+    const found = keys.find(k => {
+      const nk = normalize(k);
+      const matches = normalizedKeywords.some(kw => nk.includes(kw));
+      if (matches) {
+        window.console.log(`✅ Найдено совпадение: "${k}" (нормализовано: "${nk}") для ключевых слов:`, keywords);
+      }
+      return matches;
+    });
+    
+    if (!found) {
+      window.console.warn(`❌ Не найдена колонка для ключевых слов:`, keywords);
+    }
+    
+    return found;
   };
   
   // Парсинг чисел (убирает пробелы, обрабатывает запятые)
@@ -231,6 +297,14 @@ const ImportData = () => {
     marketplaceId: string,
     importBatchId: string
   ) => {
+    window.console.log("🔧 buildAccrualRow вызван:", {
+      rowKeys: Object.keys(row).slice(0, 30),
+      allKeysCount: Object.keys(row).length,
+      rowSample: Object.fromEntries(
+        Object.entries(row).slice(0, 15).map(([k, v]) => [k, String(v).substring(0, 100)])
+      )
+    });
+    
     const accrualTypeCol = findColumn(row, ["тип начисления", "тип"]);
     const offerIdCol = findColumn(row, ["артикул"]);
     const skuCol = findColumn(row, ["sku", "ску"]);
@@ -239,7 +313,27 @@ const ImportData = () => {
     const totalCol = findColumn(row, ["итого", "сумма"]);
     const dateCol = findColumn(row, ["дата"]);
 
+    window.console.log("🔧 Результаты поиска колонок:", {
+      accrualTypeCol,
+      offerIdCol,
+      skuCol,
+      quantityCol,
+      amountBeforeCol,
+      totalCol,
+      dateCol,
+      allFoundColumns: {
+        accrualTypeCol: accrualTypeCol ? row[accrualTypeCol] : null,
+        offerIdCol: offerIdCol ? row[offerIdCol] : null,
+      }
+    });
+
     if (!accrualTypeCol || !offerIdCol) {
+      window.console.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Не найдены обязательные колонки!", {
+        accrualTypeCol,
+        offerIdCol,
+        allRowKeys: Object.keys(row),
+        rowKeysNormalized: Object.keys(row).map(k => ({ original: k, normalized: normalize(k) }))
+      });
       throw new Error("Не найдены обязательные колонки: Тип начисления, Артикул");
     }
 
@@ -288,8 +382,19 @@ const ImportData = () => {
     row: any,
     type: ImportType,
     marketplaceId: string,
-    importBatchId: string
+    importBatchId: string,
+    rowIndex?: number
   ) => {
+    if (rowIndex !== undefined && rowIndex < 5) {
+      window.console.log(`🔄 transformRow вызван для строки ${rowIndex}:`, {
+        type,
+        rowKeys: Object.keys(row).slice(0, 30),
+        rowSample: Object.fromEntries(
+          Object.entries(row).slice(0, 15).map(([k, v]) => [k, String(v).substring(0, 50)])
+        )
+      });
+    }
+    
     if (type === "accruals") {
       return buildAccrualRow(row, marketplaceId, importBatchId);
     }
