@@ -304,6 +304,77 @@ export type Database = {
         }
         Relationships: []
       }
+      marketplace_api_credentials: {
+        Row: {
+          access_token: string | null
+          api_type: string
+          auto_sync_enabled: boolean | null
+          client_id: string
+          client_secret: string
+          created_at: string
+          created_by: string | null
+          error_count: number | null
+          id: string
+          is_active: boolean | null
+          last_error: string | null
+          last_sync_at: string | null
+          marketplace_id: string
+          next_sync_at: string | null
+          refresh_token: string | null
+          sync_frequency: string | null
+          token_expires_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          access_token?: string | null
+          api_type: string
+          auto_sync_enabled?: boolean | null
+          client_id: string
+          client_secret: string
+          created_at?: string
+          created_by?: string | null
+          error_count?: number | null
+          id?: string
+          is_active?: boolean | null
+          last_error?: string | null
+          last_sync_at?: string | null
+          marketplace_id: string
+          next_sync_at?: string | null
+          refresh_token?: string | null
+          sync_frequency?: string | null
+          token_expires_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          access_token?: string | null
+          api_type?: string
+          auto_sync_enabled?: boolean | null
+          client_id?: string
+          client_secret?: string
+          created_at?: string
+          created_by?: string | null
+          error_count?: number | null
+          id?: string
+          is_active?: boolean | null
+          last_error?: string | null
+          last_sync_at?: string | null
+          marketplace_id?: string
+          next_sync_at?: string | null
+          refresh_token?: string | null
+          sync_frequency?: string | null
+          token_expires_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketplace_api_credentials_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       marketplace_settings: {
         Row: {
           created_at: string | null
@@ -549,6 +620,102 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "ozon_credentials_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ozon_performance_daily: {
+        Row: {
+          add_to_cart: number | null
+          add_to_cart_conversion: number | null
+          additional_data: Json | null
+          avg_bill: number | null
+          campaign_id: string
+          campaign_name: string | null
+          campaign_type: string | null
+          clicks: number | null
+          conversion: number | null
+          cpc: number | null
+          ctr: number | null
+          drr: number | null
+          favorites: number | null
+          id: string
+          import_batch_id: string | null
+          imported_at: string
+          marketplace_id: string
+          money_spent: number | null
+          offer_id: string | null
+          orders: number | null
+          revenue: number | null
+          sku: string
+          stat_date: string
+          views: number | null
+        }
+        Insert: {
+          add_to_cart?: number | null
+          add_to_cart_conversion?: number | null
+          additional_data?: Json | null
+          avg_bill?: number | null
+          campaign_id: string
+          campaign_name?: string | null
+          campaign_type?: string | null
+          clicks?: number | null
+          conversion?: number | null
+          cpc?: number | null
+          ctr?: number | null
+          drr?: number | null
+          favorites?: number | null
+          id?: string
+          import_batch_id?: string | null
+          imported_at?: string
+          marketplace_id: string
+          money_spent?: number | null
+          offer_id?: string | null
+          orders?: number | null
+          revenue?: number | null
+          sku: string
+          stat_date: string
+          views?: number | null
+        }
+        Update: {
+          add_to_cart?: number | null
+          add_to_cart_conversion?: number | null
+          additional_data?: Json | null
+          avg_bill?: number | null
+          campaign_id?: string
+          campaign_name?: string | null
+          campaign_type?: string | null
+          clicks?: number | null
+          conversion?: number | null
+          cpc?: number | null
+          ctr?: number | null
+          drr?: number | null
+          favorites?: number | null
+          id?: string
+          import_batch_id?: string | null
+          imported_at?: string
+          marketplace_id?: string
+          money_spent?: number | null
+          offer_id?: string | null
+          orders?: number | null
+          revenue?: number | null
+          sku?: string
+          stat_date?: string
+          views?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ozon_performance_daily_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_logs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ozon_performance_daily_marketplace_id_fkey"
             columns: ["marketplace_id"]
             isOneToOne: false
             referencedRelation: "marketplaces"
@@ -1703,6 +1870,34 @@ export type Database = {
           },
         ]
       }
+      promotion_costs_aggregated: {
+        Row: {
+          avg_conversion: number | null
+          avg_cpc: number | null
+          avg_ctr: number | null
+          avg_drr: number | null
+          cost_date: string | null
+          first_imported_at: string | null
+          last_imported_at: string | null
+          marketplace_id: string | null
+          offer_id: string | null
+          promotion_cost: number | null
+          sku: string | null
+          total_clicks: number | null
+          total_orders: number | null
+          total_revenue: number | null
+          total_views: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ozon_performance_daily_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       calculate_boxes_needed: {
@@ -1728,6 +1923,15 @@ export type Database = {
         Returns: string
       }
       generate_pairing_code: { Args: never; Returns: string }
+      get_api_credentials: {
+        Args: { p_api_type?: string; p_marketplace_id: string }
+        Returns: {
+          access_token: string
+          client_id: string
+          client_secret: string
+          token_expires_at: string
+        }[]
+      }
       get_knowledge_for_offer: {
         Args: { p_limit?: number; p_offer_id: string }
         Returns: {
@@ -1785,6 +1989,10 @@ export type Database = {
           total_storage_cost: number
         }[]
       }
+      has_api_credentials: {
+        Args: { p_api_type?: string; p_marketplace_id: string }
+        Returns: boolean
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1802,6 +2010,14 @@ export type Database = {
           review_id: string
         }[]
       }
+      log_api_sync_error: {
+        Args: {
+          p_api_type: string
+          p_error_message: string
+          p_marketplace_id: string
+        }
+        Returns: undefined
+      }
       log_fallback_action: {
         Args: {
           p_action_type: string
@@ -1812,6 +2028,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: string
+      }
+      reset_api_sync_errors: {
+        Args: { p_api_type: string; p_marketplace_id: string }
+        Returns: undefined
       }
       restore_deleted_record: {
         Args: { p_record_id: string; p_table_name: string }
@@ -1843,6 +2063,16 @@ export type Database = {
         }[]
       }
       update_analytics_metrics: { Args: never; Returns: undefined }
+      update_api_token: {
+        Args: {
+          p_access_token: string
+          p_api_type: string
+          p_expires_in?: number
+          p_marketplace_id: string
+          p_refresh_token?: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "owner" | "admin" | "operator" | "analyst"

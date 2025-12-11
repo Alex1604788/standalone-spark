@@ -128,25 +128,27 @@ export const SalesTable = ({ data, isLoading }: SalesTableProps) => {
     return rows.reduce(
       (acc, row) => ({
         salesRevenue: acc.salesRevenue + row.total.salesRevenue,
-        salesQuantity: acc.salesQuantity + row.total.salesQuantity,
+        quantity: acc.quantity + row.total.quantity,
         cogs: acc.cogs + row.total.cogs,
         grossProfit: acc.grossProfit + row.total.grossProfit,
         markup: 0, // Будет пересчитан
         promotionCost: acc.promotionCost + row.total.promotionCost,
         storageCost: acc.storageCost + row.total.storageCost,
         acquiringCost: acc.acquiringCost + row.total.acquiringCost,
+        totalCosts: acc.totalCosts + row.total.totalCosts,
         netMargin: acc.netMargin + row.total.netMargin,
         marginPercent: 0, // Будет пересчитан
       }),
       {
         salesRevenue: 0,
-        salesQuantity: 0,
+        quantity: 0,
         cogs: 0,
         grossProfit: 0,
         markup: 0,
         promotionCost: 0,
         storageCost: 0,
         acquiringCost: 0,
+        totalCosts: 0,
         netMargin: 0,
         marginPercent: 0,
       }
@@ -221,7 +223,7 @@ export const SalesTable = ({ data, isLoading }: SalesTableProps) => {
         <TableCell className="text-right font-semibold">
           {formatMoney(metrics.salesRevenue)}
         </TableCell>
-        <TableCell className="text-right">{formatQuantity(metrics.salesQuantity)}</TableCell>
+        <TableCell className="text-right">{formatQuantity(metrics.quantity)}</TableCell>
         <TableCell className="text-right font-semibold">
           {formatMoney(metrics.grossProfit)}
         </TableCell>
@@ -262,7 +264,7 @@ export const SalesTable = ({ data, isLoading }: SalesTableProps) => {
           {formatMoney(row.total.salesRevenue)}
         </TableCell>
         <TableCell className="text-right text-muted-foreground">
-          {formatQuantity(row.total.salesQuantity)}
+          {formatQuantity(row.total.quantity)}
         </TableCell>
         <TableCell className="text-right font-medium">
           {formatMoney(row.total.grossProfit)}
@@ -538,7 +540,7 @@ export const SalesTable = ({ data, isLoading }: SalesTableProps) => {
                         {formatMoney(row.total.salesRevenue)}
                       </TableCell>
                       <TableCell className="text-right text-muted-foreground">
-                        {formatQuantity(row.total.salesQuantity)}
+                        {formatQuantity(row.total.quantity)}
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         {formatMoney(row.total.grossProfit)}
