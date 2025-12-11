@@ -75,14 +75,50 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
       const fileColumns = Object.keys(firstRow);
       const expectedColumns = EXPECTED_COLUMNS[importType];
 
-      const missingColumns = expectedColumns.filter(
-        (col) => !fileColumns.some((fc) => fc.includes(col))
-      );
+      // Нормализация для сравнения (регистронезависимо, без лишних пробелов)
+      const normalizeColumn = (col: string) => col.trim().toLowerCase();
+      
+      // Функция поиска колонки по ключевым словам (как в ImportData.tsx)
+      const findColumn = (keywords: string[]) => {
+        return fileColumns.find((fc) => 
+          keywords.some((kw) => 
+            normalizeColumn(fc).includes(normalizeColumn(kw))
+          )
+        );
+      };
+
+      // Проверка обязательных колонок с использованием ключевых слов
+      const missingColumns: string[] = [];
+      
+      if (importType === "accruals") {
+        // Для начислений ОЗОН ищем по ключевым словам
+        const accrualTypeCol = findColumn(["тип начисления", "тип"]);
+        const offerIdCol = findColumn(["артикул"]);
+        
+        if (!accrualTypeCol) missingColumns.push("Тип начисления");
+        if (!offerIdCol) missingColumns.push("Артикул");
+      } else {
+        // Для других типов используем стандартную проверку
+        const missing = expectedColumns.filter(
+          (col) => !fileColumns.some((fc) => 
+            normalizeColumn(fc).includes(normalizeColumn(col))
+          )
+        );
+        missingColumns.push(...missing);
+      }
+
+      // Логирование для отладки
+      console.log("🔍 Проверка колонок файла:", {
+        fileColumns,
+        expectedColumns,
+        missingColumns,
+        importType,
+      });
 
       if (missingColumns.length > 0) {
         toast({
           title: "Неверная структура файла",
-          description: `Отсутствуют колонки: ${missingColumns.join(", ")}`,
+          description: `Отсутствуют колонки: ${missingColumns.join(", ")}. Найдены колонки: ${fileColumns.slice(0, 5).join(", ")}${fileColumns.length > 5 ? "..." : ""}`,
           variant: "destructive",
         });
         setSelectedFile(null);
