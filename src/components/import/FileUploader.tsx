@@ -30,13 +30,20 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
   const { toast } = useToast();
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    console.log("🚀 handleFileChange вызвана", { importType });
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      console.log("❌ Файл не выбран");
+      return;
+    }
+
+    console.log("📁 Выбран файл:", { name: file.name, size: file.size, type: file.type });
 
     // Проверка расширения
     const validExtensions = [".xlsx", ".xls"];
     const fileExtension = file.name.substring(file.name.lastIndexOf("."));
     if (!validExtensions.includes(fileExtension.toLowerCase())) {
+      console.log("❌ Неверное расширение файла:", fileExtension);
       toast({
         title: "Неверный формат файла",
         description: "Поддерживаются только файлы Excel (.xlsx, .xls)",
@@ -49,9 +56,12 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
     setIsProcessing(true);
 
     try {
+      console.log("📖 Начинаем чтение файла...");
       // Парсинг Excel файла
       const arrayBuffer = await file.arrayBuffer();
+      console.log("📖 Файл прочитан, размер:", arrayBuffer.byteLength);
       const workbook = XLSX.read(arrayBuffer, { type: "array" });
+      console.log("📖 Workbook создан, листы:", workbook.SheetNames);
 
       // Берем первый лист
       const firstSheetName = workbook.SheetNames[0];
@@ -321,7 +331,14 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
 
       onFileSelect(jsonData, file.name);
     } catch (error: any) {
-      console.error("Error parsing Excel:", error);
+      console.error("❌ ОШИБКА при парсинге Excel:", {
+        error,
+        message: error?.message,
+        stack: error?.stack,
+        name: error?.name,
+        importType,
+        fileName: file?.name,
+      });
       toast({
         title: "Ошибка при чтении файла",
         description: error.message || "Не удалось прочитать Excel файл",
@@ -330,6 +347,7 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
       setSelectedFile(null);
     } finally {
       setIsProcessing(false);
+      console.log("✅ Обработка файла завершена");
     }
   };
 
