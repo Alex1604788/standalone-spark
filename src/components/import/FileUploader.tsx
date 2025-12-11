@@ -115,6 +115,32 @@ export const FileUploader = ({
           console.warn(
             "⚠️ FileUploader: не нашли явные колонки 'Тип начисления' или 'Артикул', но импорт не блокируем"
           );
+          
+          // КРИТИЧЕСКОЕ ЛОГИРОВАНИЕ: показываем все найденные колонки
+          window.console.log("=".repeat(80));
+          window.console.log("🔍🔍🔍 ВСЕ НАЙДЕННЫЕ КОЛОНКИ В ФАЙЛЕ 🔍🔍🔍");
+          window.console.log("=".repeat(80));
+          window.console.log("Всего колонок:", fileColumns.length);
+          window.console.log("Все колонки (первые 50):", fileColumns.slice(0, 50));
+          window.console.log("Все колонки (полный список):", fileColumns);
+          
+          // Показываем нормализованные версии для поиска
+          const normalizedColumns = fileColumns.map(col => ({
+            original: col,
+            normalized: col.toLowerCase().replace(/\s+/g, " ").trim(),
+            containsType: col.toLowerCase().includes("тип"),
+            containsNacisl: col.toLowerCase().includes("начисл"),
+            containsArtikul: col.toLowerCase().includes("артикул")
+          }));
+          
+          window.console.log("Поиск похожих колонок:", {
+            keysWithType: normalizedColumns.filter(c => c.containsType).map(c => c.original),
+            keysWithNacisl: normalizedColumns.filter(c => c.containsNacisl).map(c => c.original),
+            keysWithArtikul: normalizedColumns.filter(c => c.containsArtikul).map(c => c.original),
+            allNormalized: normalizedColumns.slice(0, 50)
+          });
+          
+          window.console.log("=".repeat(80));
         }
       }
 

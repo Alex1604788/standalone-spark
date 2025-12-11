@@ -57,9 +57,12 @@ const ImportData = () => {
   };
 
   const handleImport = async () => {
-    window.console.log("=".repeat(60));
+    // САМОЕ РАННЕЕ логирование - должно появиться сразу при клике
+    alert("🚀 ИМПОРТ ЗАПУЩЕН! Откройте консоль (F12) для просмотра логов.");
+    window.console.log("=".repeat(80));
     window.console.log("🚀🚀🚀 НАЧАЛО ИМПОРТА 🚀🚀🚀");
-    window.console.log("=".repeat(60));
+    window.console.log("=".repeat(80));
+    window.console.log("Время запуска:", new Date().toISOString());
     
     if (!fileData || !marketplace) {
       window.console.error("❌ Ошибка: нет fileData или marketplace", { fileData: !!fileData, marketplace: !!marketplace });
@@ -107,6 +110,9 @@ const ImportData = () => {
         .single();
 
       if (logError) throw logError;
+      
+      window.console.log("✅ Лог импорта создан:", importLog.id);
+      window.console.log("📊 Начинаем обработку файла...");
 
       let successCount = 0;
       let failedCount = 0;
@@ -316,14 +322,38 @@ const ImportData = () => {
         handleClear();
       }
     } catch (error: any) {
+      window.console.error("=".repeat(80));
+      window.console.error("❌❌❌ КРИТИЧЕСКАЯ ОШИБКА ИМПОРТА ❌❌❌");
+      window.console.error("=".repeat(80));
+      window.console.error("Ошибка:", error);
+      window.console.error("Сообщение:", error.message);
+      window.console.error("Стек:", error.stack);
+      window.console.error("=".repeat(80));
       console.error("Import error:", error);
+      
+      // Обновляем лог импорта с ошибкой
+      try {
+        await supabase
+          .from("import_logs")
+          .update({
+            status: "failed",
+            error_message: error.message || "Неизвестная ошибка",
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", importLog?.id);
+      } catch (updateError) {
+        window.console.error("Не удалось обновить лог импорта:", updateError);
+      }
+      
       toast({
         title: "Ошибка импорта",
         description: error.message,
         variant: "destructive",
       });
     } finally {
+      window.console.log("🏁 Импорт завершен (finally блок)");
       setIsImporting(false);
+      window.console.log("✅ Состояние установлено: isImporting=false");
     }
   };
 
