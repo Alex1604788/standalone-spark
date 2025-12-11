@@ -1,3 +1,4 @@
+console.log("🔥 FileUploader loaded at:", new Date().toISOString());
 import { useState, useRef } from "react";
 import { Upload, FileSpreadsheet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
