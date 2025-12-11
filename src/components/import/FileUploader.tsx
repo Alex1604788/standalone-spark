@@ -70,12 +70,82 @@ export const FileUploader = ({
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
 
-      // 3. конвертируем лист в JSON
-      //    ВАЖНО: не указываем header: 1 → первая строка считается заголовком
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, {
-        defval: "",
-        raw: false,
-      }) as any[];
+      // 3. Сначала читаем как массив массивов, чтобы найти строку с заголовками
+      const rawData = XLSX.utils.sheet_to_json(worksheet, { 
+        header: 1, 
+        defval: "" 
+      }) as any[][];
+
+      if (rawData.length === 0) {
+        toast({
+          title: "Файл пуст",
+          description: "Excel файл не содержит данных",
+          variant: "destructive",
+        });
+        setSelectedFile(null);
+        return;
+      }
+
+      // 4. Ищем строку с заголовками (для начислений ОЗОН ищем "Тип начисления" и "Артикул")
+      let headerRowIndex = -1;
+      
+      if (importType === "accruals") {
+        for (let i = 0; i < Math.min(20, rawData.length); i++) {
+          const row = rawData[i];
+          if (!row || row.every(cell => !cell || String(cell).trim() === "")) {
+            continue;
+          }
+          
+          const rowValues = row.map(cell => normalize(String(cell || ""))).filter(v => v.length > 0);
+          if (rowValues.length < 2) continue;
+          
+          // Ищем "тип начисления" и "артикул"
+          const hasAccrualType = rowValues.some(v => v.includes("тип") && v.includes("начисл"));
+          const hasOfferId = rowValues.some(v => v.includes("артикул"));
+          
+          if (hasAccrualType && hasOfferId) {
+            headerRowIndex = i;
+            window.console.log(`✅ Найдена строка с заголовками на индексе ${i}`);
+            break;
+          }
+        }
+      } else {
+        // Для других типов используем первую непустую строку
+        headerRowIndex = rawData.findIndex(row =>
+          row && row.some(cell => String(cell ?? "").trim() !== "")
+        );
+      }
+
+      // 5. Если заголовки не найдены, используем первую строку
+      if (headerRowIndex === -1) {
+        window.console.warn("⚠️ Заголовки не найдены, используем первую строку");
+        headerRowIndex = 0;
+      }
+
+      // 6. Берем заголовки из найденной строки
+      const headerRow = rawData[headerRowIndex];
+      const headers = headerRow.map((cell, idx) => {
+        const val = String(cell || `Column${idx + 1}`).trim();
+        return val || `Column${idx + 1}`;
+      });
+      
+      // 7. Читаем данные начиная со следующей строки после заголовков
+      const dataRows = rawData.slice(headerRowIndex + 1);
+      
+      // 8. Преобразуем в объекты с использованием заголовков
+      const jsonData = dataRows
+        .filter(row => row && row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== ""))
+        .map(row => {
+          const obj: Record<string, any> = {};
+          headers.forEach((header, idx) => {
+            obj[header] = row[idx] !== undefined ? row[idx] : "";
+          });
+          return obj;
+        });
+      
+      window.console.log(`✅ Использованы заголовки из строки ${headerRowIndex}:`, headers.slice(0, 20));
+      window.console.log(`✅ Всего заголовков: ${headers.length}`);
+      window.console.log(`✅ Найдено строк данных: ${jsonData.length}`);
 
       if (!jsonData.length) {
         toast({
