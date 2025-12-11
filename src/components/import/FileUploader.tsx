@@ -1,4 +1,3 @@
-console.log("🔥 FileUploader loaded at:", new Date().toISOString());
 import { useState, useRef } from "react";
 import { Upload, FileSpreadsheet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,7 +19,7 @@ const IMPORT_TYPE_LABELS: Record<ImportType, string> = {
 };
 
 const EXPECTED_COLUMNS: Record<ImportType, string[]> = {
-  accruals: ["Тип начисления", "Артикул"], // минимальные требования
+  accruals: ["Тип начисления", "Артикул"],
   storage_costs: ["Дата", "Артикул"],
 };
 
@@ -34,7 +33,7 @@ export const FileUploader = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  // нормализация строк для сравнения
+  // простая нормализация строки
   const normalize = (s: string) =>
     s.toLowerCase().replace(/\s+/g, " ").trim();
 
@@ -59,7 +58,7 @@ export const FileUploader = ({
     setIsProcessing(true);
 
     try {
-      // 1. Читаем файл
+      // 1. читаем файл
       const arrayBuffer = await file.arrayBuffer();
       const workbook = XLSX.read(arrayBuffer, { type: "array" });
 
@@ -67,11 +66,12 @@ export const FileUploader = ({
         throw new Error("В файле нет листов");
       }
 
+      // 2. берём первый лист
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
 
-      // 2. Преобразуем лист в JSON.
-      //    ВАЖНО: НЕ указываем header: 1 → первая строка считается заголовком
+      // 3. конвертируем лист в JSON
+      //    ВАЖНО: не указываем header: 1 → первая строка считается заголовком
       const jsonData = XLSX.utils.sheet_to_json(worksheet, {
         defval: "",
         raw: false,
@@ -87,38 +87,15 @@ export const FileUploader = ({
         return;
       }
 
-      // 3. Берём список колонок по ключам первой строки
+      // 4. просто логируем колонки для себя, НО не блокируем импорт
       const firstRow = jsonData[0] as Record<string, any>;
       const fileColumns = Object.keys(firstRow);
 
-      // функция поиска колонки по ключевым словам
-      const findColumn = (keywords: string[]) => {
-        const normKeywords = keywords.map(normalize);
-        return fileColumns.find((fc) => {
-          const nf = normalize(fc);
-          return normKeywords.some((kw) => nf.includes(kw));
-        });
-      };
-
-      const missingColumns: string[] = [];
-
-      if (importType === "accruals") {
-        const accrualTypeCol = findColumn(["тип начисления", "тип начисл"]);
-        const offerIdCol = findColumn(["артикул"]);
-
-        if (!accrualTypeCol) missingColumns.push("Тип начисления");
-        if (!offerIdCol) missingColumns.push("Артикул");
-      } else if (importType === "storage_costs") {
-        const dateCol = findColumn(["дата"]);
-        const offerIdCol = findColumn(["артикул"]);
-        if (!dateCol) missingColumns.push("Дата");
-        if (!offerIdCol) missingColumns.push("Артикул");
-      }
-
-      console.log("🔍 Проверка колонок файла:", {
+      console.log("📄 FileUploader: загружен файл", {
         importType,
-        fileColumns,
-        missingColumns,
+        fileName: file.name,
+        sheet: firstSheetName,
+        columns: fileColumns,
         firstRowSample: Object.fromEntries(
           Object.entries(firstRow)
             .slice(0, 10)
@@ -126,18 +103,19 @@ export const FileUploader = ({
         ),
       });
 
-      if (missingColumns.length > 0) {
-        toast({
-          title: "Неверная структура файла",
-          description: `Отсутствуют колонки: ${missingColumns.join(
-            ", "
-          )}. Найдены колонки: ${fileColumns
-            .slice(0, 5)
-            .join(", ")}${fileColumns.length > 5 ? "..." : ""}`,
-          variant: "destructive",
-        });
-        setSelectedFile(null);
-        return;
+      // (если очень хочешь мягкую проверку — можно просто warning в консоль)
+      if (importType === "accruals") {
+        const hasAccrualType = fileColumns.some((c) =>
+          normalize(c).includes("тип начисл")
+        );
+        const hasOfferId = fileColumns.some((c) =>
+          normalize(c).includes("артикул")
+        );
+        if (!hasAccrualType || !hasOfferId) {
+          console.warn(
+            "⚠️ FileUploader: не нашли явные колонки 'Тип начисления' или 'Артикул', но импорт не блокируем"
+          );
+        }
       }
 
       toast({
@@ -145,9 +123,10 @@ export const FileUploader = ({
         description: `Найдено строк: ${jsonData.length}`,
       });
 
+      // 5. отдаём данные дальше — дальше работает твой ImportData.tsx
       onFileSelect(jsonData, file.name);
     } catch (error: any) {
-      console.error("❌ ОШИБКА при парсинге Excel:", error);
+      console.error("❌ ОШИБКА при парсинге Excel в FileUploader:", error);
       toast({
         title: "Ошибка при чтении файла",
         description: error?.message || "Не удалось прочитать Excel файл",
