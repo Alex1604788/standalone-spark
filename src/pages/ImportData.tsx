@@ -393,64 +393,105 @@ const ImportData = () => {
     }
   };
 
-  // Вспомогательные функции для парсинга
-  
-  // Нормализация строки для поиска колонок с удалением невидимых символов (BOM, ZERO WIDTH SPACE и т.д.)
+    // Вспомогательные функции для парсинга
+
+  /**
+   * Лечим строки вида "䄀爀琀椀欀甀氀" (UTF-16LE ASCII в верхнем байте)
+   * → превращаем их в нормальный ASCII ("Artikul").
+   */
+  const fixWeirdUtf16 = (s: string) => {
+    if (!s) return s;
+
+    const codes = Array.from(s).map((ch) => ch.charCodeAt(0));
+
+    // сколько символов вида 0xXX00
+    const beAsciiCount = codes.filter((c) => {
+      const low = c & 0xff;
+      const high = c >> 8;
+      return low === 0 && high >= 0x20 && high <= 0x7e;
+    }).length;
+
+    if (beAsciiCount >= Math.max(1, Math.round(codes.length * 0.6))) {
+      const fixedCodes = codes.map((c) => {
+        const low = c & 0xff;
+        const high = c >> 8;
+        if (low === 0 && high >= 0x20 && high <= 0x7e) {
+          return high; // ASCII-байт
+        }
+        return c;
+      });
+      return String.fromCharCode(...fixedCodes);
+    }
+
+    return s;
+  };
+
+  // Нормализация строки для поиска колонок
   const normalize = (s: string) =>
-    s
-      .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "") // удалить скрытые символы (BOM, ZERO WIDTH SPACE и т.д.)
+    fixWeirdUtf16(s)
+      .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "") // убрать скрытые символы
       .toLowerCase()
       .replace(/\s+/g, " ")
       .trim();
-  
+
   // Улучшенный поиск колонок
   const findColumn = (row: any, keywords: string[]) => {
-    const normalizedKeywords = keywords.map(normalize);
+    // поддерживаем и русские, и латинские варианты
+    const normalizedKeywords = keywords
+      .flatMap((kw) => {
+        const n = normalize(kw);
+        if (n === "артикул") return [n, "artikul"];
+        if (n === "тип начисления") return [n, "tip nachisleniya", "nachisleniya"];
+        return [n];
+      });
+
     const keys = Object.keys(row);
-    
+
     window.console.log("🔍 findColumn вызван:", {
       keywords,
       normalizedKeywords,
       availableKeys: keys.slice(0, 20),
       allKeysCount: keys.length,
       rowSample: Object.fromEntries(
-        Object.entries(row).slice(0, 10).map(([k, v]) => [k, String(v).substring(0, 50)])
-      )
+        Object.entries(row)
+          .slice(0, 10)
+          .map(([k, v]) => [k, String(v).substring(0, 50)])
+      ),
     });
-    
-    const found = keys.find(k => {
+
+    const found = keys.find((k) => {
       const nk = normalize(k);
-      const matches = normalizedKeywords.some(kw => nk.includes(kw));
+      const matches = normalizedKeywords.some((kw) => nk.includes(kw));
       if (matches) {
-        window.console.log(`✅ Найдено совпадение: "${k}" (нормализовано: "${nk}") для ключевых слов:`, keywords);
+        window.console.log(
+          `✅ Найдено совпадение: "${k}" (нормализовано: "${nk}") для ключевых слов:`,
+          keywords
+        );
       }
       return matches;
     });
-    
+
     if (!found) {
       window.console.warn(`❌ Не найдена колонка для ключевых слов:`, keywords);
     }
-    
+
     return found;
   };
-  
+
   // Парсинг чисел (убирает пробелы, обрабатывает запятые)
   const toNumber = (val: any): number => {
     if (val == null || val === "") return 0;
-    const normalized = String(val)
-      .replace(/\s/g, "")     // убираем пробелы и неразрывные
-      .replace(",", ".");
+    const normalized = String(val).replace(/\s/g, "").replace(",", ".");
     const num = parseFloat(normalized);
     return isNaN(num) ? 0 : num;
   };
-  
+
   // Парсинг дат OZON (Excel serial, формат DD.MM.YYYY)
   const parseOzonDate = (raw: any, fallback?: string): string | null => {
     if (!raw && !fallback) return null;
     if (!raw && fallback) return fallback;
 
     if (typeof raw === "number") {
-      // Excel serial (примерно): 25569 = 1970-01-01
       const excelEpoch = new Date(Date.UTC(1899, 11, 30));
       const date = new Date(excelEpoch.getTime() + raw * 24 * 60 * 60 * 1000);
       return date.toISOString().split("T")[0];
@@ -458,7 +499,6 @@ const ImportData = () => {
 
     const str = String(raw).trim();
 
-    // Формат 01.10.2025
     const m = str.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
     if (m) {
       const [, dd, mm, yyyy] = m;
@@ -472,7 +512,7 @@ const ImportData = () => {
 
     return fallback || null;
   };
-  
+
   // Преобразование строки начислений ОЗОН в объект для вставки
   const buildAccrualRow = (
     row: any,
@@ -483,12 +523,14 @@ const ImportData = () => {
       rowKeys: Object.keys(row).slice(0, 30),
       allKeysCount: Object.keys(row).length,
       rowSample: Object.fromEntries(
-        Object.entries(row).slice(0, 15).map(([k, v]) => [k, String(v).substring(0, 100)])
-      )
+        Object.entries(row)
+          .slice(0, 15)
+          .map(([k, v]) => [k, String(v).substring(0, 100)])
+      ),
     });
-    
+
     const accrualTypeCol = findColumn(row, ["тип начисления", "тип"]);
-    const offerIdCol = findColumn(row, ["артикул"]);
+    const offerIdCol = findColumn(row, ["артикул", "artikul", "offer id"]);
     const skuCol = findColumn(row, ["sku", "ску"]);
     const quantityCol = findColumn(row, ["количество"]);
     const amountBeforeCol = findColumn(row, ["до вычета", "до комиссии", "продажа"]);
@@ -506,16 +548,22 @@ const ImportData = () => {
       allFoundColumns: {
         accrualTypeCol: accrualTypeCol ? row[accrualTypeCol] : null,
         offerIdCol: offerIdCol ? row[offerIdCol] : null,
-      }
+      },
     });
 
     if (!accrualTypeCol || !offerIdCol) {
-      window.console.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Не найдены обязательные колонки!", {
-        accrualTypeCol,
-        offerIdCol,
-        allRowKeys: Object.keys(row),
-        rowKeysNormalized: Object.keys(row).map(k => ({ original: k, normalized: normalize(k) }))
-      });
+      window.console.error(
+        "❌ КРИТИЧЕСКАЯ ОШИБКА: Не найдены обязательные колонки!",
+        {
+          accrualTypeCol,
+          offerIdCol,
+          allRowKeys: Object.keys(row),
+          rowKeysNormalized: Object.keys(row).map((k) => ({
+            original: k,
+            normalized: normalize(k),
+          })),
+        }
+      );
       throw new Error("Не найдены обязательные колонки: Тип начисления, Артикул");
     }
 
@@ -531,7 +579,7 @@ const ImportData = () => {
       import_batch_id: importBatchId,
     };
   };
-  
+
   // Преобразование строки стоимости размещения в объект для вставки
   const buildStorageCostRow = (
     row: any,
@@ -539,7 +587,7 @@ const ImportData = () => {
     importBatchId: string
   ) => {
     const dateCol = findColumn(row, ["дата"]);
-    const offerIdCol = findColumn(row, ["артикул"]);
+    const offerIdCol = findColumn(row, ["артикул", "artikul", "offer id"]);
     const skuCol = findColumn(row, ["sku", "ску"]);
     const costCol = findColumn(row, ["стоимость размещения", "стоимость", "размещение"]);
     const stockCol = findColumn(row, ["остаток", "количество", "экземпляр"]);
@@ -558,8 +606,8 @@ const ImportData = () => {
       import_batch_id: importBatchId,
     };
   };
-  
-  // Преобразование строки в объект для вставки (обертка)
+
+  // Обертка
   const transformRow = (
     row: any,
     type: ImportType,
@@ -572,17 +620,18 @@ const ImportData = () => {
         type,
         rowKeys: Object.keys(row).slice(0, 30),
         rowSample: Object.fromEntries(
-          Object.entries(row).slice(0, 15).map(([k, v]) => [k, String(v).substring(0, 50)])
-        )
+          Object.entries(row)
+            .slice(0, 15)
+            .map(([k, v]) => [k, String(v).substring(0, 50)])
+        ),
       });
     }
-    
+
     if (type === "accruals") {
       return buildAccrualRow(row, marketplaceId, importBatchId);
     }
     return buildStorageCostRow(row, marketplaceId, importBatchId);
   };
-
 
   const formatDate = (dateString: string) => {
     if (!dateString) return "";
