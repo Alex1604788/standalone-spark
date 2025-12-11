@@ -188,10 +188,11 @@ serve(async (req) => {
 
     console.log(`Found ${campaignIds.length} campaigns:`, campaignIds);
 
-    // 5. Запрашиваем статистику по кампаниям из OZON Performance API
+    // 5. Запрашиваем статистику по кампаниям из OZON Performance API (JSON endpoint)
     console.log("Fetching performance data from", formatDate(startDateObj), "to", formatDate(endDateObj));
+    console.log("Campaigns:", campaignIds);
 
-    const performanceResponse = await fetch("https://api-performance.ozon.ru:443/api/client/statistics", {
+    const performanceResponse = await fetch("https://api-performance.ozon.ru:443/api/client/statistics/json", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -233,6 +234,23 @@ serve(async (req) => {
     }
 
     const performanceData = await performanceResponse.json();
+    console.log("Performance API response:", JSON.stringify(performanceData).substring(0, 500));
+
+    // Проверяем, вернул ли API UUID (асинхронный режим) или данные напрямую
+    if (performanceData.UUID) {
+      // API работает асинхронно - вернул UUID вместо данных
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "OZON API returned UUID (async mode)",
+          details: "The API requires polling. UUID: " + performanceData.UUID,
+          uuid: performanceData.UUID,
+          message: "JSON endpoint also works asynchronously. Need to implement polling logic."
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const stats: OzonPerformanceStats[] = performanceData.rows || [];
 
     if (stats.length === 0) {
