@@ -165,6 +165,19 @@ serve(async (req) => {
     if (!performanceResponse.ok) {
       const errorText = await performanceResponse.text();
       console.error("Performance API error:", errorText);
+
+      // Check if OZON returned "empty campaign" - это не ошибка, просто нет данных
+      if (errorText.includes("empty campaign")) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: "No advertising campaigns found for the specified period. This is normal if you haven't started any Performance campaigns yet.",
+            inserted: 0
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       return new Response(
         JSON.stringify({ error: "Failed to fetch performance data", details: errorText }),
         { status: performanceResponse.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
