@@ -142,27 +142,39 @@ serve(async (req) => {
     const formatDate = (date: Date) => date.toISOString().split('T')[0];
 
     // 4. Получаем список кампаний
-    console.log("Fetching campaigns list...");
+    console.error("STEP 4: Fetching campaigns list...");
 
-    const campaignsResponse = await fetch("https://api-performance.ozon.ru:443/api/client/campaign", {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Authorization": `Bearer ${accessToken}`,
-      },
-      redirect: "follow",
-    }).catch((err) => {
+    let campaignsResponse;
+    try {
+      campaignsResponse = await fetch("https://api-performance.ozon.ru:443/api/client/campaign", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        redirect: "follow",
+      });
+    } catch (err) {
       console.error("Campaigns API fetch failed:", err.message);
-      throw new Error(`Failed to fetch campaigns: ${err.message}`);
-    });
+      return new Response(
+        JSON.stringify({
+          error: "Failed to fetch campaigns",
+          details: err.message
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.error("Campaigns API response status:", campaignsResponse.status);
 
     if (!campaignsResponse.ok) {
       const errorText = await campaignsResponse.text();
-      console.error("Campaigns API error:", errorText);
+      console.error("Campaigns API error response:", errorText);
       return new Response(
         JSON.stringify({
           error: "Failed to fetch campaigns list",
+          status: campaignsResponse.status,
           details: errorText
         }),
         { status: campaignsResponse.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -170,12 +182,14 @@ serve(async (req) => {
     }
 
     const campaignsData = await campaignsResponse.json();
-    console.log("Campaigns response:", JSON.stringify(campaignsData));
+    console.error("Campaigns response data:", JSON.stringify(campaignsData).substring(0, 1000));
 
     // Извлекаем ID всех кампаний
     const campaignIds = (campaignsData.list || []).map((campaign: any) => campaign.id);
+    console.error("Extracted campaign IDs:", JSON.stringify(campaignIds));
 
     if (campaignIds.length === 0) {
+      console.error("No campaigns found in response!");
       return new Response(
         JSON.stringify({
           success: true,
@@ -186,11 +200,11 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Found ${campaignIds.length} campaigns:`, campaignIds);
+    console.error(`STEP 5: Found ${campaignIds.length} campaigns`);
 
     // 5. Запрашиваем статистику по кампаниям из OZON Performance API (JSON endpoint)
-    console.log("Fetching performance data from", formatDate(startDateObj), "to", formatDate(endDateObj));
-    console.log("Campaigns:", campaignIds);
+    console.error("STEP 6: Fetching performance data from", formatDate(startDateObj), "to", formatDate(endDateObj));
+    console.error("Requesting stats for campaigns:", JSON.stringify(campaignIds));
 
     const performanceResponse = await fetch("https://api-performance.ozon.ru:443/api/client/statistics/json", {
       method: "POST",
