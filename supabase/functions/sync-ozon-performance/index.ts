@@ -152,9 +152,9 @@ serve(async (req) => {
         "Authorization": `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
-        date_from: formatDate(startDateObj),
-        date_to: formatDate(endDateObj),
-        group_by: "DATE", // Группировка по дням!
+        from: startDateObj.toISOString(),
+        to: endDateObj.toISOString(),
+        groupBy: "DATE", // Группировка по дням!
       }),
       redirect: "follow",
     }).catch((err) => {
