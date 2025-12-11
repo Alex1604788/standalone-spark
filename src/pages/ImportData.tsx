@@ -91,18 +91,44 @@ const ImportData = () => {
       let failedCount = 0;
       const errors: string[] = [];
 
-      // 2. Обрабатываем каждую строку
+      // 2. Преобразуем все строки в объекты для вставки
+      const BATCH_SIZE = 500;
+      const transformedRows: any[] = [];
+
       for (let i = 0; i < fileData.length; i++) {
         const row = fileData[i];
-        setImportProgress(((i + 1) / fileData.length) * 100);
-
         try {
-          await importRow(row, importType, marketplace.id, importLog.id);
-          successCount++;
+          const transformed = transformRow(row, importType, marketplace.id, importLog.id);
+          transformedRows.push(transformed);
         } catch (error: any) {
           failedCount++;
           errors.push(`Строка ${i + 1}: ${error.message}`);
-          console.error(`Error importing row ${i + 1}:`, error);
+          console.error(`Error transforming row ${i + 1}:`, error);
+        }
+      }
+
+      // 3. Вставляем данные батчами
+      const tableName = importType === "accruals" ? "ozon_accruals" : "storage_costs";
+
+      for (let i = 0; i < transformedRows.length; i += BATCH_SIZE) {
+        const chunk = transformedRows.slice(i, i + BATCH_SIZE);
+        setImportProgress(((i + chunk.length) / fileData.length) * 100);
+
+        try {
+          const { error } = await supabase.from(tableName).insert(chunk);
+
+          if (error) {
+            // Помечаем, что эти строки не удалось импортировать
+            failedCount += chunk.length;
+            errors.push(`Ошибка при вставке строк ${i + 1}–${i + chunk.length}: ${error.message}`);
+            console.error(`Error inserting batch ${Math.floor(i / BATCH_SIZE) + 1}:`, error);
+          } else {
+            successCount += chunk.length;
+          }
+        } catch (error: any) {
+          failedCount += chunk.length;
+          errors.push(`Ошибка при вставке строк ${i + 1}–${i + chunk.length}: ${error.message}`);
+          console.error(`Error inserting batch ${Math.floor(i / BATCH_SIZE) + 1}:`, error);
         }
       }
 
@@ -145,87 +171,131 @@ const ImportData = () => {
     }
   };
 
-  // Функция импорта одной строки
-  const importRow = async (
+  // Вспомогательные функции для парсинга
+  
+  // Нормализация строки для поиска колонок
+  const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  
+  // Улучшенный поиск колонок
+  const findColumn = (row: any, keywords: string[]) => {
+    const normalizedKeywords = keywords.map(normalize);
+    const keys = Object.keys(row);
+    return keys.find(k => {
+      const nk = normalize(k);
+      return normalizedKeywords.some(kw => nk.includes(kw));
+    });
+  };
+  
+  // Парсинг чисел (убирает пробелы, обрабатывает запятые)
+  const toNumber = (val: any): number => {
+    if (val == null || val === "") return 0;
+    const normalized = String(val)
+      .replace(/\s/g, "")     // убираем пробелы и неразрывные
+      .replace(",", ".");
+    const num = parseFloat(normalized);
+    return isNaN(num) ? 0 : num;
+  };
+  
+  // Парсинг дат OZON (Excel serial, формат DD.MM.YYYY)
+  const parseOzonDate = (raw: any, fallback?: string): string | null => {
+    if (!raw && !fallback) return null;
+    if (!raw && fallback) return fallback;
+
+    if (typeof raw === "number") {
+      // Excel serial (примерно): 25569 = 1970-01-01
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const date = new Date(excelEpoch.getTime() + raw * 24 * 60 * 60 * 1000);
+      return date.toISOString().split("T")[0];
+    }
+
+    const str = String(raw).trim();
+
+    // Формат 01.10.2025
+    const m = str.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    if (m) {
+      const [, dd, mm, yyyy] = m;
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return d.toISOString().split("T")[0];
+    }
+
+    return fallback || null;
+  };
+  
+  // Преобразование строки начислений ОЗОН в объект для вставки
+  const buildAccrualRow = (
     row: any,
-    type: ImportType,
     marketplaceId: string,
     importBatchId: string
   ) => {
-    switch (type) {
-      case "accruals":
-        await importAccruals(row, marketplaceId, importBatchId);
-        break;
-      case "storage_costs":
-        await importStorageCosts(row, marketplaceId, importBatchId);
-        break;
-    }
-  };
-
-  // Импорт начислений ОЗОН
-  const importAccruals = async (row: any, marketplaceId: string, importBatchId: string) => {
-    // Поиск колонок по частичному совпадению (Excel может добавлять пробелы)
-    const findColumn = (keywords: string[]) => {
-      const keys = Object.keys(row);
-      return keys.find(k => keywords.some(kw => k.toLowerCase().includes(kw.toLowerCase())));
-    };
-
-    const accrualTypeCol = findColumn(["тип начисления", "тип"]);
-    const offerIdCol = findColumn(["артикул"]);
-    const skuCol = findColumn(["sku", "ску"]);
-    const quantityCol = findColumn(["количество"]);
-    const amountBeforeCol = findColumn(["до вычета", "до комиссии", "продажа"]);
-    const totalCol = findColumn(["итого", "сумма"]);
-    const dateCol = findColumn(["дата"]);
+    const accrualTypeCol = findColumn(row, ["тип начисления", "тип"]);
+    const offerIdCol = findColumn(row, ["артикул"]);
+    const skuCol = findColumn(row, ["sku", "ску"]);
+    const quantityCol = findColumn(row, ["количество"]);
+    const amountBeforeCol = findColumn(row, ["до вычета", "до комиссии", "продажа"]);
+    const totalCol = findColumn(row, ["итого", "сумма"]);
+    const dateCol = findColumn(row, ["дата"]);
 
     if (!accrualTypeCol || !offerIdCol) {
       throw new Error("Не найдены обязательные колонки: Тип начисления, Артикул");
     }
 
-    const { error } = await supabase.from("ozon_accruals").insert({
+    return {
       marketplace_id: marketplaceId,
-      accrual_date: dateCol && row[dateCol] ? new Date(row[dateCol]).toISOString().split("T")[0] : periodStart,
-      offer_id: String(row[offerIdCol]).trim(),
-      sku: skuCol ? String(row[skuCol]).trim() : null,
-      accrual_type: String(row[accrualTypeCol]).trim(),
-      quantity: quantityCol ? parseFloat(String(row[quantityCol]).replace(",", ".")) || 0 : 0,
-      amount_before_commission: amountBeforeCol ? parseFloat(String(row[amountBeforeCol]).replace(",", ".")) || 0 : 0,
-      total_amount: totalCol ? parseFloat(String(row[totalCol]).replace(",", ".")) || 0 : 0,
+      accrual_date: parseOzonDate(dateCol ? row[dateCol] : null, periodStart),
+      offer_id: String(row[offerIdCol] || "").trim(),
+      sku: skuCol ? String(row[skuCol] || "").trim() : null,
+      accrual_type: String(row[accrualTypeCol] || "").trim(),
+      quantity: quantityCol ? toNumber(row[quantityCol]) : 0,
+      amount_before_commission: amountBeforeCol ? toNumber(row[amountBeforeCol]) : 0,
+      total_amount: totalCol ? toNumber(row[totalCol]) : 0,
       import_batch_id: importBatchId,
-    });
-
-    if (error) throw error;
-  };
-
-  // Импорт стоимости размещения
-  const importStorageCosts = async (row: any, marketplaceId: string, importBatchId: string) => {
-    const findColumn = (keywords: string[]) => {
-      const keys = Object.keys(row);
-      return keys.find(k => keywords.some(kw => k.toLowerCase().includes(kw.toLowerCase())));
     };
-
-    const dateCol = findColumn(["дата"]);
-    const offerIdCol = findColumn(["артикул"]);
-    const skuCol = findColumn(["sku", "ску"]);
-    const costCol = findColumn(["стоимость размещения", "стоимость", "размещение"]);
-    const stockCol = findColumn(["остаток", "количество", "экземпляр"]);
+  };
+  
+  // Преобразование строки стоимости размещения в объект для вставки
+  const buildStorageCostRow = (
+    row: any,
+    marketplaceId: string,
+    importBatchId: string
+  ) => {
+    const dateCol = findColumn(row, ["дата"]);
+    const offerIdCol = findColumn(row, ["артикул"]);
+    const skuCol = findColumn(row, ["sku", "ску"]);
+    const costCol = findColumn(row, ["стоимость размещения", "стоимость", "размещение"]);
+    const stockCol = findColumn(row, ["остаток", "количество", "экземпляр"]);
 
     if (!dateCol || !offerIdCol) {
       throw new Error("Не найдены обязательные колонки: Дата, Артикул");
     }
 
-    const { error } = await supabase.from("storage_costs").insert({
+    return {
       marketplace_id: marketplaceId,
-      cost_date: new Date(row[dateCol]).toISOString().split("T")[0],
-      offer_id: String(row[offerIdCol]).trim(),
-      sku: skuCol ? String(row[skuCol]).trim() : null,
-      storage_cost: costCol ? parseFloat(String(row[costCol]).replace(",", ".")) || 0 : 0,
-      stock_quantity: stockCol ? parseInt(String(row[stockCol]).replace(/[^\d]/g, "")) || 0 : 0,
+      cost_date: parseOzonDate(row[dateCol]) || periodStart,
+      offer_id: String(row[offerIdCol] || "").trim(),
+      sku: skuCol ? String(row[skuCol] || "").trim() : null,
+      storage_cost: costCol ? toNumber(row[costCol]) : 0,
+      stock_quantity: stockCol ? toNumber(row[stockCol]) : 0,
       import_batch_id: importBatchId,
-    });
-
-    if (error) throw error;
+    };
   };
+  
+  // Преобразование строки в объект для вставки (обертка)
+  const transformRow = (
+    row: any,
+    type: ImportType,
+    marketplaceId: string,
+    importBatchId: string
+  ) => {
+    if (type === "accruals") {
+      return buildAccrualRow(row, marketplaceId, importBatchId);
+    }
+    return buildStorageCostRow(row, marketplaceId, importBatchId);
+  };
+
 
   const formatDate = (dateString: string) => {
     if (!dateString) return "";

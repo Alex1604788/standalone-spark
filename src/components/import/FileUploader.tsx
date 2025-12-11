@@ -31,31 +31,39 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
   
   // Логирование при монтировании компонента
   useEffect(() => {
-    console.log("🎨 FileUploader компонент загружен", { 
+    // Используем window.console для гарантии, что логи появятся
+    window.console.log("🎨 FileUploader компонент загружен", { 
       importType, 
       timestamp: new Date().toISOString(),
       hasFileInput: !!fileInputRef.current
     });
+    // Также выводим в window для диагностики
+    (window as any).__fileUploaderLoaded = true;
   }, [importType]);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    // ДИАГНОСТИКА: alert для проверки, что функция вызывается
+    const file = event.target.files?.[0];
+    if (file) {
+      alert(`Файл выбран: ${file.name}\nРазмер: ${file.size} байт\nТип импорта: ${importType}`);
+    }
+    
     // ОЧЕНЬ РАННЕЕ логирование - должно появиться первым
-    console.log("=".repeat(50));
-    console.log("🚀🚀🚀 handleFileChange ВЫЗВАНА 🚀🚀🚀", { 
+    window.console.log("=".repeat(50));
+    window.console.log("🚀🚀🚀 handleFileChange ВЫЗВАНА 🚀🚀🚀", { 
       importType,
       timestamp: new Date().toISOString(),
       eventType: event.type,
       filesCount: event.target.files?.length || 0
     });
-    console.log("=".repeat(50));
+    window.console.log("=".repeat(50));
     
-    const file = event.target.files?.[0];
     if (!file) {
-      console.error("❌ ФАЙЛ НЕ ВЫБРАН");
+      window.console.error("❌ ФАЙЛ НЕ ВЫБРАН");
       return;
     }
 
-    console.log("📁 ВЫБРАН ФАЙЛ:", { 
+    window.console.log("📁 ВЫБРАН ФАЙЛ:", { 
       name: file.name, 
       size: file.size, 
       type: file.type,
@@ -79,12 +87,12 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
     setIsProcessing(true);
 
     try {
-      console.log("📖 Начинаем чтение файла...");
+      window.console.log("📖 Начинаем чтение файла...");
       // Парсинг Excel файла
       const arrayBuffer = await file.arrayBuffer();
-      console.log("📖 Файл прочитан, размер:", arrayBuffer.byteLength);
+      window.console.log("📖 Файл прочитан, размер:", arrayBuffer.byteLength);
       const workbook = XLSX.read(arrayBuffer, { type: "array" });
-      console.log("📖 Workbook создан, листы:", workbook.SheetNames);
+      window.console.log("📖 Workbook создан, листы:", workbook.SheetNames);
 
       // Берем первый лист
       const firstSheetName = workbook.SheetNames[0];
@@ -157,197 +165,50 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
         );
       };
 
-      // Ищем строку с заголовками (проверяем первые 50 строк, пропуская пустые)
+      // Упрощенный поиск заголовков: ищем первую строку с "Тип начисления" и "Артикул"
       let headerRowIndex = -1;
-      console.log("🔍 Поиск строки с заголовками. Всего строк в файле:", rawData.length);
-      console.log("🔍 Первые 10 строк файла:", rawData.slice(0, 10).map((row, idx) => ({
-        index: idx,
-        cells: row.slice(0, 15).map(cell => {
-          const str = String(cell || "").trim();
-          return str.substring(0, 40);
-        }),
-        nonEmptyCount: row.filter(cell => cell && String(cell).trim() !== "").length
-      })));
+      window.console.log("🔍 Поиск строки с заголовками. Всего строк в файле:", rawData.length);
       
-      // Сначала ищем точное совпадение
-      for (let i = 0; i < Math.min(50, rawData.length); i++) {
-        const row = rawData[i];
-        // Пропускаем полностью пустые строки
-        if (!row || row.every(cell => !cell || String(cell).trim() === "")) {
-          continue;
-        }
-        
-        // Временно переопределяем функцию для логирования с индексом
-        const rowValues = row.map(normalizeValue).filter(v => v && v.length > 0);
-        if (rowValues.length < 2) continue;
-        
-        if (importType === "accruals") {
-          // Более гибкая проверка: ищем "тип начисления" или комбинацию "тип" + "начисл"
-          // Проверяем как отдельные значения, так и комбинации
-          let hasAccrualType = false;
-          let hasOfferId = false;
-          
-          // Проверяем каждое значение
-          for (const v of rowValues) {
-            const normalized = normalizeValue(v);
-            
-            // Проверка "тип начисления"
-            if (!hasAccrualType) {
-              if (normalized === "тип начисления" ||
-                  normalized.includes("тип начисления") ||
-                  (normalized.includes("тип") && normalized.includes("начисл")) ||
-                  normalized === "тип" || normalized === "начисления") {
-                hasAccrualType = true;
-              }
-            }
-            
-            // Проверка "артикул"
-            if (!hasOfferId) {
-              if (normalized === "артикул" || 
-                  normalized.includes("артикул") ||
-                  normalized === "артикул продавца" ||
-                  normalized === "артикул товара") {
-                hasOfferId = true;
-              }
-            }
-          }
-          
-          // Также проверяем комбинацию значений (может быть в разных ячейках)
-          if (!hasAccrualType) {
-            const hasType = rowValues.some(v => normalizeValue(v).includes("тип"));
-            const hasNacisl = rowValues.some(v => normalizeValue(v).includes("начисл"));
-            hasAccrualType = hasType && hasNacisl;
-          }
-          
-          // Дополнительная проверка: если в строке есть много текстовых значений (признак заголовков)
-          const textCellsCount = row.filter(cell => {
-            const val = String(cell || "").trim();
-            return val.length > 3 && !/^\d+([\.,]\d+)?$/.test(val); // Не только числа
-          }).length;
-          
-          // Детальное логирование для строк 0-5 (где должны быть заголовки)
-          if (i <= 5) {
-            console.log(`🔍 Строка ${i} (ДЕТАЛЬНО):`, {
-              rowIndex: i,
-              allRowValues: rowValues, // Все значения, не только первые 15
-              allRowCells: row.map((cell, idx) => ({
-                index: idx,
-                raw: cell,
-                string: String(cell),
-                normalized: normalizeValue(cell),
-                length: String(cell).length
-              })).slice(0, 20), // Первые 20 ячеек
-              hasAccrualType,
-              hasOfferId,
-              textCellsCount,
-              isHeader: hasAccrualType && hasOfferId,
-              // Проверяем каждое значение на наличие ключевых слов
-              accrualTypeMatches: rowValues.filter(v => {
-                const normalized = v.toLowerCase();
-                return normalized.includes("тип") || normalized.includes("начисл");
-              }),
-              offerIdMatches: rowValues.filter(v => {
-                const normalized = v.toLowerCase();
-                return normalized.includes("артикул");
-              })
-            });
-          } else {
-            console.log(`🔍 Строка ${i}:`, {
-              rowValues: rowValues.slice(0, 15),
-              rowPreview: row.slice(0, 15).map(cell => String(cell).substring(0, 40)),
-              hasAccrualType,
-              hasOfferId,
-              textCellsCount,
-              isHeader: hasAccrualType && hasOfferId
-            });
-          }
-          
-          // Если найдены оба обязательных заголовка И в строке достаточно текстовых ячеек
-          if (hasAccrualType && hasOfferId && textCellsCount >= 5) {
-            headerRowIndex = i;
-            console.log(`✅ Найдена строка с заголовками на индексе ${i}:`, row.slice(0, 20).map(cell => String(cell).substring(0, 50)));
-            break;
-          }
-        }
-      }
-
-      // Если не нашли точное совпадение, ищем по частичным совпадениям (более гибко)
-      if (headerRowIndex === -1) {
-        console.warn("⚠️ Не найдена строка с точными заголовками, ищем по частичным совпадениям");
-        for (let i = 0; i < Math.min(50, rawData.length); i++) {
+      // Для начислений ОЗОН ищем строку с обязательными колонками
+      if (importType === "accruals") {
+        for (let i = 0; i < Math.min(20, rawData.length); i++) {
           const row = rawData[i];
+          // Пропускаем полностью пустые строки
           if (!row || row.every(cell => !cell || String(cell).trim() === "")) {
             continue;
           }
           
           const rowValues = row.map(normalizeValue).filter(v => v && v.length > 0);
-          if (rowValues.length < 3) continue;
+          if (rowValues.length < 2) continue;
           
-          // Для начислений ОЗОН ищем оба ключевых слова (но более гибко)
-          if (importType === "accruals") {
-            // Ищем "тип" и "начисл" в разных ячейках или вместе
-            const hasAccrualType = rowValues.some(v => {
-              const normalized = v.toLowerCase();
-              return normalized.includes("тип") && normalized.includes("начисл");
-            });
-            // Ищем "артикул"
-            const hasOfferId = rowValues.some(v => {
-              const normalized = v.toLowerCase();
-              return normalized.includes("артикул");
-            });
-            
-            // Если найдены оба, используем эту строку
-            if (hasAccrualType && hasOfferId) {
-              headerRowIndex = i;
-              console.log(`⚠️ Найдена строка ${i} с частичными совпадениями (оба ключевых слова):`, row.slice(0, 15).map(cell => String(cell).substring(0, 50)));
-              break;
-            }
-          }
-        }
-      }
-
-      // Если все еще не нашли, ищем строку, которая выглядит как заголовки (текстовые значения, не данные)
-      if (headerRowIndex === -1) {
-        console.warn("⚠️ Не найдена строка с заголовками, ищем строку, которая выглядит как заголовки");
-        for (let i = 0; i < Math.min(50, rawData.length); i++) {
-          const row = rawData[i];
-          if (!row) continue;
-          
-          // Ищем строку, где большинство ячеек - это текст (не числа, не даты)
-          const textCells = row.filter(cell => {
-            const val = normalizeValue(cell);
-            if (val.length === 0) return false;
-            // Исключаем чисто числовые значения, даты, и мусорные символы
-            if (/^\d+$/.test(val)) return false; // Только цифры
-            if (/^[0-9\s\-\.\/]+$/.test(val)) return false; // Даты
-            if (val.length < 2) return false; // Слишком короткие
-            // Исключаем строки с множеством повторяющихся символов (мусор)
-            if (/(.)\1{4,}/.test(val)) return false; // Повторяющиеся символы
-            return true;
+          // Простая проверка: ищем "тип начисления" и "артикул"
+          const hasAccrualType = rowValues.some(v => {
+            const normalized = normalizeValue(v);
+            return normalized.includes("тип") && normalized.includes("начисл");
+          });
+          const hasOfferId = rowValues.some(v => {
+            const normalized = normalizeValue(v);
+            return normalized.includes("артикул");
           });
           
-          // Если в строке достаточно текстовых ячеек и они выглядят как заголовки
-          if (textCells.length >= 5) {
-            const rowText = row.slice(0, 10).map(cell => String(cell).substring(0, 30)).join(" ");
-            // Проверяем, что это не похоже на данные (нет множества цифр, дат и т.д.)
-            const hasTooManyNumbers = (rowText.match(/\d{4,}/g) || []).length > 2;
-            if (!hasTooManyNumbers) {
-              headerRowIndex = i;
-              console.log(`⚠️ Используем строку ${i} как заголовки (выглядит как заголовки):`, row.slice(0, 15).map(cell => String(cell).substring(0, 50)));
-              break;
-            }
+          window.console.log(`🔍 Строка ${i}:`, {
+            rowValues: rowValues.slice(0, 10),
+            hasAccrualType,
+            hasOfferId,
+            isHeader: hasAccrualType && hasOfferId
+          });
+          
+          if (hasAccrualType && hasOfferId) {
+            headerRowIndex = i;
+            window.console.log(`✅ Найдена строка с заголовками на индексе ${i}`);
+            break;
           }
         }
-        
-        // Если все еще не нашли, НЕ используем строку 0 - лучше показать ошибку
-        if (headerRowIndex === -1) {
-          console.error("❌ Не удалось найти строку с заголовками в первых 50 строках файла!");
-          console.error("❌ Первые 10 строк файла для анализа:", rawData.slice(0, 10).map((row, idx) => ({
-            index: idx,
-            cells: row.slice(0, 10).map(cell => String(cell).substring(0, 50))
-          })));
-          // Не устанавливаем headerRowIndex = 0, чтобы показать ошибку
-        }
+      } else {
+        // Для других типов ищем первую непустую строку
+        headerRowIndex = rawData.findIndex(row =>
+          row && row.some(cell => String(cell ?? "").trim() !== "")
+        );
       }
 
       // Конвертируем в JSON, используя найденную строку как заголовки
@@ -376,12 +237,13 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
             return obj;
           });
         
-        console.log(`✅ Использованы заголовки из строки ${headerRowIndex}:`, headers.slice(0, 20));
-        console.log(`✅ Всего заголовков: ${headers.length}`);
-        console.log(`✅ Найдено строк данных: ${jsonData.length}`);
+        window.console.log(`✅ Использованы заголовки из строки ${headerRowIndex}:`, headers.slice(0, 20));
+        window.console.log(`✅ Всего заголовков: ${headers.length}`);
+        window.console.log(`✅ Найдено строк данных: ${jsonData.length}`);
       } else {
         // Заголовки не найдены - показываем ошибку
-        console.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось найти строку с заголовками!");
+        window.console.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось найти строку с заголовками!");
+        alert("❌ ОШИБКА: Не удалось найти строку с заголовками в файле!");
         toast({
           title: "Неверная структура файла",
           description: "Не удалось найти строку с заголовками в файле. Убедитесь, что файл содержит колонки 'Тип начисления' и 'Артикул'. Проверьте консоль браузера (F12) для деталей.",
@@ -439,7 +301,7 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
       }
 
       // Логирование для отладки
-      console.log("🔍 Проверка колонок файла:", {
+      window.console.log("🔍 Проверка колонок файла:", {
         headerRowIndex,
         fileColumns: fileColumns.slice(0, 30),
         fileColumnsCount: fileColumns.length,
@@ -459,7 +321,7 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
       if (importType === "accruals") {
         const accrualTypeCol = findColumn(["тип начисления", "тип"]);
         const offerIdCol = findColumn(["артикул"]);
-        console.log("🔍 Поиск обязательных колонок для начислений ОЗОН:", {
+        window.console.log("🔍 Поиск обязательных колонок для начислений ОЗОН:", {
           accrualTypeCol,
           offerIdCol,
           allColumns: fileColumns,
@@ -483,7 +345,7 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
 
       onFileSelect(jsonData, file.name);
     } catch (error: any) {
-      console.error("❌ ОШИБКА при парсинге Excel:", {
+      window.console.error("❌ ОШИБКА при парсинге Excel:", {
         error,
         message: error?.message,
         stack: error?.stack,
@@ -499,7 +361,7 @@ export const FileUploader = ({ importType, onFileSelect, onClear }: FileUploader
       setSelectedFile(null);
     } finally {
       setIsProcessing(false);
-      console.log("✅ Обработка файла завершена");
+      window.console.log("✅ Обработка файла завершена");
     }
   };
 
