@@ -75,17 +75,36 @@ serve(async (req) => {
 
     if (!accessToken || tokenExpired) {
       // Получаем новый токен
-      const tokenResponse = await fetch("https://performance.ozon.ru/api/client/token", {
+      console.log("Requesting token for client_id:", creds.client_id);
+
+      const tokenResponse = await fetch("https://api-performance.ozon.ru/api/client/token", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Accept": "application/json",
         },
         body: JSON.stringify({
           client_id: creds.client_id,
           client_secret: creds.client_secret,
           grant_type: "client_credentials",
         }),
+        redirect: "follow", // Follow redirects to detect auth errors
+      }).catch((err) => {
+        console.error("Token fetch failed:", err.message);
+        throw new Error(`Failed to connect to OZON API: ${err.message}`);
       });
+
+      // Check if we were redirected to login page
+      if (tokenResponse.url && !tokenResponse.url.includes('/api/client/token')) {
+        console.error("Redirected to:", tokenResponse.url);
+        return new Response(
+          JSON.stringify({
+            error: "Invalid credentials",
+            details: "The API redirected to authentication page. Please check your Client ID and Client Secret are correct for OZON Performance API."
+          }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
       if (!tokenResponse.ok) {
         const errorText = await tokenResponse.text();
@@ -123,10 +142,13 @@ serve(async (req) => {
     const formatDate = (date: Date) => date.toISOString().split('T')[0];
 
     // 4. Запрашиваем данные из OZON Performance API
-    const performanceResponse = await fetch("https://api-performance.ozon.ru/api/client/statistics/json", {
+    console.log("Fetching performance data from", formatDate(startDateObj), "to", formatDate(endDateObj));
+
+    const performanceResponse = await fetch("https://api-performance.ozon.ru:443/api/client/statistics", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Accept": "application/json",
         "Authorization": `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
@@ -134,6 +156,10 @@ serve(async (req) => {
         date_to: formatDate(endDateObj),
         group_by: "DATE", // Группировка по дням!
       }),
+      redirect: "follow",
+    }).catch((err) => {
+      console.error("Performance API fetch failed:", err.message);
+      throw new Error(`Failed to fetch performance data: ${err.message}`);
     });
 
     if (!performanceResponse.ok) {
@@ -195,8 +221,20 @@ serve(async (req) => {
     );
   } catch (error) {
     console.error("Function error:", error);
+
+    // Более подробная информация об ошибке
+    const errorDetails = {
+      message: error.message,
+      name: error.name,
+      cause: error.cause,
+      stack: error.stack?.split('\n').slice(0, 3).join('\n'),
+    };
+
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({
+        error: "Internal server error",
+        details: errorDetails
+      }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
