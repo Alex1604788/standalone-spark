@@ -141,7 +141,54 @@ serve(async (req) => {
 
     const formatDate = (date: Date) => date.toISOString().split('T')[0];
 
-    // 4. Запрашиваем данные из OZON Performance API
+    // 4. Получаем список кампаний
+    console.log("Fetching campaigns list...");
+
+    const campaignsResponse = await fetch("https://api-performance.ozon.ru:443/api/client/campaign", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": `Bearer ${accessToken}`,
+      },
+      redirect: "follow",
+    }).catch((err) => {
+      console.error("Campaigns API fetch failed:", err.message);
+      throw new Error(`Failed to fetch campaigns: ${err.message}`);
+    });
+
+    if (!campaignsResponse.ok) {
+      const errorText = await campaignsResponse.text();
+      console.error("Campaigns API error:", errorText);
+      return new Response(
+        JSON.stringify({
+          error: "Failed to fetch campaigns list",
+          details: errorText
+        }),
+        { status: campaignsResponse.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const campaignsData = await campaignsResponse.json();
+    console.log("Campaigns response:", JSON.stringify(campaignsData));
+
+    // Извлекаем ID всех кампаний
+    const campaignIds = (campaignsData.list || []).map((campaign: any) => campaign.id);
+
+    if (campaignIds.length === 0) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: "No advertising campaigns found in your account. Create campaigns in OZON Performance first.",
+          inserted: 0
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log(`Found ${campaignIds.length} campaigns:`, campaignIds);
+
+    // 5. Запрашиваем статистику по кампаниям из OZON Performance API
     console.log("Fetching performance data from", formatDate(startDateObj), "to", formatDate(endDateObj));
 
     const performanceResponse = await fetch("https://api-performance.ozon.ru:443/api/client/statistics", {
@@ -152,6 +199,7 @@ serve(async (req) => {
         "Authorization": `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
+        campaigns: campaignIds,
         from: startDateObj.toISOString(),
         to: endDateObj.toISOString(),
         groupBy: "DATE", // Группировка по дням!
@@ -166,15 +214,15 @@ serve(async (req) => {
       const errorText = await performanceResponse.text();
       console.error("Performance API error:", errorText);
 
-      // Check if OZON returned "empty campaign" - это не ошибка, просто нет данных
+      // Note: "empty campaign" error should not occur now that we fetch campaign IDs first
       if (errorText.includes("empty campaign")) {
         return new Response(
           JSON.stringify({
-            success: true,
-            message: "No advertising campaigns found for the specified period. This is normal if you haven't started any Performance campaigns yet.",
-            inserted: 0
+            error: "Empty campaign error occurred despite fetching campaign list",
+            details: errorText,
+            campaigns_sent: campaignIds
           }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
