@@ -88,11 +88,23 @@ serve(async (req) => {
           client_secret: creds.client_secret,
           grant_type: "client_credentials",
         }),
-        redirect: "error", // Fail on redirects instead of following them
+        redirect: "follow", // Follow redirects to detect auth errors
       }).catch((err) => {
         console.error("Token fetch failed:", err.message);
-        throw new Error(`Failed to connect to OZON API: ${err.message}. Please check your Client ID and Client Secret.`);
+        throw new Error(`Failed to connect to OZON API: ${err.message}`);
       });
+
+      // Check if we were redirected to login page
+      if (tokenResponse.url && !tokenResponse.url.includes('/api/client/token')) {
+        console.error("Redirected to:", tokenResponse.url);
+        return new Response(
+          JSON.stringify({
+            error: "Invalid credentials",
+            details: "The API redirected to authentication page. Please check your Client ID and Client Secret are correct for OZON Performance API."
+          }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
       if (!tokenResponse.ok) {
         const errorText = await tokenResponse.text();
@@ -144,7 +156,7 @@ serve(async (req) => {
         date_to: formatDate(endDateObj),
         group_by: "DATE", // Группировка по дням!
       }),
-      redirect: "error", // Fail on redirects
+      redirect: "follow",
     }).catch((err) => {
       console.error("Performance API fetch failed:", err.message);
       throw new Error(`Failed to fetch performance data: ${err.message}`);
