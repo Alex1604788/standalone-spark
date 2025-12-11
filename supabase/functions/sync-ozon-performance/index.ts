@@ -223,11 +223,12 @@ serve(async (req) => {
     console.error("Function error:", error);
 
     // Более подробная информация об ошибке
+    const err = error as Error;
     const errorDetails = {
-      message: error.message,
-      name: error.name,
-      cause: error.cause,
-      stack: error.stack?.split('\n').slice(0, 3).join('\n'),
+      message: err.message || "Unknown error",
+      name: err.name || "Error",
+      cause: err.cause,
+      stack: err.stack?.split('\n').slice(0, 3).join('\n'),
     };
 
     return new Response(
