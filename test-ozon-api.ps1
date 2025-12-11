@@ -18,7 +18,7 @@ Write-Host ""
 # ====================================================
 Write-Host "ШАГ 1: Получение access token..." -ForegroundColor Yellow
 
-$tokenUrl = "https://performance.ozon.ru/api/client/token"
+$tokenUrl = "https://api-performance.ozon.ru/api/client/token"
 
 $tokenBody = @{
     client_id = 90785244-1765421892659@advertising.performance.ozon.ru
