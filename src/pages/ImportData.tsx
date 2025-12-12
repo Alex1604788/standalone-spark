@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Upload, Database, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -12,11 +12,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { FileUploader, type ImportType } from "@/components/import/FileUploader";
 import { ImportHistory } from "@/components/import/ImportHistory";
 import { useQuery } from "@tanstack/react-query";
+import { cleanText, parseNumber, parseDate as parseOzonDate, normalize } from "@/lib/importUtils";
 
 const ImportData = () => {
   const [importType, setImportType] = useState<ImportType>("accruals");
   const [fileData, setFileData] = useState<any[] | null>(null);
   const [fileName, setFileName] = useState<string>("");
+  const [columnMapping, setColumnMapping] = useState<Record<string, string> | null>(null); // Маппинг колонок
   const [periodStart, setPeriodStart] = useState<string>("");
   const [periodEnd, setPeriodEnd] = useState<string>("");
   const [isImporting, setIsImporting] = useState(false);
@@ -45,15 +47,17 @@ const ImportData = () => {
     },
   });
 
-  const handleFileSelect = (data: any[], name: string) => {
+  const handleFileSelect = (data: any[], name: string, mapping?: Record<string, string>) => {
     setFileData(data);
     setFileName(name);
+    setColumnMapping(mapping || null);
     setImportResult(null);
   };
 
   const handleClear = () => {
     setFileData(null);
     setFileName("");
+    setColumnMapping(null);
     setImportResult(null);
   };
 
@@ -78,6 +82,34 @@ const ImportData = () => {
         variant: "destructive",
       });
       return;
+    }
+    
+    if (!columnMapping) {
+      window.console.error("❌ Ошибка: нет columnMapping");
+      toast({
+        title: "Ошибка",
+        description: "Не настроено сопоставление колонок. Загрузите файл снова.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Сохраняем маппинг в БД для будущих импортов
+    try {
+      await supabase
+        .from("import_column_mappings")
+        .upsert({
+          marketplace_id: marketplace.id,
+          import_type: importType,
+          mapping: columnMapping,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: "marketplace_id,import_type"
+        });
+      window.console.log("✅ Маппинг колонок сохранен в БД");
+    } catch (error) {
+      window.console.warn("⚠️ Не удалось сохранить маппинг в БД:", error);
+      // Не критично, продолжаем импорт
     }
 
     window.console.log("📊 Информация о файле для импорта:", {
@@ -215,7 +247,10 @@ const ImportData = () => {
         }
         
         try {
-          const transformed = transformRow(row, importType, marketplace.id, importLog?.id || "", i);
+          if (!columnMapping) {
+            throw new Error("Маппинг колонок не настроен");
+          }
+          const transformed = transformRow(row, importType, marketplace.id, importLog?.id || "", columnMapping, i);
           transformedRows.push(transformed);
           
           // Логируем успешное преобразование первых 3 строк
@@ -395,181 +430,129 @@ const ImportData = () => {
 
   // Вспомогательные функции для парсинга
   
-  // Нормализация строки для поиска колонок с удалением невидимых символов (BOM, ZERO WIDTH SPACE и т.д.)
-  const normalize = (s: string) =>
-    s
-      .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "") // удалить скрытые символы (BOM, ZERO WIDTH SPACE и т.д.)
-      .toLowerCase()
-      .replace(/\s+/g, " ")
-      .trim();
-  
-  // Улучшенный поиск колонок
-  const findColumn = (row: any, keywords: string[]) => {
-    const normalizedKeywords = keywords.map(normalize);
-    const keys = Object.keys(row);
-    
-    window.console.log("🔍 findColumn вызван:", {
-      keywords,
-      normalizedKeywords,
-      availableKeys: keys.slice(0, 20),
-      allKeysCount: keys.length,
-      rowSample: Object.fromEntries(
-        Object.entries(row).slice(0, 10).map(([k, v]) => [k, String(v).substring(0, 50)])
-      )
-    });
-    
-    const found = keys.find(k => {
-      const nk = normalize(k);
-      const matches = normalizedKeywords.some(kw => nk.includes(kw));
-      if (matches) {
-        window.console.log(`✅ Найдено совпадение: "${k}" (нормализовано: "${nk}") для ключевых слов:`, keywords);
+  // Загружаем сохраненный маппинг из БД при изменении типа импорта или маркетплейса
+  const { data: savedMapping } = useQuery({
+    queryKey: ["import-column-mapping", marketplace?.id, importType],
+    queryFn: async () => {
+      if (!marketplace?.id) return null;
+      const { data, error } = await supabase
+        .from("import_column_mappings")
+        .select("mapping")
+        .eq("marketplace_id", marketplace.id)
+        .eq("import_type", importType)
+        .single();
+      
+      if (error && error.code !== "PGRST116") { // PGRST116 = not found
+        console.error("Ошибка загрузки маппинга:", error);
+        return null;
       }
-      return matches;
-    });
-    
-    if (!found) {
-      window.console.warn(`❌ Не найдена колонка для ключевых слов:`, keywords);
+      
+      return data?.mapping as Record<string, string> | null;
+    },
+    enabled: !!marketplace?.id,
+  });
+
+  // Используем сохраненный маппинг, если он есть и колонки еще не настроены
+  useEffect(() => {
+    if (savedMapping && !columnMapping) {
+      setColumnMapping(savedMapping);
+      window.console.log("✅ Загружен сохраненный маппинг из БД:", savedMapping);
     }
-    
-    return found;
-  };
+  }, [savedMapping, columnMapping]);
   
-  // Парсинг чисел (убирает пробелы, обрабатывает запятые)
-  const toNumber = (val: any): number => {
-    if (val == null || val === "") return 0;
-    const normalized = String(val)
-      .replace(/\s/g, "")     // убираем пробелы и неразрывные
-      .replace(",", ".");
-    const num = parseFloat(normalized);
-    return isNaN(num) ? 0 : num;
-  };
-  
-  // Парсинг дат OZON (Excel serial, формат DD.MM.YYYY)
-  const parseOzonDate = (raw: any, fallback?: string): string | null => {
-    if (!raw && !fallback) return null;
-    if (!raw && fallback) return fallback;
-
-    if (typeof raw === "number") {
-      // Excel serial (примерно): 25569 = 1970-01-01
-      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-      const date = new Date(excelEpoch.getTime() + raw * 24 * 60 * 60 * 1000);
-      return date.toISOString().split("T")[0];
-    }
-
-    const str = String(raw).trim();
-
-    // Формат 01.10.2025
-    const m = str.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
-    if (m) {
-      const [, dd, mm, yyyy] = m;
-      return `${yyyy}-${mm}-${dd}`;
-    }
-
-    const d = new Date(str);
-    if (!isNaN(d.getTime())) {
-      return d.toISOString().split("T")[0];
-    }
-
-    return fallback || null;
-  };
-  
-  // Преобразование строки начислений ОЗОН в объект для вставки
+  // Преобразование строки начислений ОЗОН в объект для вставки (использует маппинг)
   const buildAccrualRow = (
     row: any,
     marketplaceId: string,
-    importBatchId: string
+    importBatchId: string,
+    mapping: Record<string, string>
   ) => {
-    window.console.log("🔧 buildAccrualRow вызван:", {
-      rowKeys: Object.keys(row).slice(0, 30),
-      allKeysCount: Object.keys(row).length,
-      rowSample: Object.fromEntries(
-        Object.entries(row).slice(0, 15).map(([k, v]) => [k, String(v).substring(0, 100)])
-      )
-    });
-    
-    const accrualTypeCol = findColumn(row, ["тип начисления", "тип"]);
-    const offerIdCol = findColumn(row, ["артикул"]);
-    const skuCol = findColumn(row, ["sku", "ску"]);
-    const quantityCol = findColumn(row, ["количество"]);
-    const amountBeforeCol = findColumn(row, ["до вычета", "до комиссии", "продажа"]);
-    const totalCol = findColumn(row, ["итого", "сумма"]);
-    const dateCol = findColumn(row, ["дата"]);
+    // Получаем значения по маппингу
+    const accrualTypeCol = mapping.accrual_type;
+    const offerIdCol = mapping.offer_id;
+    const dateCol = mapping.date;
+    const skuCol = mapping.sku;
+    const quantityCol = mapping.quantity;
+    const amountBeforeCol = mapping.amount_before_commission;
+    const totalCol = mapping.total_amount;
 
-    window.console.log("🔧 Результаты поиска колонок:", {
-      accrualTypeCol,
-      offerIdCol,
-      skuCol,
-      quantityCol,
-      amountBeforeCol,
-      totalCol,
-      dateCol,
-      allFoundColumns: {
-        accrualTypeCol: accrualTypeCol ? row[accrualTypeCol] : null,
-        offerIdCol: offerIdCol ? row[offerIdCol] : null,
-      }
-    });
-
+    // Проверяем обязательные поля
     if (!accrualTypeCol || !offerIdCol) {
-      window.console.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Не найдены обязательные колонки!", {
-        accrualTypeCol,
-        offerIdCol,
-        allRowKeys: Object.keys(row),
-        rowKeysNormalized: Object.keys(row).map(k => ({ original: k, normalized: normalize(k) }))
-      });
-      throw new Error("Не найдены обязательные колонки: Тип начисления, Артикул");
+      throw new Error(`Не найдены обязательные колонки в маппинге: accrual_type=${accrualTypeCol}, offer_id=${offerIdCol}`);
+    }
+
+    // Получаем значения из строки
+    const accrualType = row[accrualTypeCol];
+    const offerId = row[offerIdCol];
+    
+    if (!accrualType || !offerId) {
+      throw new Error(`Пустые значения в обязательных полях: accrual_type="${accrualType}", offer_id="${offerId}"`);
     }
 
     return {
       marketplace_id: marketplaceId,
-      accrual_date: parseOzonDate(dateCol ? row[dateCol] : null, periodStart),
-      offer_id: String(row[offerIdCol] || "").trim(),
-      sku: skuCol ? String(row[skuCol] || "").trim() : null,
-      accrual_type: String(row[accrualTypeCol] || "").trim(),
-      quantity: quantityCol ? toNumber(row[quantityCol]) : 0,
-      amount_before_commission: amountBeforeCol ? toNumber(row[amountBeforeCol]) : 0,
-      total_amount: totalCol ? toNumber(row[totalCol]) : 0,
+      accrual_date: dateCol && row[dateCol] ? parseOzonDate(row[dateCol], periodStart) : (periodStart || null),
+      offer_id: cleanText(offerId),
+      sku: skuCol && row[skuCol] ? cleanText(row[skuCol]) : null,
+      accrual_type: cleanText(accrualType),
+      quantity: quantityCol && row[quantityCol] ? parseNumber(row[quantityCol]) : 0,
+      amount_before_commission: amountBeforeCol && row[amountBeforeCol] ? parseNumber(row[amountBeforeCol]) : 0,
+      total_amount: totalCol && row[totalCol] ? parseNumber(row[totalCol]) : 0,
       import_batch_id: importBatchId,
     };
   };
   
-  // Преобразование строки стоимости размещения в объект для вставки
+  // Преобразование строки стоимости размещения в объект для вставки (использует маппинг)
   const buildStorageCostRow = (
     row: any,
     marketplaceId: string,
-    importBatchId: string
+    importBatchId: string,
+    mapping: Record<string, string>
   ) => {
-    const dateCol = findColumn(row, ["дата"]);
-    const offerIdCol = findColumn(row, ["артикул"]);
-    const skuCol = findColumn(row, ["sku", "ску"]);
-    const costCol = findColumn(row, ["стоимость размещения", "стоимость", "размещение"]);
-    const stockCol = findColumn(row, ["остаток", "количество", "экземпляр"]);
+    // Получаем значения по маппингу
+    const dateCol = mapping.date;
+    const offerIdCol = mapping.offer_id;
+    const skuCol = mapping.sku;
+    const costCol = mapping.cost;
+    const stockCol = mapping.stock;
 
+    // Проверяем обязательные поля
     if (!dateCol || !offerIdCol) {
-      throw new Error("Не найдены обязательные колонки: Дата, Артикул");
+      throw new Error(`Не найдены обязательные колонки в маппинге: date=${dateCol}, offer_id=${offerIdCol}`);
+    }
+
+    // Получаем значения из строки
+    const date = row[dateCol];
+    const offerId = row[offerIdCol];
+    
+    if (!date || !offerId) {
+      throw new Error(`Пустые значения в обязательных полях: date="${date}", offer_id="${offerId}"`);
     }
 
     return {
       marketplace_id: marketplaceId,
-      cost_date: parseOzonDate(row[dateCol]) || periodStart,
-      offer_id: String(row[offerIdCol] || "").trim(),
-      sku: skuCol ? String(row[skuCol] || "").trim() : null,
-      storage_cost: costCol ? toNumber(row[costCol]) : 0,
-      stock_quantity: stockCol ? toNumber(row[stockCol]) : 0,
+      cost_date: parseOzonDate(date, periodStart) || periodStart,
+      offer_id: cleanText(offerId),
+      sku: skuCol && row[skuCol] ? cleanText(row[skuCol]) : null,
+      storage_cost: costCol && row[costCol] ? parseNumber(row[costCol]) : 0,
+      stock_quantity: stockCol && row[stockCol] ? parseNumber(row[stockCol]) : 0,
       import_batch_id: importBatchId,
     };
   };
   
-  // Преобразование строки в объект для вставки (обертка)
+  // Преобразование строки в объект для вставки (обертка, использует маппинг)
   const transformRow = (
     row: any,
     type: ImportType,
     marketplaceId: string,
     importBatchId: string,
+    mapping: Record<string, string>,
     rowIndex?: number
   ) => {
     if (rowIndex !== undefined && rowIndex < 5) {
       window.console.log(`🔄 transformRow вызван для строки ${rowIndex}:`, {
         type,
+        mapping,
         rowKeys: Object.keys(row).slice(0, 30),
         rowSample: Object.fromEntries(
           Object.entries(row).slice(0, 15).map(([k, v]) => [k, String(v).substring(0, 50)])
@@ -578,9 +561,9 @@ const ImportData = () => {
     }
     
     if (type === "accruals") {
-      return buildAccrualRow(row, marketplaceId, importBatchId);
+      return buildAccrualRow(row, marketplaceId, importBatchId, mapping);
     }
-    return buildStorageCostRow(row, marketplaceId, importBatchId);
+    return buildStorageCostRow(row, marketplaceId, importBatchId, mapping);
   };
 
 

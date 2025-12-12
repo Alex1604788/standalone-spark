@@ -4,12 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
+import { ColumnMappingModal, guessMapping, type ColumnMapping } from "./ColumnMappingModal";
+import { normalize } from "@/lib/importUtils";
 
 export type ImportType = "accruals" | "storage_costs";
 
 interface FileUploaderProps {
   importType: ImportType;
-  onFileSelect: (data: any[], fileName: string) => void;
+  onFileSelect: (data: any[], fileName: string, columnMapping?: Record<string, string>) => void;
   onClear?: () => void;
 }
 
@@ -30,16 +32,13 @@ export const FileUploader = ({
 }: FileUploaderProps) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showMappingModal, setShowMappingModal] = useState(false);
+  const [fileColumns, setFileColumns] = useState<string[]>([]);
+  const [parsedData, setParsedData] = useState<any[]>([]);
+  const [fileName, setFileName] = useState<string>("");
+  const [initialMapping, setInitialMapping] = useState<ColumnMapping>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-
-  // Нормализация строки с удалением невидимых символов (BOM, ZERO WIDTH SPACE и т.д.)
-  const normalize = (s: string) =>
-    s
-      .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "") // удалить скрытые символы (BOM, ZERO WIDTH SPACE и т.д.)
-      .toLowerCase()
-      .replace(/\s+/g, " ")
-      .trim();
 
   const handleFileChange = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -225,73 +224,47 @@ export const FileUploader = ({
         ),
       });
 
-      // (если очень хочешь мягкую проверку — можно просто warning в консоль)
-      if (importType === "accruals") {
-        const hasAccrualType = fileColumns.some((c) => {
-          const n = normalize(c);
-          return n === "тип начисления" || n.includes("тип начисл");
-        });
-        const hasOfferId = fileColumns.some((c) => {
-          const n = normalize(c);
-          return n === "артикул" || n.includes("артикул");
-        });
-        if (!hasAccrualType || !hasOfferId) {
-          console.warn(
-            "⚠️ FileUploader: не нашли явные колонки 'Тип начисления' или 'Артикул', но импорт не блокируем"
-          );
-          
-          // КРИТИЧЕСКОЕ ЛОГИРОВАНИЕ: показываем все найденные колонки
-          // КРИТИЧЕСКОЕ ЛОГИРОВАНИЕ: показываем все найденные колонки
-          window.console.log("=".repeat(80));
-          window.console.log("🔍🔍🔍 ВСЕ НАЙДЕННЫЕ КОЛОНКИ В ФАЙЛЕ 🔍🔍🔍");
-          window.console.log("=".repeat(80));
-          window.console.log("Всего колонок:", fileColumns.length);
-          window.console.log("Все колонки (первые 50):", fileColumns.slice(0, 50));
-          window.console.log("Все колонки (полный список):", fileColumns);
-          
-          // Показываем нормализованные версии для поиска
-          const normalizedColumns = fileColumns.map(col => ({
-            original: col,
-            normalized: col.toLowerCase().replace(/\s+/g, " ").trim(),
-            containsType: col.toLowerCase().includes("тип"),
-            containsNacisl: col.toLowerCase().includes("начисл"),
-            containsArtikul: col.toLowerCase().includes("артикул"),
-            // Показываем коды символов для диагностики проблем с кодировкой
-            charCodes: col.split('').slice(0, 20).map(c => c.charCodeAt(0))
-          }));
-          
-          const keysWithType = normalizedColumns.filter(c => c.containsType).map(c => c.original);
-          const keysWithNacisl = normalizedColumns.filter(c => c.containsNacisl).map(c => c.original);
-          const keysWithArtikul = normalizedColumns.filter(c => c.containsArtikul).map(c => c.original);
-          
-          window.console.log("Поиск похожих колонок:", {
-            keysWithType,
-            keysWithNacisl,
-            keysWithArtikul,
-            allNormalized: normalizedColumns.slice(0, 50)
-          });
-          
-          // КРИТИЧЕСКОЕ: показываем alert с найденными колонками
-          if (keysWithType.length === 0 || keysWithArtikul.length === 0) {
-            const message = `⚠️ НЕ НАЙДЕНЫ ОБЯЗАТЕЛЬНЫЕ КОЛОНКИ!\n\n` +
-              `Найдено колонок с "тип": ${keysWithType.length}\n` +
-              `Найдено колонок с "артикул": ${keysWithArtikul.length}\n\n` +
-              `Первые 10 колонок:\n${fileColumns.slice(0, 10).join('\n')}\n\n` +
-              `Откройте консоль (F12) для полного списка.`;
-            alert(message);
-          }
-          
-          window.console.log("=".repeat(80));
-        }
+      // 4. Проверяем обязательные колонки и делаем автодетект
+      window.console.log("🔍 Начинаем автодетект маппинга колонок...");
+      window.console.log("📋 Доступные колонки в файле:", fileColumns.slice(0, 20));
+      
+      const guessedMapping = guessMapping(importType, fileColumns);
+      window.console.log("🎯 Результат автодетекта:", guessedMapping);
+      
+      // Проверяем, найдены ли все обязательные поля
+      const requiredFields = importType === "accruals" 
+        ? ["accrual_type", "offer_id", "date"]
+        : ["offer_id", "date"];
+      
+      window.console.log("📌 Обязательные поля для типа", importType, ":", requiredFields);
+      
+      const missingRequiredFields = requiredFields.filter(field => !guessedMapping[field]);
+      window.console.log("❌ Не найдены обязательные поля:", missingRequiredFields);
+      
+      if (missingRequiredFields.length > 0) {
+        // Не все обязательные поля найдены - показываем модалку
+        window.console.log("⚠️ Не все обязательные колонки найдены автоматически, открываем модалку настройки");
+        window.console.log("📝 Найденные колонки:", fileColumns);
+        window.console.log("📝 Предварительный маппинг:", guessedMapping);
+        setFileColumns(fileColumns);
+        setParsedData(jsonData);
+        setFileName(file.name);
+        setInitialMapping(guessedMapping);
+        setShowMappingModal(true);
+        setIsProcessing(false);
+        return;
       }
 
+      // Все обязательные поля найдены - используем автодетект
+      window.console.log("✅ Все обязательные колонки найдены автоматически:", guessedMapping);
+      
       toast({
         title: "Файл загружен",
-        description: `Найдено строк: ${jsonData.length}`,
+        description: `Найдено строк: ${jsonData.length}. Колонки сопоставлены автоматически.`,
       });
 
-      // 5. отдаём данные дальше — дальше работает твой ImportData.tsx
-      onFileSelect(jsonData, file.name);
+      // 5. отдаём данные дальше с маппингом
+      onFileSelect(jsonData, file.name, guessedMapping);
     } catch (error: any) {
       console.error("❌ ОШИБКА при парсинге Excel в FileUploader:", error);
       toast({
@@ -374,6 +347,29 @@ export const FileUploader = ({
           </p>
         </div>
       </CardContent>
+      
+      {/* Модалка настройки колонок */}
+      <ColumnMappingModal
+        open={showMappingModal}
+        onClose={() => {
+          setShowMappingModal(false);
+          setSelectedFile(null);
+          if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+          }
+        }}
+        onSave={(mapping) => {
+          setShowMappingModal(false);
+          toast({
+            title: "Колонки настроены",
+            description: "Импорт готов к запуску",
+          });
+          onFileSelect(parsedData, fileName, mapping);
+        }}
+        importType={importType}
+        fileColumns={fileColumns}
+        initialMapping={initialMapping}
+      />
     </Card>
   );
 };
