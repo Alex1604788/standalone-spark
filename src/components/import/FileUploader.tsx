@@ -1,7 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Upload, FileSpreadsheet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import { ColumnMappingModal, guessMapping, type ColumnMapping } from "./ColumnMappingModal";
@@ -48,6 +49,9 @@ export const FileUploader = ({
   const [parsedData, setParsedData] = useState<any[]>([]);
   const [fileName, setFileName] = useState<string>("");
   const [initialMapping, setInitialMapping] = useState<ColumnMapping>({});
+  const [rawData, setRawData] = useState<any[][]>([]);
+  const [showHeaderSelector, setShowHeaderSelector] = useState(false);
+  const [headerRowIndex, setHeaderRowIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -103,170 +107,16 @@ export const FileUploader = ({
           variant: "destructive",
         });
         setSelectedFile(null);
-        return;
-      }
-
-      // 4. Поиск строки заголовков по "якорям" и типу данных
-      const normalizeHeaderLocal = (s: string) =>
-        fixWeirdUtf16(String(s ?? ""))
-          .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
-          .toLowerCase()
-          .replace(/\s+/g, " ")
-          .trim();
-
-      const isProbablyValue = (v: string) => {
-        if (!v) return true;
-        // число
-        if (/^-?\d+([.,]\d+)?$/.test(v)) return true;
-        // дата типа 2025-10-01 / 01.10.2025
-        if (/^\d{4}-\d{2}-\d{2}/.test(v)) return true;
-        if (/^\d{1,2}\.\d{1,2}\.\d{4}/.test(v)) return true;
-        return false;
-      };
-
-      const scoreHeaderRow = (row: any[]) => {
-        const cells = (row || []).map(c => normalizeHeaderLocal(c)).filter(Boolean);
-
-        // header-like: не число/дата, длина > 1
-        const headerLike = cells.filter(c => c.length > 1 && !isProbablyValue(c));
-        const headerLikeCount = headerLike.length;
-
-        const anchors = ["тип начис", "артикул", "дата", "sku"];
-        const anchorHits = anchors.reduce((acc, a) => acc + (cells.some(c => c.includes(a)) ? 1 : 0), 0);
-
-        // штраф, если в строке много значений (чисел/дат)
-        const valueLikeCount = cells.filter(isProbablyValue).length;
-
-        return {
-          score: anchorHits * 10 + headerLikeCount - valueLikeCount,
-          anchorHits,
-          headerLikeCount,
-          valueLikeCount,
-          preview: cells.slice(0, 12),
-        };
-      };
-
-      let headerRowIndex = 0;
-      let best = { score: -Infinity, anchorHits: 0, headerLikeCount: 0, valueLikeCount: 0, preview: [] as string[] };
-
-      for (let i = 0; i < Math.min(rawData.length, 15); i++) {
-        const row = rawData[i];
-        if (!Array.isArray(row)) continue;
-        const s = scoreHeaderRow(row);
-        if (s.score > best.score) {
-          best = s;
-          headerRowIndex = i;
-        }
-      }
-
-      // если якорей нет вообще — fallback на 0
-      if (best.anchorHits === 0) headerRowIndex = 0;
-
-      window.console.log("🧭 Header row index:", headerRowIndex, best);
-      window.console.log("🧾 Header row preview:", (rawData[headerRowIndex] || []).slice(0, 20));
-
-      // 5. Заголовки берем ТОЛЬКО из rawData[headerRowIndex]
-      const headerRow = rawData[headerRowIndex] || [];
-      const originalHeaders: string[] = headerRow.map(v => String(v ?? "").trim());
-
-      const cleanedHeaders = originalHeaders.map(h => cleanHeaderKey(h)).map(h => h.trim());
-
-      const fileColumns = cleanedHeaders
-        .map(h => (h || "").trim())
-        .filter(h => h.length > 0 && !/^\d+$/.test(h));
-
-      // Для ключей объекта используем cleanedHeaders
-      const headerKeys = cleanedHeaders;
-
-      // 7. Преобразуем данные в JSON с правильными заголовками
-      const jsonData: any[] = [];
-      for (let i = headerRowIndex + 1; i < rawData.length; i++) {
-        const row = rawData[i];
-        if (!Array.isArray(row)) continue;
-        
-        const rowObj: Record<string, any> = {};
-        for (let j = 0; j < headerKeys.length; j++) {
-          const headerKey = headerKeys[j];
-          if (!headerKey) continue; // Пропускаем пустые заголовки
-          
-          let value = row[j];
-          if (value == null || value === "") {
-            value = "";
-          } else if (typeof value === "string") {
-            value = fixWeirdUtf16(
-              value.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
-            );
-          }
-          rowObj[headerKey] = value;
-        }
-        
-        // Добавляем только непустые строки
-        if (Object.values(rowObj).some(v => v !== "" && v != null)) {
-          jsonData.push(rowObj);
-        }
-      }
-
-      // fileColumns уже определен выше (6.1)
-
-      const firstRow = jsonData[0] || {};
-
-      console.log("📄 FileUploader: загружен файл", {
-        importType,
-        fileName: file.name,
-        sheet: firstSheetName,
-        originalColumns: originalHeaders,
-        cleanedColumns: fileColumns,
-        sampleRow: Object.fromEntries(
-          Object.entries(firstRow)
-            .slice(0, 10)
-            .map(([k, v]) => [k, String(v).substring(0, 50)])
-        ),
-      });
-
-      // Диагностический вывод
-      window.console.log("✅ fileColumns (первые 10):", fileColumns.slice(0, 10));
-      
-      // 4. Проверяем обязательные колонки и делаем автодетект
-      window.console.log("🔍 Начинаем автодетект маппинга колонок...");
-      window.console.log("📋 Доступные колонки в файле:", fileColumns.slice(0, 20));
-      
-      const guessedMapping = guessMapping(importType, fileColumns);
-      window.console.log("✅ guessedMapping:", guessedMapping);
-      
-      // Проверяем, найдены ли все обязательные поля
-      const requiredFields = importType === "accruals" 
-        ? ["accrual_type", "offer_id", "date"]
-        : ["offer_id", "date"];
-      
-      window.console.log("📌 Обязательные поля для типа", importType, ":", requiredFields);
-      
-      const missingRequiredFields = requiredFields.filter(field => !guessedMapping[field]);
-      window.console.log("❌ Не найдены обязательные поля:", missingRequiredFields);
-      
-      if (missingRequiredFields.length > 0) {
-        // Не все обязательные поля найдены - показываем модалку
-        window.console.log("⚠️ Не все обязательные колонки найдены автоматически, открываем модалку настройки");
-        window.console.log("📝 Найденные колонки:", fileColumns);
-        window.console.log("📝 Предварительный маппинг:", guessedMapping);
-        setFileColumns(fileColumns);
-        setParsedData(jsonData);
-        setFileName(file.name);
-        setInitialMapping(guessedMapping);
-        setShowMappingModal(true);
         setIsProcessing(false);
         return;
       }
 
-      // Все обязательные поля найдены - используем автодетект
-      window.console.log("✅ Все обязательные колонки найдены автоматически:", guessedMapping);
-      
-      toast({
-        title: "Файл загружен",
-        description: `Найдено строк: ${jsonData.length}. Колонки сопоставлены автоматически.`,
-      });
-
-      // 5. отдаём данные дальше с маппингом
-      onFileSelect(jsonData, file.name, guessedMapping);
+      // 4. Останавливаемся и показываем селектор строки заголовков
+      setRawData(rawData);
+      setFileName(file.name);
+      setShowHeaderSelector(true);
+      setIsProcessing(false);
+      return;
     } catch (error: any) {
       console.error("❌ ОШИБКА при парсинге Excel в FileUploader:", error);
       toast({
@@ -294,6 +144,38 @@ export const FileUploader = ({
   const handleClick = () => {
     fileInputRef.current?.click();
   };
+
+  // Реакция на выбор строки заголовков
+  useEffect(() => {
+    if (headerRowIndex === null) return;
+
+    const headerRow = rawData[headerRowIndex] || [];
+
+    const cleanedHeaders = headerRow
+      .map((h) => cleanHeaderKey(String(h ?? "")))
+      .filter((h) => h.length > 0);
+
+    const data: any[] = [];
+
+    for (let i = headerRowIndex + 1; i < rawData.length; i++) {
+      const row = rawData[i];
+      if (!row || row.every((c: any) => c === "")) continue;
+
+      const obj: Record<string, any> = {};
+      cleanedHeaders.forEach((h, idx) => {
+        obj[h] = row[idx] ?? "";
+      });
+
+      data.push(obj);
+    }
+
+    setFileColumns(cleanedHeaders);
+    setParsedData(data);
+
+    const guessed = guessMapping(importType, cleanedHeaders);
+    setInitialMapping(guessed);
+    setShowMappingModal(true);
+  }, [headerRowIndex, rawData, importType]);
 
   return (
     <Card>
@@ -353,6 +235,45 @@ export const FileUploader = ({
         </div>
       </CardContent>
       
+      {/* Диалог выбора строки заголовков */}
+      {showHeaderSelector && (
+        <Dialog open={showHeaderSelector} onOpenChange={() => setShowHeaderSelector(false)}>
+          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Выберите строку с заголовками</DialogTitle>
+              <DialogDescription>
+                Кликните по строке, где находятся названия колонок (Артикул, SKU, Дата и т.д.)
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-1">
+              {rawData.slice(0, 20).map((row, idx) => (
+                <div
+                  key={idx}
+                  className="flex gap-2 p-2 border rounded cursor-pointer hover:bg-muted"
+                  onClick={() => {
+                    setHeaderRowIndex(idx);
+                    setShowHeaderSelector(false);
+                  }}
+                >
+                  <div className="w-10 text-xs text-muted-foreground">
+                    #{idx + 1}
+                  </div>
+                  {row.slice(0, 6).map((cell, i) => (
+                    <div
+                      key={i}
+                      className="truncate max-w-[180px] text-sm"
+                    >
+                      {String(cell)}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* Модалка настройки колонок */}
       <ColumnMappingModal
         open={showMappingModal}
