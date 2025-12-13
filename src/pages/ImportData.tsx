@@ -440,14 +440,14 @@ const ImportData = () => {
         .select("mapping")
         .eq("marketplace_id", marketplace.id)
         .eq("import_type", importType)
-        .single();
+        .maybeSingle();
       
-      if (error && error.code !== "PGRST116") { // PGRST116 = not found
+      if (error) {
         console.error("Ошибка загрузки маппинга:", error);
         return null;
       }
       
-      return data?.mapping as Record<string, string> | null;
+      return (data?.mapping as Record<string, string>) || null;
     },
     enabled: !!marketplace?.id,
   });
