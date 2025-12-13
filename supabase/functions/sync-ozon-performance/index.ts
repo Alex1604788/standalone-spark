@@ -35,13 +35,27 @@ interface OzonPerformanceStats {
   revenue?: number;
 }
 
+async function updateSyncHistory(
+  client: ReturnType<typeof createClient> | undefined,
+  syncId: string | undefined,
+  payload: Record<string, unknown>
+) {
+  if (!client || !syncId) return;
+
+  try {
+    await client.from("ozon_sync_history").update(payload).eq("id", syncId);
+  } catch (err) {
+    console.error("Failed to update sync history:", err);
+  }
+}
+
 // Вспомогательная функция для polling статуса отчета
 async function pollReportStatus(
   uuid: string,
   accessToken: string,
-  maxAttempts: number = 10,
-  initialDelay: number = 5000,
-  pollInterval: number = 3000
+  maxAttempts: number = 6,
+  initialDelay: number = 1000,
+  pollInterval: number = 2000
 ): Promise<{ success: boolean; link?: string; error?: string }> {
   // Начальная задержка
   await new Promise(resolve => setTimeout(resolve, initialDelay));
@@ -84,6 +98,13 @@ async function pollReportStatus(
   }
 
   return { success: false, error: `Timeout after ${maxAttempts} attempts` };
+}
+
+interface ReportProcessError {
+  uuid: string;
+  reportIndex: number;
+  stage: 'polling' | 'download';
+  message: string;
 }
 
 // Функция для скачивания и парсинга отчета
@@ -174,12 +195,15 @@ async function downloadAndParseReport(
 }
 
 serve(async (req) => {
+  let supabaseClient;
+  let syncId: string | undefined;
+
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const supabaseClient = createClient(
+    supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
@@ -234,7 +258,7 @@ serve(async (req) => {
       // Продолжаем работу даже если не удалось создать запись
     }
 
-    const syncId = syncRecord?.id;
+    syncId = syncRecord?.id;
 
     // 1. Получаем credentials из базы
     const { data: creds, error: credsError } = await supabaseClient
@@ -245,6 +269,12 @@ serve(async (req) => {
       .single();
 
     if (credsError || !creds) {
+      await updateSyncHistory(supabaseClient, syncId, {
+        status: 'failed',
+        error_message: 'API credentials not found',
+        completed_at: new Date().toISOString(),
+      });
+
       return new Response(
         JSON.stringify({ error: "API credentials not found. Please configure them first." }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -279,6 +309,13 @@ serve(async (req) => {
       // Check if we were redirected to login page
       if (tokenResponse.url && !tokenResponse.url.includes('/api/client/token')) {
         console.error("Redirected to:", tokenResponse.url);
+
+        await updateSyncHistory(supabaseClient, syncId, {
+          status: 'failed',
+          error_message: 'Invalid Performance API credentials',
+          completed_at: new Date().toISOString(),
+        });
+
         return new Response(
           JSON.stringify({
             error: "Invalid credentials",
@@ -291,6 +328,13 @@ serve(async (req) => {
       if (!tokenResponse.ok) {
         const errorText = await tokenResponse.text();
         console.error("Token error:", errorText);
+
+        await updateSyncHistory(supabaseClient, syncId, {
+          status: 'failed',
+          error_message: `Failed to obtain access token: ${errorText}`,
+          completed_at: new Date().toISOString(),
+        });
+
         return new Response(
           JSON.stringify({ error: "Failed to obtain access token", details: errorText }),
           { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -311,6 +355,12 @@ serve(async (req) => {
 
     if (test) {
       // Тестовый режим - просто проверяем подключение
+      await updateSyncHistory(supabaseClient, syncId, {
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        metadata: { sync_period, mode: 'test' },
+      });
+
       return new Response(
         JSON.stringify({ success: true, message: "Connection successful", token_obtained: true }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -333,6 +383,13 @@ serve(async (req) => {
       });
     } catch (err) {
       console.error("Campaigns API fetch failed:", err.message);
+
+      await updateSyncHistory(supabaseClient, syncId, {
+        status: 'failed',
+        error_message: `Failed to fetch campaigns: ${err.message}`,
+        completed_at: new Date().toISOString(),
+      });
+
       return new Response(
         JSON.stringify({
           error: "Failed to fetch campaigns",
@@ -347,6 +404,13 @@ serve(async (req) => {
     if (!campaignsResponse.ok) {
       const errorText = await campaignsResponse.text();
       console.error("Campaigns API error response:", errorText);
+
+      await updateSyncHistory(supabaseClient, syncId, {
+        status: 'failed',
+        error_message: `Failed to fetch campaigns list: ${errorText}`,
+        completed_at: new Date().toISOString(),
+      });
+
       return new Response(
         JSON.stringify({
           error: "Failed to fetch campaigns list",
@@ -366,6 +430,15 @@ serve(async (req) => {
 
     if (campaignIds.length === 0) {
       console.error("No campaigns found in response!");
+
+      await updateSyncHistory(supabaseClient, syncId, {
+        status: 'completed',
+        campaigns_count: 0,
+        completed_at: new Date().toISOString(),
+        rows_inserted: 0,
+        metadata: { sync_period, report_uuids: [], total_campaigns: 0, processed_campaigns: 0 },
+      });
+
       return new Response(
         JSON.stringify({
           success: true,
@@ -430,16 +503,11 @@ serve(async (req) => {
         console.error(`Report request error for chunk ${i + 1}:`, errorText);
 
         // Обновляем запись в истории
-        if (syncId) {
-          await supabaseClient
-            .from("ozon_sync_history")
-            .update({
-              status: 'failed',
-              error_message: `Failed to request report for chunk ${i + 1}: ${errorText}`,
-              completed_at: new Date().toISOString(),
-            })
-            .eq("id", syncId);
-        }
+        await updateSyncHistory(supabaseClient, syncId, {
+          status: 'failed',
+          error_message: `Failed to request report for chunk ${i + 1}: ${errorText}`,
+          completed_at: new Date().toISOString(),
+        });
 
         return new Response(
           JSON.stringify({
@@ -459,16 +527,11 @@ serve(async (req) => {
         console.error(`No UUID received for chunk ${i + 1}:`, reportData);
 
         // Обновляем запись в истории
-        if (syncId) {
-          await supabaseClient
-            .from("ozon_sync_history")
-            .update({
-              status: 'failed',
-              error_message: `No UUID received for chunk ${i + 1}`,
-              completed_at: new Date().toISOString(),
-            })
-            .eq("id", syncId);
-        }
+        await updateSyncHistory(supabaseClient, syncId, {
+          status: 'failed',
+          error_message: `No UUID received for chunk ${i + 1}`,
+          completed_at: new Date().toISOString(),
+        });
 
         return new Response(
           JSON.stringify({
@@ -483,76 +546,89 @@ serve(async (req) => {
       reportUUIDs.push(uuid);
     }
 
-    // Шаг 2: Polling и скачивание отчетов
-    for (let i = 0; i < reportUUIDs.length; i++) {
-      const uuid = reportUUIDs[i];
-      console.error(`Polling report ${i + 1}/${reportUUIDs.length}: ${uuid}`);
+    // Шаг 2: Polling и скачивание отчетов (параллельно, чтобы уложиться в таймаут функции)
+    try {
+      const chunkStatsArrays = await Promise.all(
+        reportUUIDs.map(async (uuid, index) => {
+          console.error(`Polling report ${index + 1}/${reportUUIDs.length}: ${uuid}`);
 
-      // Polling с параметрами: 5s initial, 3s interval, 10 attempts
-      const pollResult = await pollReportStatus(uuid, accessToken, 10, 5000, 3000);
+          // Ускоренные параметры polling, чтобы уложиться в 40s таймаут Supabase Edge Functions
+          const pollResult = await pollReportStatus(uuid, accessToken);
 
-      if (!pollResult.success) {
-        console.error(`Polling failed for UUID ${uuid}:`, pollResult.error);
+          if (!pollResult.success) {
+            throw {
+              uuid,
+              reportIndex: index,
+              stage: 'polling',
+              message: pollResult.error || 'Unknown polling error'
+            } as ReportProcessError;
+          }
 
-        // Обновляем запись в истории
-        if (syncId) {
-          await supabaseClient
-            .from("ozon_sync_history")
-            .update({
-              status: 'timeout',
-              error_message: `Polling failed for UUID ${uuid}: ${pollResult.error}`,
-              completed_at: new Date().toISOString(),
-            })
-            .eq("id", syncId);
-        }
+          try {
+            const chunkStats = await downloadAndParseReport(uuid, accessToken);
+            console.error(`Report ${index + 1} returned ${chunkStats.length} rows`);
+            return chunkStats;
+          } catch (err) {
+            const message = (err as Error)?.message || 'Unknown download error';
+            throw {
+              uuid,
+              reportIndex: index,
+              stage: 'download',
+              message
+            } as ReportProcessError;
+          }
+        })
+      );
 
-        return new Response(
-          JSON.stringify({
-            error: "Report polling failed",
-            details: pollResult.error,
-            uuid,
-            report: i + 1,
-            total_reports: reportUUIDs.length
-          }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // Скачиваем и парсим отчет
-      try {
-        const chunkStats = await downloadAndParseReport(uuid, accessToken);
-        console.error(`Report ${i + 1} returned ${chunkStats.length} rows`);
+      for (const chunkStats of chunkStatsArrays) {
         allStats = allStats.concat(chunkStats);
-      } catch (err) {
-        console.error(`Failed to download/parse report ${uuid}:`, err.message);
-
-        // Обновляем запись в истории
-        if (syncId) {
-          await supabaseClient
-            .from("ozon_sync_history")
-            .update({
-              status: 'failed',
-              error_message: `Failed to download/parse report ${uuid}: ${err.message}`,
-              completed_at: new Date().toISOString(),
-            })
-            .eq("id", syncId);
-        }
-
-        return new Response(
-          JSON.stringify({
-            error: "Failed to download/parse report",
-            details: err.message,
-            uuid
-          }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
       }
+    } catch (err) {
+      const { uuid, reportIndex, stage, message } = err as ReportProcessError;
+      console.error(`Report processing failed at ${stage} stage for UUID ${uuid}:`, message);
+
+      // Обновляем запись в истории
+      if (syncId) {
+        await supabaseClient
+          .from("ozon_sync_history")
+          .update({
+            status: stage === 'polling' ? 'timeout' : 'failed',
+            error_message: `${stage} error for UUID ${uuid}: ${message}`,
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", syncId);
+      }
+
+      return new Response(
+        JSON.stringify({
+          error: stage === 'polling' ? "Report polling failed" : "Failed to download/parse report",
+          details: message,
+          uuid,
+          report: (reportIndex ?? 0) + 1,
+          total_reports: reportUUIDs.length
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     console.error(`STEP 8: Collected total ${allStats.length} stat rows from all chunks`);
     const stats = allStats;
 
     if (stats.length === 0) {
+      await updateSyncHistory(supabaseClient, syncId, {
+        status: 'completed',
+        campaigns_count: campaignIds.length,
+        chunks_count: chunksToProcess.length,
+        rows_inserted: 0,
+        completed_at: new Date().toISOString(),
+        metadata: {
+          sync_period,
+          report_uuids: reportUUIDs,
+          total_campaigns: campaignIds.length,
+          processed_campaigns: chunksToProcess.length * chunkSize,
+        },
+      });
+
       return new Response(
         JSON.stringify({ success: true, message: "No data for the specified period", inserted: 0 }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -582,6 +658,13 @@ serve(async (req) => {
 
     if (insertError) {
       console.error("Insert error:", insertError);
+
+      await updateSyncHistory(supabaseClient, syncId, {
+        status: 'failed',
+        error_message: `Failed to save data: ${insertError.message}`,
+        completed_at: new Date().toISOString(),
+      });
+
       return new Response(
         JSON.stringify({ error: "Failed to save data", details: insertError.message }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -625,12 +708,12 @@ serve(async (req) => {
 
     // Обновляем запись в истории - ошибка
     try {
-      if (typeof syncId !== 'undefined' && syncId) {
+      if (supabaseClient && syncId) {
         await supabaseClient
           .from("ozon_sync_history")
           .update({
             status: 'failed',
-            error_message: error.message,
+            error_message: (error as Error).message,
             completed_at: new Date().toISOString(),
           })
           .eq("id", syncId);
