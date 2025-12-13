@@ -130,13 +130,14 @@ export const FileUploader = ({
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
 
-      // 3. конвертируем лист в JSON
-      const rawJson = XLSX.utils.sheet_to_json(worksheet, {
+      // 3. Получаем сырые данные как массив массивов (header: 1)
+      const rawData = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
         defval: "",
         raw: false,
-      }) as any[];
+      }) as any[][];
 
-      if (!rawJson.length) {
+      if (!rawData.length) {
         toast({
           title: "Файл пуст",
           description: "Excel файл не содержит данных",
@@ -146,34 +147,116 @@ export const FileUploader = ({
         return;
       }
 
-      // 4. Чистим заголовки от BOM/невидимых символов и utf16-кракозябр
-      const firstRawRow = rawJson[0] as Record<string, any>;
-      const originalColumns = Object.keys(firstRawRow);
+      // 4. Ищем строку с заголовками (первые 20 строк)
+      let headerRowIndex = -1;
+      const searchKeywords = importType === "accruals" 
+        ? ["тип начисления", "артикул"]
+        : ["дата", "артикул"];
 
-      const headerMap: Record<string, string> = {};
-      for (const col of originalColumns) {
-        const cleaned = cleanHeaderKey(col);
-        headerMap[col] = cleaned || col;
+      for (let i = 0; i < Math.min(20, rawData.length); i++) {
+        const row = rawData[i];
+        if (!Array.isArray(row)) continue;
+        
+        const rowValues = row.map(cell => String(cell || "").trim()).filter(Boolean);
+        const rowText = rowValues.join(" ").toLowerCase();
+        
+        // Проверяем, содержит ли строка ключевые слова
+        const hasKeywords = searchKeywords.every(keyword => {
+          const normalizedKeyword = normalizeForSearch(keyword);
+          return rowValues.some(val => {
+            const normalized = normalizeForSearch(val);
+            return normalized === normalizedKeyword || normalized.includes(normalizedKeyword);
+          });
+        });
+
+        if (hasKeywords && rowValues.length >= 3) {
+          headerRowIndex = i;
+          window.console.log(`✅ Найдена строка с заголовками на индексе ${i}`);
+          break;
+        }
       }
 
-      // 5. Пересобираем строки с "чистыми" ключами и исправляем значения-строки
-      const jsonData = rawJson.map((row) => {
-        const newRow: Record<string, any> = {};
-        Object.entries(row).forEach(([key, value]) => {
-          const mappedKey = headerMap[key] ?? key;
-          let v = value;
-          if (typeof v === "string") {
-            v = fixWeirdUtf16(
-              v.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
-            );
+      // Если заголовки не найдены, используем первую строку
+      if (headerRowIndex === -1) {
+        headerRowIndex = 0;
+        window.console.warn("⚠️ Заголовки не найдены, используем первую строку");
+      }
+
+      // 5. Извлекаем заголовки напрямую из ячеек Excel (более надежно)
+      const headerRow = rawData[headerRowIndex] || [];
+      const originalHeaders: string[] = [];
+      
+      // Читаем заголовки напрямую из ячеек Excel
+      const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
+        const cell = worksheet[cellAddress];
+        let headerValue = "";
+        
+        if (cell) {
+          // Приоритет: w (formatted text) > v (value) > t (type)
+          if (cell.w) {
+            // w - это отформатированная строка, как она видна в Excel
+            headerValue = String(cell.w);
+          } else if (cell.v != null) {
+            // v - это значение ячейки
+            headerValue = String(cell.v);
+          } else if (cell.t === 's' && cell.v != null) {
+            // Если это строка в shared strings
+            headerValue = String(cell.v);
           }
-          newRow[mappedKey] = v;
-        });
-        return newRow;
+        }
+        
+        // Если из ячейки ничего не получили, берем из rawData
+        if (!headerValue && headerRow[col] != null) {
+          headerValue = String(headerRow[col] || "").trim();
+        }
+        
+        originalHeaders.push(headerValue);
+      }
+
+      // 6. Чистим заголовки от BOM/невидимых символов и utf16-кракозябр
+      const cleanedHeaders = originalHeaders.map(header => {
+        const cleaned = cleanHeaderKey(header);
+        // Если после очистки осталась пустая строка или только цифры, оставляем оригинал
+        if (!cleaned || /^\d+$/.test(cleaned)) {
+          return header.trim() || cleaned;
+        }
+        return cleaned;
       });
 
-      const firstRow = jsonData[0] as Record<string, any>;
-      const fileColumns = Object.keys(firstRow);
+      window.console.log("📋 Оригинальные заголовки:", originalHeaders.slice(0, 10));
+      window.console.log("📋 Очищенные заголовки:", cleanedHeaders.slice(0, 10));
+
+      // 7. Преобразуем данные в JSON с правильными заголовками
+      const jsonData: any[] = [];
+      for (let i = headerRowIndex + 1; i < rawData.length; i++) {
+        const row = rawData[i];
+        if (!Array.isArray(row)) continue;
+        
+        const rowObj: Record<string, any> = {};
+        for (let j = 0; j < cleanedHeaders.length; j++) {
+          const header = cleanedHeaders[j];
+          if (!header) continue; // Пропускаем пустые заголовки
+          
+          let value = row[j];
+          if (value == null || value === "") {
+            value = "";
+          } else if (typeof value === "string") {
+            value = fixWeirdUtf16(
+              value.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
+            );
+          }
+          rowObj[header] = value;
+        }
+        
+        // Добавляем только непустые строки
+        if (Object.values(rowObj).some(v => v !== "" && v != null)) {
+          jsonData.push(rowObj);
+        }
+      }
+
+      const fileColumns = cleanedHeaders.filter(h => h && h.trim());
 
       console.log("📄 FileUploader: загружен файл", {
         importType,
