@@ -152,8 +152,11 @@ export const FileUploader = ({
     const headerRow = rawData[headerRowIndex] || [];
 
     const cleanedHeaders = headerRow
-      .map((h) => cleanHeaderKey(String(h ?? "")))
+      .map((h) => fixWeirdUtf16(String(h ?? ""))) // 🔥 ВАЖНО: fixWeirdUtf16 ПЕРВЫМ
+      .map((h) => cleanHeaderKey(h))
       .filter((h) => h.length > 0);
+
+    console.log("HEADERS FINAL:", cleanedHeaders);
 
     const data: any[] = [];
 
