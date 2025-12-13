@@ -225,7 +225,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
       {/* Logo */}
       <div className="p-6 border-b border-border">
         <Link to="/app/analytics/reviews-questions" onClick={() => setIsMobileMenuOpen(false)}>
-          <h2 className="text-2xl font-bold gradient-primary bg-clip-text text-transparent">Автоответ</h2>
+          <h2 className="text-2xl font-bold bg-gradient-to-r from-primary to-purple-500 bg-clip-text text-transparent">Автоответ</h2>
         </Link>
       </div>
 
