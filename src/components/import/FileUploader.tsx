@@ -147,40 +147,8 @@ export const FileUploader = ({
         return;
       }
 
-      // 4. Ищем строку с заголовками (первые 20 строк)
-      let headerRowIndex = -1;
-      const searchKeywords = importType === "accruals" 
-        ? ["тип начисления", "артикул"]
-        : ["дата", "артикул"];
-
-      for (let i = 0; i < Math.min(20, rawData.length); i++) {
-        const row = rawData[i];
-        if (!Array.isArray(row)) continue;
-        
-        const rowValues = row.map(cell => String(cell || "").trim()).filter(Boolean);
-        const rowText = rowValues.join(" ").toLowerCase();
-        
-        // Проверяем, содержит ли строка ключевые слова
-        const hasKeywords = searchKeywords.every(keyword => {
-          const normalizedKeyword = normalizeForSearch(keyword);
-          return rowValues.some(val => {
-            const normalized = normalizeForSearch(val);
-            return normalized === normalizedKeyword || normalized.includes(normalizedKeyword);
-          });
-        });
-
-        if (hasKeywords && rowValues.length >= 3) {
-          headerRowIndex = i;
-          window.console.log(`✅ Найдена строка с заголовками на индексе ${i}`);
-          break;
-        }
-      }
-
-      // Если заголовки не найдены, используем первую строку
-      if (headerRowIndex === -1) {
-        headerRowIndex = 0;
-        window.console.warn("⚠️ Заголовки не найдены, используем первую строку");
-      }
+      // 4. OZON: заголовки всегда в первой строке
+      const headerRowIndex = 0;
 
       // 5. Извлекаем заголовки напрямую из ячеек Excel (более надежно)
       const headerRow = rawData[headerRowIndex] || [];
@@ -231,10 +199,9 @@ export const FileUploader = ({
       window.console.log("📋 Очищенные заголовки:", cleanedHeaders.slice(0, 10));
 
       // 6.1. Делаем правильный список колонок: брать только реальные заголовки (без пустых/мусорных)
-      const fileColumns = cleanedHeaders
-        .map((h) => cleanHeaderKey(fixWeirdUtf16(String(h || ""))))
-        .map((h) => h.trim())
-        .filter((h) => h.length > 0);
+      const fileColumns = cleanedHeaders.filter(
+        (h) => h && h.length > 1 && !/^\d+$/.test(h)
+      );
 
       // 7. Преобразуем данные в JSON с правильными заголовками
       const jsonData: any[] = [];
