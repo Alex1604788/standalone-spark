@@ -35,6 +35,9 @@ export const fixWeirdUtf16 = (s: string): string => {
   return s;
 };
 
+// Алиас для совместимости
+export const fixUtf16Mojibake = fixWeirdUtf16;
+
 /**
  * Нормализация строки с удалением невидимых символов (BOM, ZERO WIDTH SPACE и т.д.)
  * Для обычных текстовых значений (не заголовков)

@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import { ColumnMappingModal, guessMapping, type ColumnMapping } from "./ColumnMappingModal";
-import { normalizeHeader, fixWeirdUtf16 } from "@/lib/importUtils";
+import { normalizeHeader, fixUtf16Mojibake, fixWeirdUtf16 } from "@/lib/importUtils";
 
 export type ImportType = "accruals" | "storage_costs";
 
@@ -151,10 +151,11 @@ export const FileUploader = ({
 
     const headerRow = rawData[headerRowIndex] || [];
 
+    // 🔥 ЕДИНСТВЕННОЕ ПРАВИЛЬНОЕ МЕСТО ДЕКОДИРОВАНИЯ
     const cleanedHeaders = headerRow
-      .map((h) => fixWeirdUtf16(String(h ?? ""))) // 🔥 ВАЖНО: fixWeirdUtf16 ПЕРВЫМ
-      .map((h) => cleanHeaderKey(h))
-      .filter((h) => h.length > 0);
+      .map(h => fixUtf16Mojibake(String(h ?? "")))
+      .map(h => cleanHeaderKey(h))
+      .filter(h => h.length > 0);
 
     console.log("HEADERS FINAL:", cleanedHeaders);
 
@@ -172,13 +173,14 @@ export const FileUploader = ({
       data.push(obj);
     }
 
-    setFileColumns(cleanedHeaders);
+    // ❗❗❗ ВАЖНО
+    setFileColumns(cleanedHeaders);   // ← ТОЛЬКО ОНИ
     setParsedData(data);
 
     const guessed = guessMapping(importType, cleanedHeaders);
     setInitialMapping(guessed);
     setShowMappingModal(true);
-  }, [headerRowIndex, rawData, importType]);
+  }, [headerRowIndex]);
 
   return (
     <Card>
