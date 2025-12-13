@@ -106,63 +106,66 @@ export const FileUploader = ({
         return;
       }
 
-      // 4. OZON: заголовки всегда в первой строке
-      const headerRowIndex = 0;
+      // 4. Найти строку заголовков по "якорям OZON"
+      const findHeaderRowIndex = (rows: any[][]): number => {
+        const REQUIRED_ANCHORS = [
+          "тип начисления",
+          "артикул",
+          "sku",
+          "дата",
+        ];
 
-      // 5. Извлекаем заголовки из первой строки rawData (надежнее, чем через ячейки)
+        for (let i = 0; i < Math.min(rows.length, 10); i++) {
+          const row = rows[i];
+          if (!Array.isArray(row)) continue;
+
+          const normalizedCells = row
+            .map(c => normalizeHeader(String(c || "")))
+            .filter(Boolean);
+
+          let matches = 0;
+          for (const anchor of REQUIRED_ANCHORS) {
+            if (normalizedCells.some(c => c.includes(anchor))) {
+              matches++;
+            }
+          }
+
+          // если нашли минимум 2 якоря — это строка заголовков
+          if (matches >= 2) {
+            return i;
+          }
+        }
+
+        // fallback
+        return 0;
+      };
+
+      const headerRowIndex = findHeaderRowIndex(rawData);
+      window.console.log("🧭 Header row index:", headerRowIndex);
+
+      // 5. Брать заголовки ТОЛЬКО из найденной строки
       const headerRow = rawData[headerRowIndex] || [];
-      const originalHeaders: string[] = [];
-      
-      // Ограничиваем колонки по фактической ширине headerRow
-      const maxCols = headerRow.length; // фактическая ширина заголовков
-      
-      // Читаем заголовки из rawData, но также пробуем получить из ячеек для лучшего качества
-      for (let col = 0; col < maxCols; col++) {
-        let headerValue = "";
-        
-        // Сначала пробуем из ячейки Excel (более точное чтение)
-        const cellAddress = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
-        const cell = worksheet[cellAddress];
-        
-        if (cell) {
-          // Приоритет: w (formatted text) > v (value)
-          if (cell.w) {
-            headerValue = String(cell.w);
-          } else if (cell.v != null) {
-            headerValue = String(cell.v);
-          }
-        }
-        
-        // Если из ячейки ничего не получили или получили кракозябры, берем из rawData
-        if (!headerValue || headerValue.length === 0 || /^[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]+$/.test(headerValue)) {
-          const rawValue = headerRow[col];
-          if (rawValue != null) {
-            headerValue = String(rawValue).trim();
-          }
-        }
-        
-        originalHeaders.push(headerValue || "");
-      }
-
-      // 6. Чистим заголовки от BOM/невидимых символов и utf16-кракозябр
-      // Используем cleanHeaderKey для ключей объекта (сохраняет регистр)
-      const cleanedHeaders = originalHeaders.map(header => {
-        const cleaned = cleanHeaderKey(String(header || ""));
-        // Если после очистки осталась пустая строка или только цифры, пробуем оригинал
-        if (!cleaned || /^\d+$/.test(cleaned)) {
-          const trimmed = String(header || "").trim();
-          return trimmed || cleaned || "";
-        }
-        return cleaned;
-      });
+      const originalHeaders = headerRow.map(h => String(h || ""));
 
       window.console.log("📋 Оригинальные заголовки:", originalHeaders.slice(0, 10));
-      window.console.log("📋 Очищенные заголовки:", cleanedHeaders.slice(0, 10));
 
-      // 6.1. Делаем правильный список колонок: брать только реальные заголовки (без пустых/мусорных)
-      const fileColumns = cleanedHeaders
-        .map(h => (h || "").trim())
-        .filter(h => h.length > 0 && !/^\d+$/.test(h));
+      // 6. fileColumns формировать ТОЛЬКО из headerRow
+      // Нормализуем заголовки для поиска, но сохраняем оригинальные для ключей объекта
+      const cleanedHeaders = originalHeaders
+        .map(h => normalizeHeader(h))
+        .filter(h => h.length > 0);
+
+      window.console.log("📋 Очищенные заголовки (normalizeHeader):", cleanedHeaders.slice(0, 10));
+
+      // fileColumns - оригинальные заголовки (для отображения в модалке и использования в guessMapping)
+      // Фильтруем только те, которые после нормализации не пустые
+      const fileColumns = originalHeaders.filter((h, idx) => {
+        const normalized = normalizeHeader(h);
+        return normalized.length > 0 && !/^\d+$/.test(normalized);
+      });
+
+      // Для ключей объекта используем оригинальные заголовки, но очищенные от BOM
+      const headerKeys = originalHeaders.map(h => cleanHeaderKey(h));
 
       // 7. Преобразуем данные в JSON с правильными заголовками
       const jsonData: any[] = [];
@@ -171,9 +174,9 @@ export const FileUploader = ({
         if (!Array.isArray(row)) continue;
         
         const rowObj: Record<string, any> = {};
-        for (let j = 0; j < cleanedHeaders.length; j++) {
-          const header = cleanedHeaders[j];
-          if (!header) continue; // Пропускаем пустые заголовки
+        for (let j = 0; j < headerKeys.length; j++) {
+          const headerKey = headerKeys[j];
+          if (!headerKey) continue; // Пропускаем пустые заголовки
           
           let value = row[j];
           if (value == null || value === "") {
@@ -183,7 +186,7 @@ export const FileUploader = ({
               value.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
             );
           }
-          rowObj[header] = value;
+          rowObj[headerKey] = value;
         }
         
         // Добавляем только непустые строки
