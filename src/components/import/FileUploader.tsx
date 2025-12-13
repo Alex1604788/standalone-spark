@@ -27,11 +27,10 @@ const EXPECTED_COLUMNS: Record<ImportType, string[]> = {
 
 /**
  * Чистим заголовок для использования в качестве ключа объекта.
- * Использует normalizeHeader для единообразия.
+ * Сохраняет регистр для ключей, но использует fixWeirdUtf16 для исправления кракозябр.
  */
 const cleanHeaderKey = (s: string) => {
-  const normalized = normalizeHeader(s);
-  // Возвращаем с сохранением регистра для ключей объекта
+  // Исправляем UTF-16 кракозябры, но сохраняем регистр для ключей объекта
   return fixWeirdUtf16(s)
     .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
     .trim();
