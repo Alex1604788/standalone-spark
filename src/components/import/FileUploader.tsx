@@ -106,66 +106,29 @@ export const FileUploader = ({
         return;
       }
 
-      // 4. Найти строку заголовков по "якорям OZON"
-      const findHeaderRowIndex = (rows: any[][]): number => {
-        const REQUIRED_ANCHORS = [
-          "тип начисления",
-          "артикул",
-          "sku",
-          "дата",
-        ];
+      // 4. OZON: заголовки обычно в первой строке
+      const headerRowIndex = 0;
 
-        for (let i = 0; i < Math.min(rows.length, 10); i++) {
-          const row = rows[i];
-          if (!Array.isArray(row)) continue;
-
-          const normalizedCells = row
-            .map(c => normalizeHeader(String(c || "")))
-            .filter(Boolean);
-
-          let matches = 0;
-          for (const anchor of REQUIRED_ANCHORS) {
-            if (normalizedCells.some(c => c.includes(anchor))) {
-              matches++;
-            }
-          }
-
-          // если нашли минимум 2 якоря — это строка заголовков
-          if (matches >= 2) {
-            return i;
-          }
-        }
-
-        // fallback
-        return 0;
-      };
-
-      const headerRowIndex = findHeaderRowIndex(rawData);
-      window.console.log("🧭 Header row index:", headerRowIndex);
-
-      // 5. Брать заголовки ТОЛЬКО из найденной строки
+      // 5. Заголовки берем ТОЛЬКО из rawData (SheetJS уже распарсил текст)
       const headerRow = rawData[headerRowIndex] || [];
-      const originalHeaders = headerRow.map(h => String(h || ""));
+      const originalHeaders: string[] = headerRow.map((v) => String(v ?? "").trim());
 
       window.console.log("📋 Оригинальные заголовки:", originalHeaders.slice(0, 10));
 
-      // 6. fileColumns формировать ТОЛЬКО из headerRow
-      // Нормализуем заголовки для поиска, но сохраняем оригинальные для ключей объекта
-      const cleanedHeaders = originalHeaders
-        .map(h => normalizeHeader(h))
-        .filter(h => h.length > 0);
-
-      window.console.log("📋 Очищенные заголовки (normalizeHeader):", cleanedHeaders.slice(0, 10));
-
-      // fileColumns - оригинальные заголовки (для отображения в модалке и использования в guessMapping)
-      // Фильтруем только те, которые после нормализации не пустые
-      const fileColumns = originalHeaders.filter((h, idx) => {
-        const normalized = normalizeHeader(h);
-        return normalized.length > 0 && !/^\d+$/.test(normalized);
+      // 6. cleanedHeaders/fileColumns строить только из этих originalHeaders
+      const cleanedHeaders = originalHeaders.map((header) => {
+        const cleaned = cleanHeaderKey(header);
+        return cleaned ? cleaned : header.trim();
       });
 
-      // Для ключей объекта используем оригинальные заголовки, но очищенные от BOM
-      const headerKeys = originalHeaders.map(h => cleanHeaderKey(h));
+      window.console.log("📋 Очищенные заголовки (cleanHeaderKey):", cleanedHeaders.slice(0, 10));
+
+      const fileColumns = cleanedHeaders
+        .map((h) => (h || "").trim())
+        .filter((h) => h.length > 0 && !/^\d+$/.test(h));
+
+      // Для ключей объекта используем cleanedHeaders
+      const headerKeys = cleanedHeaders;
 
       // 7. Преобразуем данные в JSON с правильными заголовками
       const jsonData: any[] = [];
@@ -213,7 +176,7 @@ export const FileUploader = ({
       });
 
       // Диагностический вывод
-      window.console.log("✅ fileColumns (первые 30):", fileColumns.slice(0, 30));
+      window.console.log("✅ fileColumns (первые 10):", fileColumns.slice(0, 10));
       
       // 4. Проверяем обязательные колонки и делаем автодетект
       window.console.log("🔍 Начинаем автодетект маппинга колонок...");
