@@ -106,26 +106,74 @@ export const FileUploader = ({
         return;
       }
 
-      // 4. OZON: заголовки обычно в первой строке
-      const headerRowIndex = 0;
+      // 4. Поиск строки заголовков по "якорям" и типу данных
+      const normalizeHeaderLocal = (s: string) =>
+        fixWeirdUtf16(String(s ?? ""))
+          .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
+          .toLowerCase()
+          .replace(/\s+/g, " ")
+          .trim();
 
-      // 5. Заголовки берем ТОЛЬКО из rawData (SheetJS уже распарсил текст)
+      const isProbablyValue = (v: string) => {
+        if (!v) return true;
+        // число
+        if (/^-?\d+([.,]\d+)?$/.test(v)) return true;
+        // дата типа 2025-10-01 / 01.10.2025
+        if (/^\d{4}-\d{2}-\d{2}/.test(v)) return true;
+        if (/^\d{1,2}\.\d{1,2}\.\d{4}/.test(v)) return true;
+        return false;
+      };
+
+      const scoreHeaderRow = (row: any[]) => {
+        const cells = (row || []).map(c => normalizeHeaderLocal(c)).filter(Boolean);
+
+        // header-like: не число/дата, длина > 1
+        const headerLike = cells.filter(c => c.length > 1 && !isProbablyValue(c));
+        const headerLikeCount = headerLike.length;
+
+        const anchors = ["тип начис", "артикул", "дата", "sku"];
+        const anchorHits = anchors.reduce((acc, a) => acc + (cells.some(c => c.includes(a)) ? 1 : 0), 0);
+
+        // штраф, если в строке много значений (чисел/дат)
+        const valueLikeCount = cells.filter(isProbablyValue).length;
+
+        return {
+          score: anchorHits * 10 + headerLikeCount - valueLikeCount,
+          anchorHits,
+          headerLikeCount,
+          valueLikeCount,
+          preview: cells.slice(0, 12),
+        };
+      };
+
+      let headerRowIndex = 0;
+      let best = { score: -Infinity, anchorHits: 0, headerLikeCount: 0, valueLikeCount: 0, preview: [] as string[] };
+
+      for (let i = 0; i < Math.min(rawData.length, 15); i++) {
+        const row = rawData[i];
+        if (!Array.isArray(row)) continue;
+        const s = scoreHeaderRow(row);
+        if (s.score > best.score) {
+          best = s;
+          headerRowIndex = i;
+        }
+      }
+
+      // если якорей нет вообще — fallback на 0
+      if (best.anchorHits === 0) headerRowIndex = 0;
+
+      window.console.log("🧭 Header row index:", headerRowIndex, best);
+      window.console.log("🧾 Header row preview:", (rawData[headerRowIndex] || []).slice(0, 20));
+
+      // 5. Заголовки берем ТОЛЬКО из rawData[headerRowIndex]
       const headerRow = rawData[headerRowIndex] || [];
-      const originalHeaders: string[] = headerRow.map((v) => String(v ?? "").trim());
+      const originalHeaders: string[] = headerRow.map(v => String(v ?? "").trim());
 
-      window.console.log("📋 Оригинальные заголовки:", originalHeaders.slice(0, 10));
-
-      // 6. cleanedHeaders/fileColumns строить только из этих originalHeaders
-      const cleanedHeaders = originalHeaders.map((header) => {
-        const cleaned = cleanHeaderKey(header);
-        return cleaned ? cleaned : header.trim();
-      });
-
-      window.console.log("📋 Очищенные заголовки (cleanHeaderKey):", cleanedHeaders.slice(0, 10));
+      const cleanedHeaders = originalHeaders.map(h => cleanHeaderKey(h)).map(h => h.trim());
 
       const fileColumns = cleanedHeaders
-        .map((h) => (h || "").trim())
-        .filter((h) => h.length > 0 && !/^\d+$/.test(h));
+        .map(h => (h || "").trim())
+        .filter(h => h.length > 0 && !/^\d+$/.test(h));
 
       // Для ключей объекта используем cleanedHeaders
       const headerKeys = cleanedHeaders;
