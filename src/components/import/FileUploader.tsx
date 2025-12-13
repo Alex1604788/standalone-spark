@@ -186,9 +186,11 @@ export const FileUploader = ({
       const headerRow = rawData[headerRowIndex] || [];
       const originalHeaders: string[] = [];
       
+      // Ограничиваем колонки по фактической ширине headerRow
+      const maxCols = headerRow.length; // фактическая ширина заголовков
+      
       // Читаем заголовки напрямую из ячеек Excel
-      const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
-      for (let col = range.s.c; col <= range.e.c; col++) {
+      for (let col = 0; col < maxCols; col++) {
         const cellAddress = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
         const cell = worksheet[cellAddress];
         let headerValue = "";
@@ -228,6 +230,12 @@ export const FileUploader = ({
       window.console.log("📋 Оригинальные заголовки:", originalHeaders.slice(0, 10));
       window.console.log("📋 Очищенные заголовки:", cleanedHeaders.slice(0, 10));
 
+      // 6.1. Делаем правильный список колонок: брать только реальные заголовки (без пустых/мусорных)
+      const fileColumns = cleanedHeaders
+        .map((h) => cleanHeaderKey(fixWeirdUtf16(String(h || ""))))
+        .map((h) => h.trim())
+        .filter((h) => h.length > 0);
+
       // 7. Преобразуем данные в JSON с правильными заголовками
       const jsonData: any[] = [];
       for (let i = headerRowIndex + 1; i < rawData.length; i++) {
@@ -256,13 +264,15 @@ export const FileUploader = ({
         }
       }
 
-      const fileColumns = cleanedHeaders.filter(h => h && h.trim());
+      // fileColumns уже определен выше (6.1)
+
+      const firstRow = jsonData[0] || {};
 
       console.log("📄 FileUploader: загружен файл", {
         importType,
         fileName: file.name,
         sheet: firstSheetName,
-        originalColumns,
+        originalColumns: originalHeaders,
         cleanedColumns: fileColumns,
         sampleRow: Object.fromEntries(
           Object.entries(firstRow)
@@ -271,12 +281,15 @@ export const FileUploader = ({
         ),
       });
 
+      // Диагностический вывод
+      window.console.log("✅ fileColumns (первые 30):", fileColumns.slice(0, 30));
+      
       // 4. Проверяем обязательные колонки и делаем автодетект
       window.console.log("🔍 Начинаем автодетект маппинга колонок...");
       window.console.log("📋 Доступные колонки в файле:", fileColumns.slice(0, 20));
       
       const guessedMapping = guessMapping(importType, fileColumns);
-      window.console.log("🎯 Результат автодетекта:", guessedMapping);
+      window.console.log("✅ guessedMapping:", guessedMapping);
       
       // Проверяем, найдены ли все обязательные поля
       const requiredFields = importType === "accruals" 

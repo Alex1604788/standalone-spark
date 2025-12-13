@@ -141,6 +141,11 @@ export const ColumnMappingModal = ({
           </Alert>
         )}
 
+        {/* Временный DEBUG вывод */}
+        <div className="text-xs p-2 bg-muted rounded">
+          DEBUG: {fileColumns.slice(0, 5).join(" | ")}
+        </div>
+
         <div className="space-y-6 py-4">
           {/* Обязательные поля */}
           <div>
@@ -160,7 +165,7 @@ export const ColumnMappingModal = ({
                     <SelectTrigger id={field.key}>
                       <SelectValue placeholder="Выберите колонку..." />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="font-sans" style={{ fontFamily: "Inter, system-ui, Arial, sans-serif" }}>
                       <SelectItem value="__none__">-- Не выбрано --</SelectItem>
                       {fileColumns.map((col) => (
                         <SelectItem key={col} value={col}>
