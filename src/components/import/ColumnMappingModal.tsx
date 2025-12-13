@@ -38,11 +38,11 @@ interface ColumnMappingModalProps {
 const REQUIRED_FIELDS: Record<ImportType, { key: string; label: string; synonyms: string[] }[]> = {
   accruals: [
     { key: "accrual_type", label: "Тип начисления", synonyms: ["тип начисления", "тип операции", "тип"] },
-    { key: "offer_id", label: "Артикул", synonyms: ["артикул", "offer id", "seller sku"] },
+    { key: "offer_id", label: "Артикул (seller)", synonyms: ["артикул", "offer id", "seller offer id", "seller_id"] },
     { key: "date", label: "Дата начисления", synonyms: ["дата начисления", "дата", "accrual date"] },
   ],
   storage_costs: [
-    { key: "offer_id", label: "Артикул", synonyms: ["артикул", "offer id", "seller sku"] },
+    { key: "offer_id", label: "Артикул (seller)", synonyms: ["артикул", "offer id", "seller offer id", "seller_id"] },
     { key: "date", label: "Дата", synonyms: ["дата", "cost date", "дата размещения"] },
   ],
 };
@@ -50,13 +50,13 @@ const REQUIRED_FIELDS: Record<ImportType, { key: string; label: string; synonyms
 // Опциональные поля
 const OPTIONAL_FIELDS: Record<ImportType, { key: string; label: string; synonyms: string[] }[]> = {
   accruals: [
-    { key: "sku", label: "SKU", synonyms: ["sku", "ску"] },
+    { key: "sku", label: "SKU (ozon)", synonyms: ["sku", "ozon sku", "ску"] },
     { key: "quantity", label: "Количество", synonyms: ["количество", "quantity"] },
     { key: "amount_before_commission", label: "До вычета комиссий", synonyms: ["до вычета", "до комиссии", "продажа"] },
     { key: "total_amount", label: "Итого", synonyms: ["итого", "сумма", "total"] },
   ],
   storage_costs: [
-    { key: "sku", label: "SKU", synonyms: ["sku", "ску"] },
+    { key: "sku", label: "SKU (ozon)", synonyms: ["sku", "ozon sku", "ску"] },
     { key: "cost", label: "Стоимость размещения", synonyms: ["стоимость размещения", "стоимость", "размещение"] },
     { key: "stock", label: "Остаток", synonyms: ["остаток", "количество", "экземпляр"] },
   ],
@@ -196,7 +196,7 @@ export const ColumnMappingModal = ({
                       <SelectTrigger id={field.key}>
                         <SelectValue placeholder="Выберите колонку (необязательно)..." />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="font-sans" style={{ fontFamily: "Inter, system-ui, Arial, sans-serif" }}>
                         <SelectItem value="__none__">-- Не выбрано --</SelectItem>
                         {fileColumns.map((col) => (
                           <SelectItem key={col} value={col}>
@@ -233,26 +233,33 @@ export const guessMapping = (
   const mapping: ColumnMapping = {};
   const allFields = [...REQUIRED_FIELDS[importType], ...OPTIONAL_FIELDS[importType]];
 
+  const normalizedColumns = fileColumns.map((col) => ({
+    original: col,
+    normalized: normalize(col),
+  }));
+
   for (const field of allFields) {
-    // Нормализуем все колонки для поиска
-    const normalizedColumns = fileColumns.map((col) => ({
-      original: col,
-      normalized: normalize(col),
-    }));
+    const synonyms = [...field.synonyms].sort((a, b) => b.length - a.length);
 
-    // Ищем по синонимам
-    for (const synonym of field.synonyms) {
-      const normalizedSynonym = normalize(synonym);
-      const found = normalizedColumns.find(
-        (nc) =>
-          nc.normalized === normalizedSynonym ||
-          nc.normalized.includes(normalizedSynonym) ||
-          normalizedSynonym.includes(nc.normalized)
-      );
+    // 1) exact match
+    for (const synonym of synonyms) {
+      const ns = normalize(synonym);
+      const foundExact = normalizedColumns.find((nc) => nc.normalized === ns);
+      if (foundExact) {
+        mapping[field.key] = foundExact.original;
+        break;
+      }
+    }
+    if (mapping[field.key]) continue;
 
+    // 2) includes match (ТОЛЬКО колонка включает синоним)
+    for (const synonym of synonyms) {
+      const ns = normalize(synonym);
+      if (ns.length < 4) continue; // защита от слишком коротких
+      const found = normalizedColumns.find((nc) => nc.normalized.includes(ns));
       if (found) {
         mapping[field.key] = found.original;
-        break; // Нашли, переходим к следующему полю
+        break;
       }
     }
   }

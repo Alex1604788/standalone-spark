@@ -199,9 +199,9 @@ export const FileUploader = ({
       window.console.log("📋 Очищенные заголовки:", cleanedHeaders.slice(0, 10));
 
       // 6.1. Делаем правильный список колонок: брать только реальные заголовки (без пустых/мусорных)
-      const fileColumns = cleanedHeaders.filter(
-        (h) => h && h.length > 1 && !/^\d+$/.test(h)
-      );
+      const fileColumns = cleanedHeaders
+        .map(h => (h || "").trim())
+        .filter(h => h.length > 0 && !/^\d+$/.test(h));
 
       // 7. Преобразуем данные в JSON с правильными заголовками
       const jsonData: any[] = [];
