@@ -238,14 +238,19 @@ export const guessMapping = (
     normalized: normalize(col),
   }));
 
+  window.console.log("🔍 guessMapping: нормализованные колонки (первые 10):", normalizedColumns.slice(0, 10));
+
   for (const field of allFields) {
     const synonyms = [...field.synonyms].sort((a, b) => b.length - a.length);
+
+    window.console.log(`🔍 Ищем поле "${field.key}" (${field.label}) с синонимами:`, synonyms);
 
     // 1) exact match
     for (const synonym of synonyms) {
       const ns = normalize(synonym);
       const foundExact = normalizedColumns.find((nc) => nc.normalized === ns);
       if (foundExact) {
+        window.console.log(`✅ Найдено точное совпадение для "${field.key}": "${foundExact.original}" (нормализовано: "${foundExact.normalized}")`);
         mapping[field.key] = foundExact.original;
         break;
       }
@@ -258,9 +263,14 @@ export const guessMapping = (
       if (ns.length < 4) continue; // защита от слишком коротких
       const found = normalizedColumns.find((nc) => nc.normalized.includes(ns));
       if (found) {
+        window.console.log(`✅ Найдено частичное совпадение для "${field.key}": "${found.original}" (нормализовано: "${found.normalized}" включает "${ns}")`);
         mapping[field.key] = found.original;
         break;
       }
+    }
+    
+    if (!mapping[field.key]) {
+      window.console.log(`❌ Не найдено совпадение для "${field.key}" (${field.label})`);
     }
   }
 

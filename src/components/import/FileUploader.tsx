@@ -150,47 +150,51 @@ export const FileUploader = ({
       // 4. OZON: заголовки всегда в первой строке
       const headerRowIndex = 0;
 
-      // 5. Извлекаем заголовки напрямую из ячеек Excel (более надежно)
+      // 5. Извлекаем заголовки из первой строки rawData (надежнее, чем через ячейки)
       const headerRow = rawData[headerRowIndex] || [];
       const originalHeaders: string[] = [];
       
       // Ограничиваем колонки по фактической ширине headerRow
       const maxCols = headerRow.length; // фактическая ширина заголовков
       
-      // Читаем заголовки напрямую из ячеек Excel
+      // Читаем заголовки из rawData, но также пробуем получить из ячеек для лучшего качества
       for (let col = 0; col < maxCols; col++) {
-        const cellAddress = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
-        const cell = worksheet[cellAddress];
         let headerValue = "";
         
+        // Сначала пробуем из ячейки Excel (более точное чтение)
+        const cellAddress = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
+        const cell = worksheet[cellAddress];
+        
         if (cell) {
-          // Приоритет: w (formatted text) > v (value) > t (type)
+          // Приоритет: w (formatted text) > v (value)
           if (cell.w) {
-            // w - это отформатированная строка, как она видна в Excel
             headerValue = String(cell.w);
           } else if (cell.v != null) {
-            // v - это значение ячейки
-            headerValue = String(cell.v);
-          } else if (cell.t === 's' && cell.v != null) {
-            // Если это строка в shared strings
             headerValue = String(cell.v);
           }
         }
         
-        // Если из ячейки ничего не получили, берем из rawData
-        if (!headerValue && headerRow[col] != null) {
-          headerValue = String(headerRow[col] || "").trim();
+        // Если из ячейки ничего не получили или получили кракозябры, берем из rawData
+        if (!headerValue || headerValue.length === 0 || /^[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]+$/.test(headerValue)) {
+          const rawValue = headerRow[col];
+          if (rawValue != null) {
+            headerValue = String(rawValue).trim();
+          }
         }
         
-        originalHeaders.push(headerValue);
+        originalHeaders.push(headerValue || "");
       }
 
       // 6. Чистим заголовки от BOM/невидимых символов и utf16-кракозябр
       const cleanedHeaders = originalHeaders.map(header => {
-        const cleaned = cleanHeaderKey(header);
-        // Если после очистки осталась пустая строка или только цифры, оставляем оригинал
+        // Сначала применяем fixWeirdUtf16 для исправления UTF-16 кракозябр
+        let fixed = fixWeirdUtf16(String(header || ""));
+        // Затем применяем cleanHeaderKey
+        const cleaned = cleanHeaderKey(fixed);
+        // Если после очистки осталась пустая строка или только цифры, пробуем оригинал
         if (!cleaned || /^\d+$/.test(cleaned)) {
-          return header.trim() || cleaned;
+          const trimmed = fixed.trim();
+          return trimmed || cleaned || "";
         }
         return cleaned;
       });
