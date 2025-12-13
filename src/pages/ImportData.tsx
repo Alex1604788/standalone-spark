@@ -555,17 +555,18 @@ const ImportData = () => {
         mapping,
         rowKeys: Object.keys(row).slice(0, 30),
         rowSample: Object.fromEntries(
-          Object.entries(row).slice(0, 15).map(([k, v]) => [k, String(v).substring(0, 50)])
-        )
+          Object.entries(row)
+            .slice(0, 15)
+            .map(([k, v]) => [k, String(v).substring(0, 50)])
+        ),
       });
     }
-    
+
     if (type === "accruals") {
       return buildAccrualRow(row, marketplaceId, importBatchId, mapping);
     }
     return buildStorageCostRow(row, marketplaceId, importBatchId, mapping);
   };
-
 
   const formatDate = (dateString: string) => {
     if (!dateString) return "";

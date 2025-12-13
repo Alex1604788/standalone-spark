@@ -25,6 +25,58 @@ const EXPECTED_COLUMNS: Record<ImportType, string[]> = {
   storage_costs: ["Дата", "Артикул"],
 };
 
+/**
+ * Ozon/Excel иногда отдает строки в виде "䄀爀琀椀欀甀氀",
+ * что на самом деле UTF-16LE ASCII (A r t i k u l), прочитанный неправильно.
+ * Преобразуем такие строки обратно в нормальный ASCII.
+ */
+const fixWeirdUtf16 = (s: string): string => {
+  if (!s) return s;
+
+  const codes = Array.from(s).map((ch) => ch.charCodeAt(0));
+
+  // считаем, сколько символов имеют вид 0xXX00 (ASCII, сдвинутый в старший байт)
+  const beAsciiCount = codes.filter((c) => {
+    const low = c & 0xff;
+    const high = c >> 8;
+    return low === 0 && high >= 0x20 && high <= 0x7e;
+  }).length;
+
+  // если таких >= 60% — считаем, что это как раз тот случай
+  if (beAsciiCount >= Math.max(1, Math.round(codes.length * 0.6))) {
+    const fixedCodes = codes.map((c) => {
+      const low = c & 0xff;
+      const high = c >> 8;
+      if (low === 0 && high >= 0x20 && high <= 0x7e) {
+        return high; // ASCII код
+      }
+      return c;
+    });
+    return String.fromCharCode(...fixedCodes);
+  }
+
+  return s;
+};
+
+/**
+ * Удаляем BOM, zero-width, управляющие символы,
+ * нормализуем пробелы и регистр — для поиска.
+ */
+const normalizeForSearch = (s: string) =>
+  fixWeirdUtf16(s)
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * Чистим заголовок для использования в качестве ключа объекта.
+ */
+const cleanHeaderKey = (s: string) =>
+  fixWeirdUtf16(s)
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
+    .trim();
+
 export const FileUploader = ({
   importType,
   onFileSelect,
@@ -63,7 +115,12 @@ export const FileUploader = ({
     try {
       // 1. читаем файл
       const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: "array" });
+
+      // пробуем более "безопасное" чтение через Uint8Array
+      const data = new Uint8Array(arrayBuffer);
+      const workbook = XLSX.read(data, {
+        type: "array",
+      });
 
       if (!workbook.SheetNames.length) {
         throw new Error("В файле нет листов");
@@ -73,13 +130,13 @@ export const FileUploader = ({
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
 
-      // 3. Сначала читаем как массив массивов, чтобы найти строку с заголовками
-      const rawData = XLSX.utils.sheet_to_json(worksheet, { 
-        header: 1, 
-        defval: "" 
-      }) as any[][];
+      // 3. конвертируем лист в JSON
+      const rawJson = XLSX.utils.sheet_to_json(worksheet, {
+        defval: "",
+        raw: false,
+      }) as any[];
 
-      if (rawData.length === 0) {
+      if (!rawJson.length) {
         toast({
           title: "Файл пуст",
           description: "Excel файл не содержит данных",
@@ -89,126 +146,32 @@ export const FileUploader = ({
         return;
       }
 
-      // 4. Ищем строку с заголовками (для начислений ОЗОН ищем "Тип начисления" и "Артикул")
-      let headerRowIndex = -1;
-      
-      if (importType === "accruals") {
-        // ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ первой строки
-        if (rawData.length > 0) {
-          const firstRow = rawData[0];
-          window.console.log("=".repeat(80));
-          window.console.log("🔍 ПРОВЕРКА ПЕРВОЙ СТРОКИ (ШАПКА ТАБЛИЦЫ)");
-          window.console.log("=".repeat(80));
-          window.console.log("Первая строка (сырые данные):", firstRow);
-          window.console.log("Первая строка (первые 20 ячеек):", firstRow.slice(0, 20));
-          
-          const firstRowValues = firstRow.map(cell => String(cell || "").trim());
-          window.console.log("Первая строка (как строки, первые 20):", firstRowValues.slice(0, 20));
-          
-          const firstRowNormalized = firstRowValues.map(v => normalize(v));
-          window.console.log("Первая строка (нормализованные, первые 20):", firstRowNormalized.slice(0, 20));
-          
-          // Ищем "тип начисления" - может быть в одной ячейке или в разных
-          const hasAccrualType = firstRowNormalized.some(v => {
-            const result = v === "тип начисления" || (v.includes("тип") && v.includes("начисл"));
-            if (result) {
-              window.console.log(`✅ Найдено "тип начисления" в значении: "${v}"`);
-            }
-            return result;
-          });
-          
-          const hasOfferId = firstRowNormalized.some(v => {
-            const result = v === "артикул" || v.includes("артикул");
-            if (result) {
-              window.console.log(`✅ Найдено "артикул" в значении: "${v}"`);
-            }
-            return result;
-          });
-          
-          window.console.log("Результаты проверки первой строки:", {
-            hasAccrualType,
-            hasOfferId,
-            isHeader: hasAccrualType && hasOfferId
-          });
-          window.console.log("=".repeat(80));
-          
-          if (hasAccrualType && hasOfferId) {
-            headerRowIndex = 0;
-            window.console.log("✅ Первая строка содержит заголовки!");
-          }
-        }
-        
-        // Если первая строка не подошла, ищем в следующих строках
-        if (headerRowIndex === -1) {
-          for (let i = 1; i < Math.min(20, rawData.length); i++) {
-            const row = rawData[i];
-            if (!row || row.every(cell => !cell || String(cell).trim() === "")) {
-              continue;
-            }
-            
-            const rowValues = row.map(cell => normalize(String(cell || ""))).filter(v => v.length > 0);
-            if (rowValues.length < 2) continue;
-            
-            // Ищем "тип начисления" и "артикул"
-            const hasAccrualType = rowValues.some(v => v === "тип начисления" || (v.includes("тип") && v.includes("начисл")));
-            const hasOfferId = rowValues.some(v => v === "артикул" || v.includes("артикул"));
-            
-            if (hasAccrualType && hasOfferId) {
-              headerRowIndex = i;
-              window.console.log(`✅ Найдена строка с заголовками на индексе ${i}`);
-              break;
-            }
-          }
-        }
-      } else {
-        // Для других типов используем первую непустую строку
-        headerRowIndex = rawData.findIndex(row =>
-          row && row.some(cell => String(cell ?? "").trim() !== "")
-        );
+      // 4. Чистим заголовки от BOM/невидимых символов и utf16-кракозябр
+      const firstRawRow = rawJson[0] as Record<string, any>;
+      const originalColumns = Object.keys(firstRawRow);
+
+      const headerMap: Record<string, string> = {};
+      for (const col of originalColumns) {
+        const cleaned = cleanHeaderKey(col);
+        headerMap[col] = cleaned || col;
       }
 
-      // 5. Если заголовки не найдены, используем первую строку (fallback)
-      if (headerRowIndex === -1) {
-        window.console.warn("⚠️ Заголовки не найдены, используем первую строку как fallback");
-        headerRowIndex = 0;
-      }
-
-      // 6. Берем заголовки из найденной строки
-      const headerRow = rawData[headerRowIndex];
-      const headers = headerRow.map((cell, idx) => {
-        const val = String(cell || `Column${idx + 1}`).trim();
-        return val || `Column${idx + 1}`;
+      // 5. Пересобираем строки с "чистыми" ключами и исправляем значения-строки
+      const jsonData = rawJson.map((row) => {
+        const newRow: Record<string, any> = {};
+        Object.entries(row).forEach(([key, value]) => {
+          const mappedKey = headerMap[key] ?? key;
+          let v = value;
+          if (typeof v === "string") {
+            v = fixWeirdUtf16(
+              v.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
+            );
+          }
+          newRow[mappedKey] = v;
+        });
+        return newRow;
       });
-      
-      // 7. Читаем данные начиная со следующей строки после заголовков
-      const dataRows = rawData.slice(headerRowIndex + 1);
-      
-      // 8. Преобразуем в объекты с использованием заголовков
-      const jsonData = dataRows
-        .filter(row => row && row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== ""))
-        .map(row => {
-          const obj: Record<string, any> = {};
-          headers.forEach((header, idx) => {
-            obj[header] = row[idx] !== undefined ? row[idx] : "";
-          });
-          return obj;
-        });
-      
-      window.console.log(`✅ Использованы заголовки из строки ${headerRowIndex}:`, headers.slice(0, 20));
-      window.console.log(`✅ Всего заголовков: ${headers.length}`);
-      window.console.log(`✅ Найдено строк данных: ${jsonData.length}`);
 
-      if (!jsonData.length) {
-        toast({
-          title: "Файл пуст",
-          description: "Excel файл не содержит данных",
-          variant: "destructive",
-        });
-        setSelectedFile(null);
-        return;
-      }
-
-      // 4. просто логируем колонки для себя, НО не блокируем импорт
       const firstRow = jsonData[0] as Record<string, any>;
       const fileColumns = Object.keys(firstRow);
 
@@ -216,8 +179,9 @@ export const FileUploader = ({
         importType,
         fileName: file.name,
         sheet: firstSheetName,
-        columns: fileColumns,
-        firstRowSample: Object.fromEntries(
+        originalColumns,
+        cleanedColumns: fileColumns,
+        sampleRow: Object.fromEntries(
           Object.entries(firstRow)
             .slice(0, 10)
             .map(([k, v]) => [k, String(v).substring(0, 50)])
@@ -273,6 +237,9 @@ export const FileUploader = ({
         variant: "destructive",
       });
       setSelectedFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     } finally {
       setIsProcessing(false);
     }
