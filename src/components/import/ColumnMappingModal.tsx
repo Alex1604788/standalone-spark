@@ -154,14 +154,14 @@ export const ColumnMappingModal = ({
                     {field.label} <span className="text-red-500">*</span>
                   </Label>
                   <Select
-                    value={mapping[field.key] || ""}
-                    onValueChange={(value) => handleFieldChange(field.key, value)}
+                    value={mapping[field.key] || "__none__"}
+                    onValueChange={(value) => handleFieldChange(field.key, value === "__none__" ? "" : value)}
                   >
                     <SelectTrigger id={field.key}>
                       <SelectValue placeholder="Выберите колонку..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">-- Не выбрано --</SelectItem>
+                      <SelectItem value="__none__">-- Не выбрано --</SelectItem>
                       {fileColumns.map((col) => (
                         <SelectItem key={col} value={col}>
                           {col}
@@ -185,14 +185,14 @@ export const ColumnMappingModal = ({
                   <div key={field.key} className="space-y-2">
                     <Label htmlFor={field.key}>{field.label}</Label>
                     <Select
-                      value={mapping[field.key] || ""}
-                      onValueChange={(value) => handleFieldChange(field.key, value)}
+                      value={mapping[field.key] || "__none__"}
+                      onValueChange={(value) => handleFieldChange(field.key, value === "__none__" ? "" : value)}
                     >
                       <SelectTrigger id={field.key}>
                         <SelectValue placeholder="Выберите колонку (необязательно)..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">-- Не выбрано --</SelectItem>
+                        <SelectItem value="__none__">-- Не выбрано --</SelectItem>
                         {fileColumns.map((col) => (
                           <SelectItem key={col} value={col}>
                             {col}
