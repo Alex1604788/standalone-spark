@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import { ColumnMappingModal, guessMapping, type ColumnMapping } from "./ColumnMappingModal";
-import { normalize } from "@/lib/importUtils";
+import { normalizeHeader, fixWeirdUtf16 } from "@/lib/importUtils";
 
 export type ImportType = "accruals" | "storage_costs";
 
@@ -26,56 +26,16 @@ const EXPECTED_COLUMNS: Record<ImportType, string[]> = {
 };
 
 /**
- * Ozon/Excel иногда отдает строки в виде "䄀爀琀椀欀甀氀",
- * что на самом деле UTF-16LE ASCII (A r t i k u l), прочитанный неправильно.
- * Преобразуем такие строки обратно в нормальный ASCII.
- */
-const fixWeirdUtf16 = (s: string): string => {
-  if (!s) return s;
-
-  const codes = Array.from(s).map((ch) => ch.charCodeAt(0));
-
-  // считаем, сколько символов имеют вид 0xXX00 (ASCII, сдвинутый в старший байт)
-  const beAsciiCount = codes.filter((c) => {
-    const low = c & 0xff;
-    const high = c >> 8;
-    return low === 0 && high >= 0x20 && high <= 0x7e;
-  }).length;
-
-  // если таких >= 60% — считаем, что это как раз тот случай
-  if (beAsciiCount >= Math.max(1, Math.round(codes.length * 0.6))) {
-    const fixedCodes = codes.map((c) => {
-      const low = c & 0xff;
-      const high = c >> 8;
-      if (low === 0 && high >= 0x20 && high <= 0x7e) {
-        return high; // ASCII код
-      }
-      return c;
-    });
-    return String.fromCharCode(...fixedCodes);
-  }
-
-  return s;
-};
-
-/**
- * Удаляем BOM, zero-width, управляющие символы,
- * нормализуем пробелы и регистр — для поиска.
- */
-const normalizeForSearch = (s: string) =>
-  fixWeirdUtf16(s)
-    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-
-/**
  * Чистим заголовок для использования в качестве ключа объекта.
+ * Использует normalizeHeader для единообразия.
  */
-const cleanHeaderKey = (s: string) =>
-  fixWeirdUtf16(s)
+const cleanHeaderKey = (s: string) => {
+  const normalized = normalizeHeader(s);
+  // Возвращаем с сохранением регистра для ключей объекта
+  return fixWeirdUtf16(s)
     .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
     .trim();
+};
 
 export const FileUploader = ({
   importType,
@@ -186,14 +146,12 @@ export const FileUploader = ({
       }
 
       // 6. Чистим заголовки от BOM/невидимых символов и utf16-кракозябр
+      // Используем cleanHeaderKey для ключей объекта (сохраняет регистр)
       const cleanedHeaders = originalHeaders.map(header => {
-        // Сначала применяем fixWeirdUtf16 для исправления UTF-16 кракозябр
-        let fixed = fixWeirdUtf16(String(header || ""));
-        // Затем применяем cleanHeaderKey
-        const cleaned = cleanHeaderKey(fixed);
+        const cleaned = cleanHeaderKey(String(header || ""));
         // Если после очистки осталась пустая строка или только цифры, пробуем оригинал
         if (!cleaned || /^\d+$/.test(cleaned)) {
-          const trimmed = fixed.trim();
+          const trimmed = String(header || "").trim();
           return trimmed || cleaned || "";
         }
         return cleaned;

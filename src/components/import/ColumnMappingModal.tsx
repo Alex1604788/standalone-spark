@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { normalize } from "@/lib/importUtils";
+import { normalizeHeader } from "@/lib/importUtils";
 
 export type ImportType = "accruals" | "storage_costs";
 
@@ -38,11 +38,11 @@ interface ColumnMappingModalProps {
 const REQUIRED_FIELDS: Record<ImportType, { key: string; label: string; synonyms: string[] }[]> = {
   accruals: [
     { key: "accrual_type", label: "Тип начисления", synonyms: ["тип начисления", "тип операции", "тип"] },
-    { key: "offer_id", label: "Артикул (seller)", synonyms: ["артикул", "offer id", "seller offer id", "seller_id"] },
+    { key: "offer_id", label: "Артикул (seller)", synonyms: ["артикул", "offer id"] },
     { key: "date", label: "Дата начисления", synonyms: ["дата начисления", "дата", "accrual date"] },
   ],
   storage_costs: [
-    { key: "offer_id", label: "Артикул (seller)", synonyms: ["артикул", "offer id", "seller offer id", "seller_id"] },
+    { key: "offer_id", label: "Артикул (seller)", synonyms: ["артикул", "offer id"] },
     { key: "date", label: "Дата", synonyms: ["дата", "cost date", "дата размещения"] },
   ],
 };
@@ -233,44 +233,34 @@ export const guessMapping = (
   const mapping: ColumnMapping = {};
   const allFields = [...REQUIRED_FIELDS[importType], ...OPTIONAL_FIELDS[importType]];
 
-  const normalizedColumns = fileColumns.map((col) => ({
+  const normalizedColumns = fileColumns.map(col => ({
     original: col,
-    normalized: normalize(col),
+    normalized: normalizeHeader(col),
   }));
-
-  window.console.log("🔍 guessMapping: нормализованные колонки (первые 10):", normalizedColumns.slice(0, 10));
 
   for (const field of allFields) {
     const synonyms = [...field.synonyms].sort((a, b) => b.length - a.length);
 
-    window.console.log(`🔍 Ищем поле "${field.key}" (${field.label}) с синонимами:`, synonyms);
-
-    // 1) exact match
+    // 1. exact match
     for (const synonym of synonyms) {
-      const ns = normalize(synonym);
-      const foundExact = normalizedColumns.find((nc) => nc.normalized === ns);
-      if (foundExact) {
-        window.console.log(`✅ Найдено точное совпадение для "${field.key}": "${foundExact.original}" (нормализовано: "${foundExact.normalized}")`);
-        mapping[field.key] = foundExact.original;
+      const ns = normalizeHeader(synonym);
+      const found = normalizedColumns.find(c => c.normalized === ns);
+      if (found) {
+        mapping[field.key] = found.original;
         break;
       }
     }
     if (mapping[field.key]) continue;
 
-    // 2) includes match (ТОЛЬКО колонка включает синоним)
+    // 2. includes match (ТОЛЬКО колонка включает синоним)
     for (const synonym of synonyms) {
-      const ns = normalize(synonym);
-      if (ns.length < 4) continue; // защита от слишком коротких
-      const found = normalizedColumns.find((nc) => nc.normalized.includes(ns));
+      const ns = normalizeHeader(synonym);
+      if (ns.length < 4) continue;
+      const found = normalizedColumns.find(c => c.normalized.includes(ns));
       if (found) {
-        window.console.log(`✅ Найдено частичное совпадение для "${field.key}": "${found.original}" (нормализовано: "${found.normalized}" включает "${ns}")`);
         mapping[field.key] = found.original;
         break;
       }
-    }
-    
-    if (!mapping[field.key]) {
-      window.console.log(`❌ Не найдено совпадение для "${field.key}" (${field.label})`);
     }
   }
 

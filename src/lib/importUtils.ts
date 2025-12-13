@@ -3,11 +3,56 @@
  */
 
 /**
+ * Ozon/Excel иногда отдает строки в виде "䄀爀琀椀欀甀氀",
+ * что на самом деле UTF-16LE ASCII (A r t i k u l), прочитанный неправильно.
+ * Преобразуем такие строки обратно в нормальный ASCII.
+ */
+export const fixWeirdUtf16 = (s: string): string => {
+  if (!s) return s;
+
+  const codes = Array.from(s).map((ch) => ch.charCodeAt(0));
+
+  // считаем, сколько символов имеют вид 0xXX00 (ASCII, сдвинутый в старший байт)
+  const beAsciiCount = codes.filter((c) => {
+    const low = c & 0xff;
+    const high = c >> 8;
+    return low === 0 && high >= 0x20 && high <= 0x7e;
+  }).length;
+
+  // если таких >= 60% — считаем, что это как раз тот случай
+  if (beAsciiCount >= Math.max(1, Math.round(codes.length * 0.6))) {
+    const fixedCodes = codes.map((c) => {
+      const low = c & 0xff;
+      const high = c >> 8;
+      if (low === 0 && high >= 0x20 && high <= 0x7e) {
+        return high; // ASCII код
+      }
+      return c;
+    });
+    return String.fromCharCode(...fixedCodes);
+  }
+
+  return s;
+};
+
+/**
  * Нормализация строки с удалением невидимых символов (BOM, ZERO WIDTH SPACE и т.д.)
+ * Для обычных текстовых значений (не заголовков)
  */
 export const normalize = (s: string): string =>
   s
     .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "") // удалить скрытые символы (BOM, ZERO WIDTH SPACE и т.д.)
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * Нормализация заголовков Excel с исправлением UTF-16 кракозябр
+ * ОДНА функция нормализации для ВСЕГО импорта (и для FileUploader, и для guessMapping)
+ */
+export const normalizeHeader = (s: string): string =>
+  fixWeirdUtf16(s)
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
