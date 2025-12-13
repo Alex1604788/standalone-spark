@@ -221,6 +221,41 @@ export type Database = {
           },
         ]
       }
+      import_column_mappings: {
+        Row: {
+          created_at: string
+          id: string
+          import_type: string
+          mapping: Json
+          marketplace_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          import_type: string
+          mapping: Json
+          marketplace_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          import_type?: string
+          mapping?: Json
+          marketplace_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "import_column_mappings_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       import_logs: {
         Row: {
           completed_at: string | null
@@ -716,6 +751,74 @@ export type Database = {
           },
           {
             foreignKeyName: "ozon_performance_daily_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ozon_sync_history: {
+        Row: {
+          campaigns_count: number | null
+          chunks_count: number | null
+          completed_at: string | null
+          created_at: string | null
+          error_message: string | null
+          id: string
+          marketplace_id: string
+          metadata: Json | null
+          period_from: string
+          period_to: string
+          retries: number | null
+          rows_inserted: number | null
+          started_at: string
+          status: string
+          trigger_type: string
+          triggered_by: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          campaigns_count?: number | null
+          chunks_count?: number | null
+          completed_at?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          marketplace_id: string
+          metadata?: Json | null
+          period_from: string
+          period_to: string
+          retries?: number | null
+          rows_inserted?: number | null
+          started_at?: string
+          status?: string
+          trigger_type: string
+          triggered_by?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          campaigns_count?: number | null
+          chunks_count?: number | null
+          completed_at?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          marketplace_id?: string
+          metadata?: Json | null
+          period_from?: string
+          period_to?: string
+          retries?: number | null
+          rows_inserted?: number | null
+          started_at?: string
+          status?: string
+          trigger_type?: string
+          triggered_by?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ozon_sync_history_marketplace_id_fkey"
             columns: ["marketplace_id"]
             isOneToOne: false
             referencedRelation: "marketplaces"

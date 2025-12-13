@@ -332,11 +332,12 @@ serve(async (req) => {
         redirect: "follow",
       });
     } catch (err) {
-      console.error("Campaigns API fetch failed:", err.message);
+      const errMsg = (err as Error).message || "Unknown error";
+      console.error("Campaigns API fetch failed:", errMsg);
       return new Response(
         JSON.stringify({
           error: "Failed to fetch campaigns",
-          details: err.message
+          details: errMsg
         }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -524,7 +525,8 @@ serve(async (req) => {
         console.error(`Report ${i + 1} returned ${chunkStats.length} rows`);
         allStats = allStats.concat(chunkStats);
       } catch (err) {
-        console.error(`Failed to download/parse report ${uuid}:`, err.message);
+        const errMsg = (err as Error).message || "Unknown error";
+        console.error(`Failed to download/parse report ${uuid}:`, errMsg);
 
         // Обновляем запись в истории
         if (syncId) {
@@ -532,7 +534,7 @@ serve(async (req) => {
             .from("ozon_sync_history")
             .update({
               status: 'failed',
-              error_message: `Failed to download/parse report ${uuid}: ${err.message}`,
+              error_message: `Failed to download/parse report ${uuid}: ${errMsg}`,
               completed_at: new Date().toISOString(),
             })
             .eq("id", syncId);
@@ -541,7 +543,7 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({
             error: "Failed to download/parse report",
-            details: err.message,
+            details: errMsg,
             uuid
           }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -622,22 +624,6 @@ serve(async (req) => {
     );
   } catch (error) {
     console.error("Function error:", error);
-
-    // Обновляем запись в истории - ошибка
-    try {
-      if (typeof syncId !== 'undefined' && syncId) {
-        await supabaseClient
-          .from("ozon_sync_history")
-          .update({
-            status: 'failed',
-            error_message: error.message,
-            completed_at: new Date().toISOString(),
-          })
-          .eq("id", syncId);
-      }
-    } catch (updateError) {
-      console.error("Failed to update sync history:", updateError);
-    }
 
     // Более подробная информация об ошибке
     const err = error as Error;
