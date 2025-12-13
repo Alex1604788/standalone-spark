@@ -59,15 +59,26 @@ async function pollReportStatus(
   await new Promise(resolve => setTimeout(resolve, initialDelay));
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`Checking report status, attempt ${attempt}/${maxAttempts}...`);
+
     const statusResponse = await fetch("https://api-performance.ozon.ru/api/client/statistics", {
       method: "GET",
       headers: {
         "Authorization": `Bearer ${accessToken}`,
       },
+      redirect: "manual",
     });
 
+    console.log(`Status check response: ${statusResponse.status} ${statusResponse.statusText}`);
+
+    if (statusResponse.status >= 300 && statusResponse.status < 400) {
+      const location = statusResponse.headers.get("location");
+      throw new Error(`Redirect detected when checking report status: ${statusResponse.status} -> ${location}`);
+    }
+
     if (!statusResponse.ok) {
-      throw new Error(`Failed to check report status: ${await statusResponse.text()}`);
+      const errorText = await statusResponse.text();
+      throw new Error(`Failed to check report status (${statusResponse.status}): ${errorText}`);
     }
 
     const statusData = await statusResponse.json();
@@ -112,11 +123,20 @@ async function downloadAndParseReport(
       headers: {
         "Authorization": `Bearer ${accessToken}`,
       },
+      redirect: "manual",
     }
   );
 
+  console.log(`Download response: ${downloadResponse.status} ${downloadResponse.statusText}`);
+
+  if (downloadResponse.status >= 300 && downloadResponse.status < 400) {
+    const location = downloadResponse.headers.get("location");
+    throw new Error(`Redirect detected when downloading report: ${downloadResponse.status} -> ${location}`);
+  }
+
   if (!downloadResponse.ok) {
-    throw new Error(`Failed to download report: ${await downloadResponse.text()}`);
+    const errorText = await downloadResponse.text();
+    throw new Error(`Failed to download report (${downloadResponse.status}): ${errorText}`);
   }
 
   const blob = await downloadResponse.arrayBuffer();
@@ -266,10 +286,19 @@ async function getCampaigns(accessToken: string): Promise<Map<string, OzonCampai
     headers: {
       "Authorization": `Bearer ${accessToken}`,
     },
+    redirect: "manual",
   });
 
+  console.log(`Campaigns list response: ${campaignsResponse.status} ${campaignsResponse.statusText}`);
+
+  if (campaignsResponse.status >= 300 && campaignsResponse.status < 400) {
+    const location = campaignsResponse.headers.get("location");
+    throw new Error(`Redirect detected when fetching campaigns: ${campaignsResponse.status} -> ${location}`);
+  }
+
   if (!campaignsResponse.ok) {
-    throw new Error(`Failed to fetch campaigns: ${await campaignsResponse.text()}`);
+    const errorText = await campaignsResponse.text();
+    throw new Error(`Failed to fetch campaigns (${campaignsResponse.status}): ${errorText}`);
   }
 
   const campaigns: OzonCampaign[] = await campaignsResponse.json();
@@ -410,6 +439,8 @@ serve(async (req) => {
       console.log(`Processing chunk ${i + 1}/${chunksToProcess.length} (${chunk.length} campaigns)...`);
 
       // Request report for this chunk
+      console.log(`Requesting report for chunk ${i + 1}...`);
+
       const reportResponse = await fetch("https://api-performance.ozon.ru/api/client/statistics", {
         method: "POST",
         headers: {
@@ -421,11 +452,22 @@ serve(async (req) => {
           dateFrom: formatDate(startDateObj),
           dateTo: formatDate(endDateObj),
         }),
+        redirect: "manual",
       });
+
+      console.log(`Report request response: ${reportResponse.status} ${reportResponse.statusText}`);
+
+      if (reportResponse.status >= 300 && reportResponse.status < 400) {
+        const location = reportResponse.headers.get("location");
+        return new Response(
+          JSON.stringify({ error: "Redirect detected when requesting report", details: `${reportResponse.status} -> ${location}` }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
       if (!reportResponse.ok) {
         const errorText = await reportResponse.text();
-        console.error(`Chunk ${i + 1} request error:`, errorText);
+        console.error(`Chunk ${i + 1} request error (${reportResponse.status}):`, errorText);
         return new Response(
           JSON.stringify({ error: "Failed to request performance report", details: errorText }),
           { status: reportResponse.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
