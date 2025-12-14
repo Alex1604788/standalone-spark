@@ -413,35 +413,6 @@ const ImportData = () => {
 
   // Вспомогательные функции для парсинга
   
-  // Загружаем сохраненный маппинг из БД при изменении типа импорта или маркетплейса
-  const { data: savedMapping } = useQuery({
-    queryKey: ["import-column-mapping", marketplace?.id, importType],
-    queryFn: async () => {
-      if (!marketplace?.id) return null;
-      const { data, error } = await supabase
-        .from("import_column_mappings")
-        .select("mapping")
-        .eq("marketplace_id", marketplace.id)
-        .eq("import_type", importType)
-        .maybeSingle();
-      
-      if (error) {
-        console.error("Ошибка загрузки маппинга:", error);
-        return null;
-      }
-      
-      return (data?.mapping as Record<string, string>) || null;
-    },
-    enabled: !!marketplace?.id,
-  });
-
-  // Используем сохраненный маппинг, если он есть и колонки еще не настроены
-  useEffect(() => {
-    if (savedMapping && !columnMapping) {
-      setColumnMapping(savedMapping);
-      window.console.log("✅ Загружен сохраненный маппинг из БД:", savedMapping);
-    }
-  }, [savedMapping, columnMapping]);
   
   // Преобразование строки начислений ОЗОН в объект для вставки (использует маппинг)
   const buildAccrualRow = (
