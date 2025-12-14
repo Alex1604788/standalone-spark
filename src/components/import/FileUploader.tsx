@@ -154,6 +154,9 @@ export const FileUploader = ({
       const headerRowIndex = 0;
       const maxCols = Math.max(...rawData.map(row => row?.length || 0), 0);
 
+      console.log("🔍 ВАЛИДАЦИЯ: Ожидается колонок:", expectedColumns.length);
+      console.log("🔍 ВАЛИДАЦИЯ: Найдено колонок в файле:", maxCols);
+
       // Извлекаем заголовки напрямую из worksheet
       const fileHeaders: string[] = [];
       for (let col = 0; col < maxCols; col++) {
@@ -162,6 +165,9 @@ export const FileUploader = ({
         const header = safeClean(getHeaderValue(cell));
         fileHeaders.push(header);
       }
+
+      console.log("🔍 ВАЛИДАЦИЯ: Первые 5 заголовков из файла:", fileHeaders.slice(0, 5));
+      console.log("🔍 ВАЛИДАЦИЯ: Первые 5 ожидаемых заголовков:", expectedColumns.slice(0, 5));
 
       // Валидация: количество колонок
       if (fileHeaders.length !== expectedColumns.length) {
