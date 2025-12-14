@@ -12,7 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { FileUploader, type ImportType } from "@/components/import/FileUploader";
 import { ImportHistory } from "@/components/import/ImportHistory";
 import { useQuery } from "@tanstack/react-query";
-import { parseNumber, parseDate as parseOzonDate } from "@/lib/importUtils";
+import { parseNumber, parseDate as parseOzonDate, normalize } from "@/lib/importUtils";
 
 // Нормализация для аналитики (только для accrual_type_norm)
 const normalizeForAnalytics = (s: string): string => {
