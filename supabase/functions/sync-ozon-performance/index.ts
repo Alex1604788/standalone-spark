@@ -4,16 +4,15 @@
  * Date: 2025-12-14
  *
  * Key features:
- * - Sequential processing (1 chunk = 10 campaigns)
- * - ZIP extraction support with JSZip
- * - All OZON endpoints use redirect: "follow" (fixes 307 redirects)
- * - Optimized polling: 6 attempts × 2s = 13s
- * - Handles { list: [...] } response format for campaigns
+ * - Sequential processing (1 chunk = 10 campaigns max) - OZON API limit!
+ * - Async report generation with UUID polling
+ * - Sync history tracking for partial sync support
+ * - All OZON endpoints use redirect: "follow" for 307 redirects
+ * - Optimized polling: initial 5s + max 10 attempts × 3s = 35s total
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import JSZip from "https://esm.sh/jszip@3.10.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,6 +23,7 @@ interface OzonPerformanceRequest {
   marketplace_id: string;
   start_date?: string; // YYYY-MM-DD
   end_date?: string; // YYYY-MM-DD
+  sync_period?: 'daily' | 'weekly' | 'custom'; // тип синхронизации
   test?: boolean;
 }
 
@@ -46,245 +46,70 @@ interface OzonPerformanceStats {
   clicks: number;
   orders: number;
   revenue?: number;
-  avg_bill?: number;
-  add_to_cart?: number;
-  favorites?: number;
 }
 
-interface OzonCampaign {
-  id: string;
-  title: string;
-  state: string;
-  advObjectType: string;
-}
-
-// Helper function: Poll report status until ready
+// Вспомогательная функция для polling статуса отчета
 async function pollReportStatus(
   uuid: string,
   accessToken: string,
-  maxAttempts: number = 6,
-  initialDelay: number = 3000,
-  pollInterval: number = 2000
-): Promise<string> {
-  console.log(`Polling report ${uuid}...`);
-
-  // Initial delay before first check
+  maxAttempts: number = 10,
+  initialDelay: number = 5000,
+  pollInterval: number = 3000
+): Promise<{ success: boolean; link?: string; error?: string }> {
+  // Начальная задержка
   await new Promise(resolve => setTimeout(resolve, initialDelay));
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    console.log(`Checking report status, attempt ${attempt}/${maxAttempts}...`);
+    console.error(`Polling attempt ${attempt}/${maxAttempts} for UUID ${uuid}`);
 
-    const statusResponse = await fetch("https://api-performance.ozon.ru/api/client/statistics", {
+    const statusResponse = await fetch(`https://api-performance.ozon.ru:443/api/client/statistics/${uuid}`, {
       method: "GET",
       headers: {
+        "Accept": "application/json",
         "Authorization": `Bearer ${accessToken}`,
       },
       redirect: "follow",
     });
 
-    console.log(`Status check response: ${statusResponse.status} ${statusResponse.statusText}`);
-
     if (!statusResponse.ok) {
       const errorText = await statusResponse.text();
-      throw new Error(`Failed to check report status (${statusResponse.status}): ${errorText}`);
+      console.error(`Status check failed for UUID ${uuid}:`, errorText);
+      return { success: false, error: `Status check failed: ${errorText}` };
     }
 
     const statusData = await statusResponse.json();
-    const report = statusData.find((r: any) => r.UUID === uuid);
+    console.error(`UUID ${uuid} status:`, statusData.state);
 
-    if (!report) {
-      throw new Error(`Report ${uuid} not found in status list`);
+    if (statusData.state === "OK") {
+      console.error(`Report ready! Link:`, statusData.link);
+      return { success: true, link: statusData.link };
     }
 
-    console.log(`Report ${uuid} status: ${report.state} (attempt ${attempt}/${maxAttempts})`);
-
-    if (report.state === "OK") {
-      return report.state;
+    if (statusData.state === "ERROR") {
+      const errorMsg = statusData.error || "Unknown error";
+      console.error(`Report generation failed:`, errorMsg);
+      return { success: false, error: errorMsg };
     }
 
-    if (report.state === "ERROR") {
-      throw new Error(`Report generation failed: ${report.error || "Unknown error"}`);
-    }
-
-    // Wait before next check (except on last attempt)
+    // NOT_STARTED или IN_PROGRESS - продолжаем ждать
     if (attempt < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, pollInterval));
     }
   }
 
-  throw new Error(`Report ${uuid} not ready after ${maxAttempts} attempts`);
+  return { success: false, error: `Timeout after ${maxAttempts} attempts` };
 }
 
-// Helper function: Download and parse report
+// Функция для скачивания и парсинга отчета
 async function downloadAndParseReport(
   uuid: string,
-  accessToken: string,
-  campaignIdFromMeta: string,
-  dateFrom: string | undefined
+  accessToken: string
 ): Promise<OzonPerformanceStats[]> {
-  console.log(`Downloading report ${uuid}...`);
+  const reportUrl = `https://api-performance.ozon.ru:443/api/client/statistics/report?UUID=${uuid}`;
 
-  const downloadResponse = await fetch(
-    `https://api-performance.ozon.ru/api/client/statistics/${uuid}`,
-    {
-      method: "GET",
-      headers: {
-        "Authorization": `Bearer ${accessToken}`,
-      },
-      redirect: "follow",
-    }
-  );
+  console.error(`Downloading report from: ${reportUrl}`);
 
-  console.log(`Download response: ${downloadResponse.status} ${downloadResponse.statusText}`);
-
-  if (!downloadResponse.ok) {
-    const errorText = await downloadResponse.text();
-    throw new Error(`Failed to download report (${downloadResponse.status}): ${errorText}`);
-  }
-
-  const blob = await downloadResponse.arrayBuffer();
-  console.log(`Downloaded ${blob.byteLength} bytes`);
-
-  // Check if it's a ZIP file (magic bytes: 0x50 0x4B)
-  const firstBytes = new Uint8Array(blob.slice(0, 4));
-  const isZip = firstBytes[0] === 0x50 && firstBytes[1] === 0x4B;
-
-  let csvText: string;
-
-  if (isZip) {
-    console.log("ZIP detected, extracting...");
-    const zip = await JSZip.loadAsync(blob);
-    const fileNames = Object.keys(zip.files);
-
-    if (fileNames.length === 0) {
-      throw new Error("ZIP archive is empty");
-    }
-
-    const csvFileName = fileNames.find(name => name.endsWith('.csv')) || fileNames[0];
-    console.log(`Extracting file: ${csvFileName}`);
-
-    const csvFile = zip.files[csvFileName];
-    csvText = await csvFile.async("string");
-  } else {
-    console.log("Plain CSV detected");
-    csvText = new TextDecoder("utf-8").decode(blob);
-  }
-
-  // Remove NULL bytes
-  csvText = csvText.replace(/\0/g, '');
-
-  console.log(`CSV content (first 500 chars): ${csvText.substring(0, 500)}`);
-
-  const lines = csvText.split('\n').filter(line => line.trim());
-
-  if (lines.length === 0) {
-    console.log("Empty CSV");
-    return [];
-  }
-
-  // Extract campaign_id from metadata if present
-  let metaCampaignId = campaignIdFromMeta;
-
-  // Check if first line is metadata (starts with #)
-  if (lines[0].startsWith('#')) {
-    const metaLine = lines[0];
-    console.log(`Metadata line: ${metaLine}`);
-
-    // Format: # Отчет по РК №123456789
-    const match = metaLine.match(/№(\d+)/);
-    if (match) {
-      metaCampaignId = match[1];
-      console.log(`Extracted campaign_id from metadata: ${metaCampaignId}`);
-    }
-
-    // Remove metadata line
-    lines.shift();
-  }
-
-  if (lines.length === 0) {
-    console.log("No data after metadata");
-    return [];
-  }
-
-  // Parse CSV (semicolon-delimited)
-  const headerLine = lines[0];
-  const headers = headerLine.split(';').map(h => h.trim());
-  console.log(`Headers (${headers.length}):`, headers);
-
-  const dataLines = lines.slice(1);
-  console.log(`Data lines: ${dataLines.length}`);
-
-  const stats: OzonPerformanceStats[] = [];
-
-  for (const line of dataLines) {
-    if (!line.trim()) continue;
-
-    const values = line.split(';').map(v => v.trim());
-
-    if (values.length < headers.length) {
-      console.log(`Skipping incomplete line: ${line}`);
-      continue;
-    }
-
-    const row: any = {};
-    headers.forEach((header, index) => {
-      row[header] = values[index];
-    });
-
-    // Map Russian headers to English field names
-    const stat: OzonPerformanceStats = {
-      date: convertRussianDateToISO(row['Дата'] || row['Date'] || ''),
-      sku: row['SKU'] || row['sku'] || '',
-      campaign_id: metaCampaignId || row['ID кампании'] || row['Campaign ID'] || '',
-      money_spent: parseFloat(row['Расход'] || row['Spend'] || '0'),
-      views: parseInt(row['Показы'] || row['Views'] || '0'),
-      clicks: parseInt(row['Клики'] || row['Clicks'] || '0'),
-      orders: parseInt(row['Заказы'] || row['Orders'] || '0'),
-      revenue: parseFloatOrNull(row['Продажи'] || row['Revenue']),
-      avg_bill: parseFloatOrNull(row['Средний чек'] || row['Avg Bill']),
-      add_to_cart: parseIntOrNull(row['Добавления в корзину'] || row['Add to Cart']),
-      favorites: parseIntOrNull(row['Добавления в избранное'] || row['Favorites']),
-    };
-
-    // Filter by date if needed
-    if (dateFrom && stat.date < dateFrom) {
-      continue;
-    }
-
-    stats.push(stat);
-  }
-
-  console.log(`Parsed ${stats.length} stats records`);
-  return stats;
-}
-
-// Helper: Convert DD.MM.YYYY to YYYY-MM-DD
-function convertRussianDateToISO(dateStr: string): string {
-  if (!dateStr) return '';
-  const parts = dateStr.split('.');
-  if (parts.length === 3) {
-    return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-  }
-  return dateStr;
-}
-
-function parseFloatOrNull(value: string | undefined): number | null {
-  if (!value || value === '' || value === '-') return null;
-  const num = parseFloat(value);
-  return isNaN(num) ? null : num;
-}
-
-function parseIntOrNull(value: string | undefined): number | null {
-  if (!value || value === '' || value === '-') return null;
-  const num = parseInt(value);
-  return isNaN(num) ? null : num;
-}
-
-// Helper: Get all campaigns to build name/type mapping
-async function getCampaigns(accessToken: string): Promise<Map<string, OzonCampaign>> {
-  console.log("Fetching campaigns list...");
-
-  const campaignsResponse = await fetch("https://api-performance.ozon.ru/api/client/campaign", {
+  const reportResponse = await fetch(reportUrl, {
     method: "GET",
     headers: {
       "Authorization": `Bearer ${accessToken}`,
@@ -292,24 +117,75 @@ async function getCampaigns(accessToken: string): Promise<Map<string, OzonCampai
     redirect: "follow",
   });
 
-  console.log(`Campaigns list response: ${campaignsResponse.status} ${campaignsResponse.statusText}`);
-
-  if (!campaignsResponse.ok) {
-    const errorText = await campaignsResponse.text();
-    throw new Error(`Failed to fetch campaigns (${campaignsResponse.status}): ${errorText}`);
+  if (!reportResponse.ok) {
+    const errorText = await reportResponse.text();
+    throw new Error(`Failed to download report: ${errorText}`);
   }
 
-  const campaignsData = await campaignsResponse.json();
-  console.log(`Campaigns API response structure:`, JSON.stringify(campaignsData).substring(0, 500));
+  const contentType = reportResponse.headers.get("content-type") || "";
+  console.error(`Report content-type:`, contentType);
 
-  // OZON API returns { list: [...] }, not array directly
-  const campaigns: OzonCampaign[] = campaignsData.list || campaignsData || [];
-  console.log(`Found ${campaigns.length} campaigns`);
+  // Проверяем формат ответа
+  if (contentType.includes("application/json")) {
+    // JSON ответ
+    const jsonData = await reportResponse.json();
+    return jsonData.rows || [];
+  } else {
+    // CSV ответ - нужно распарсить
+    const csvText = await reportResponse.text();
+    console.error(`CSV report size: ${csvText.length} bytes`);
 
-  const campaignMap = new Map<string, OzonCampaign>();
-  campaigns.forEach(c => campaignMap.set(c.id, c));
+    // Простой CSV парсер для OZON отчетов (разделитель - точка с запятой)
+    const lines = csvText.split('\n').filter(line => line.trim());
 
-  return campaignMap;
+    if (lines.length < 3) {
+      console.error("CSV is too short, no data rows");
+      return [];
+    }
+
+    // Пропускаем первую строку (комментарий с описанием кампании) и заголовок
+    const dataLines = lines.slice(2);
+
+    const stats: OzonPerformanceStats[] = [];
+
+    for (const line of dataLines) {
+      // Пропускаем строку "Всего" и пустые строки
+      if (line.includes('Всего') || line.includes('Bcero') || !line.trim()) {
+        continue;
+      }
+
+      // Разбираем по точке с запятой
+      const columns = line.split(';').map(col => col.trim());
+
+      // Ожидаемая структура: [sku, name, price, views, clicks, ctr, to_cart, avg_cpc, avg_cpm, spent, orders, revenue, model_orders, model_revenue, drr, date]
+      if (columns.length < 11) {
+        console.error(`Skipping malformed line: ${line}`);
+        continue;
+      }
+
+      const [sku, , , views, clicks, , , , , spent, orders, revenue] = columns;
+
+      // Парсим числовые значения (заменяем запятые на точки для дробных чисел)
+      const parseNum = (str: string): number => {
+        const cleaned = str.replace(/\s/g, '').replace(',', '.');
+        return parseFloat(cleaned) || 0;
+      };
+
+      stats.push({
+        date: new Date().toISOString().split('T')[0], // TODO: извлечь дату из отчета
+        sku: sku || '',
+        campaign_id: '', // TODO: извлечь из метаданных отчета
+        money_spent: parseNum(spent),
+        views: parseInt(views) || 0,
+        clicks: parseInt(clicks) || 0,
+        orders: parseInt(orders) || 0,
+        revenue: parseNum(revenue),
+      });
+    }
+
+    console.error(`Parsed ${stats.length} rows from CSV`);
+    return stats;
+  }
 }
 
 serve(async (req) => {
@@ -323,7 +199,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    const { marketplace_id, start_date, end_date, test = false } = await req.json() as OzonPerformanceRequest;
+    const { marketplace_id, start_date, end_date, sync_period = 'custom', test = false } = await req.json() as OzonPerformanceRequest;
 
     if (!marketplace_id) {
       return new Response(
@@ -332,7 +208,50 @@ serve(async (req) => {
       );
     }
 
-    // 1. Get credentials from database
+    // Определяем период синхронизации
+    let periodStart: Date;
+    let periodEnd: Date = new Date();
+    let triggerType: string = 'manual';
+
+    if (sync_period === 'daily') {
+      // Последние 3 дня
+      periodStart = new Date(periodEnd.getTime() - 3 * 24 * 60 * 60 * 1000);
+      triggerType = 'cron_daily';
+    } else if (sync_period === 'weekly') {
+      // Последние 30 дней
+      periodStart = new Date(periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000);
+      triggerType = 'cron_weekly';
+    } else {
+      // Кастомный период
+      periodEnd = end_date ? new Date(end_date) : periodEnd;
+      periodStart = start_date ? new Date(start_date) : new Date(periodEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
+      triggerType = 'manual';
+    }
+
+    const formatDate = (date: Date) => date.toISOString().split('T')[0];
+
+    // Создаем запись в истории синхронизаций
+    const { data: syncRecord, error: syncError } = await supabaseClient
+      .from("ozon_sync_history")
+      .insert({
+        marketplace_id,
+        status: 'in_progress',
+        trigger_type: triggerType,
+        period_from: formatDate(periodStart),
+        period_to: formatDate(periodEnd),
+        metadata: { sync_period },
+      })
+      .select()
+      .single();
+
+    if (syncError || !syncRecord) {
+      console.error("Failed to create sync history record:", syncError);
+      // Продолжаем работу даже если не удалось создать запись
+    }
+
+    const syncId = syncRecord?.id;
+
+    // 1. Получаем credentials из базы
     const { data: creds, error: credsError } = await supabaseClient
       .from("marketplace_api_credentials")
       .select("client_id, client_secret, access_token, token_expires_at")
@@ -347,28 +266,42 @@ serve(async (req) => {
       );
     }
 
-    // 2. Check/refresh token
+    // 2. Проверяем/обновляем токен
     let accessToken = creds.access_token;
     const tokenExpired = !creds.token_expires_at || new Date(creds.token_expires_at) <= new Date();
 
     if (!accessToken || tokenExpired) {
-      console.log("Getting new access token...");
+      // Получаем новый токен
+      console.log("Requesting token for client_id:", creds.client_id);
 
-      // IMPORTANT: Token endpoint requires following redirects (returns 307 with __rr=1 parameter)
-      const tokenResponse = await fetch("https://performance.ozon.ru/api/client/token", {
+      const tokenResponse = await fetch("https://api-performance.ozon.ru/api/client/token", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Accept": "application/json",
         },
         body: JSON.stringify({
           client_id: creds.client_id,
           client_secret: creds.client_secret,
           grant_type: "client_credentials",
         }),
-        redirect: "follow", // Follow redirects for token endpoint
+        redirect: "follow", // Follow redirects to detect auth errors
+      }).catch((err) => {
+        console.error("Token fetch failed:", err.message);
+        throw new Error(`Failed to connect to OZON API: ${err.message}`);
       });
 
-      console.log(`Token response: ${tokenResponse.status} ${tokenResponse.statusText}`);
+      // Check if we were redirected to login page
+      if (tokenResponse.url && !tokenResponse.url.includes('/api/client/token')) {
+        console.error("Redirected to:", tokenResponse.url);
+        return new Response(
+          JSON.stringify({
+            error: "Invalid credentials",
+            details: "The API redirected to authentication page. Please check your Client ID and Client Secret are correct for OZON Performance API."
+          }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
       if (!tokenResponse.ok) {
         const errorText = await tokenResponse.text();
@@ -382,18 +315,17 @@ serve(async (req) => {
       const tokenData = await tokenResponse.json();
       accessToken = tokenData.access_token;
 
-      // Save token to database (expires in 30 minutes)
+      // Сохраняем токен в базу (expires через 30 минут)
       const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
       await supabaseClient
         .from("marketplace_api_credentials")
         .update({ access_token: accessToken, token_expires_at: expiresAt })
         .eq("marketplace_id", marketplace_id)
         .eq("api_type", "performance");
-
-      console.log("Access token obtained and saved");
     }
 
     if (test) {
+      // Тестовый режим - просто проверяем подключение
       return new Response(
         JSON.stringify({
           success: true,
@@ -406,126 +338,250 @@ serve(async (req) => {
       );
     }
 
-    // 3. Determine period
-    const endDateObj = end_date ? new Date(end_date) : new Date();
-    const startDateObj = start_date ? new Date(start_date) : new Date(endDateObj.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const formatDate = (date: Date) => date.toISOString().split('T')[0];
+    // 4. Получаем список кампаний
+    console.error("STEP 4: Fetching campaigns list...");
 
-    console.log(`Sync period: ${formatDate(startDateObj)} to ${formatDate(endDateObj)}`);
+    let campaignsResponse;
+    try {
+      campaignsResponse = await fetch("https://api-performance.ozon.ru:443/api/client/campaign", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        redirect: "follow",
+      });
+    } catch (err) {
+      console.error("Campaigns API fetch failed:", err.message);
+      return new Response(
+        JSON.stringify({
+          error: "Failed to fetch campaigns",
+          details: err.message
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-    // 4. Get campaigns for name/type mapping
-    const campaignMap = await getCampaigns(accessToken);
-    const campaignIds = Array.from(campaignMap.keys());
+    console.error("Campaigns API response status:", campaignsResponse.status);
+
+    if (!campaignsResponse.ok) {
+      const errorText = await campaignsResponse.text();
+      console.error("Campaigns API error response:", errorText);
+      return new Response(
+        JSON.stringify({
+          error: "Failed to fetch campaigns list",
+          status: campaignsResponse.status,
+          details: errorText
+        }),
+        { status: campaignsResponse.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const campaignsData = await campaignsResponse.json();
+    console.error("Campaigns response data:", JSON.stringify(campaignsData).substring(0, 1000));
+
+    // Извлекаем ID всех кампаний
+    const campaignIds = (campaignsData.list || []).map((campaign: any) => campaign.id);
+    console.error("Extracted campaign IDs:", JSON.stringify(campaignIds));
 
     if (campaignIds.length === 0) {
+      console.error("No campaigns found in response!");
       return new Response(
-        JSON.stringify({ success: true, message: "No campaigns found", inserted: 0 }),
+        JSON.stringify({
+          success: true,
+          message: "No advertising campaigns found in your account. Create campaigns in OZON Performance first.",
+          inserted: 0
+        }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`Processing ${campaignIds.length} campaigns...`);
+    console.error(`STEP 5: Found ${campaignIds.length} campaigns`);
 
-    // 5. Split campaigns into chunks (max 10 per request)
+    // 5. Запрашиваем статистику по кампаниям (OZON ограничивает до 10 кампаний за запрос)
+    console.error("STEP 6: Fetching performance data from", formatDate(periodStart), "to", formatDate(periodEnd));
+
+    // Разбиваем кампании на chunks по 10 штук
     const chunkSize = 10;
-    const chunks: string[][] = [];
+    const campaignChunks = [];
     for (let i = 0; i < campaignIds.length; i += chunkSize) {
-      chunks.push(campaignIds.slice(i, i + chunkSize));
+      campaignChunks.push(campaignIds.slice(i, i + chunkSize));
     }
 
-    console.log(`Split into ${chunks.length} chunks of ${chunkSize} campaigns each`);
-
-    // IMPORTANT: Process only 1 chunk at a time (OZON limit: 1 active request)
-    const maxChunks = 1;
-    const chunksToProcess = chunks.slice(0, maxChunks);
-
-    if (chunks.length > maxChunks) {
-      console.log(`WARNING: Too many campaigns (${campaignIds.length}). Processing only first ${maxChunks * chunkSize} campaigns (${maxChunks} chunk). Run sync multiple times to get all data.`);
-    }
+    console.error(`STEP 7: Split into ${campaignChunks.length} chunks (max 10 campaigns per request)`);
 
     let allStats: OzonPerformanceStats[] = [];
+    const reportUUIDs: string[] = [];
 
-    // 6. Process chunks SEQUENTIALLY (one at a time)
+    // КРИТИЧНО: максимум 1 chunk (10 кампаний) из-за лимита OZON API "максимум 1 активный запрос"
+    const maxChunks = 1;
+    const chunksToProcess = campaignChunks.slice(0, maxChunks);
+
+    if (campaignChunks.length > maxChunks) {
+      console.error(`WARNING: Too many campaigns (${campaignIds.length}). Processing only first ${maxChunks * chunkSize} campaigns.`);
+    }
+
+    // Шаг 1: Запрашиваем отчеты для всех chunks (получаем UUIDs)
     for (let i = 0; i < chunksToProcess.length; i++) {
       const chunk = chunksToProcess[i];
-      console.log(`Processing chunk ${i + 1}/${chunksToProcess.length} (${chunk.length} campaigns)...`);
+      console.error(`Requesting report for chunk ${i + 1}/${chunksToProcess.length} with ${chunk.length} campaigns`);
 
-      // Request report for this chunk
-      console.log(`Requesting report for chunk ${i + 1}...`);
-
-      const reportResponse = await fetch("https://api-performance.ozon.ru/api/client/statistics", {
+      const reportRequest = await fetch("https://api-performance.ozon.ru:443/api/client/statistics", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Accept": "application/json",
           "Authorization": `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           campaigns: chunk,
-          dateFrom: formatDate(startDateObj),
-          dateTo: formatDate(endDateObj),
+          from: periodStart.toISOString(),
+          to: periodEnd.toISOString(),
+          groupBy: "DATE",
         }),
         redirect: "follow",
+      }).catch((err) => {
+        console.error(`Report request failed for chunk ${i + 1}:`, err.message);
+        throw new Error(`Failed to request report: ${err.message}`);
       });
 
-      console.log(`Report request response: ${reportResponse.status} ${reportResponse.statusText}`);
+      if (!reportRequest.ok) {
+        const errorText = await reportRequest.text();
+        console.error(`Report request error for chunk ${i + 1}:`, errorText);
 
-      if (!reportResponse.ok) {
-        const errorText = await reportResponse.text();
-        console.error(`Chunk ${i + 1} request error (${reportResponse.status}):`, errorText);
+        // Обновляем запись в истории
+        if (syncId) {
+          await supabaseClient
+            .from("ozon_sync_history")
+            .update({
+              status: 'failed',
+              error_message: `Failed to request report for chunk ${i + 1}: ${errorText}`,
+              completed_at: new Date().toISOString(),
+            })
+            .eq("id", syncId);
+        }
+
         return new Response(
-          JSON.stringify({ error: "Failed to request performance report", details: errorText }),
-          { status: reportResponse.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          JSON.stringify({
+            error: "Failed to request performance report",
+            details: errorText,
+            chunk: i + 1,
+            total_chunks: chunksToProcess.length
+          }),
+          { status: reportRequest.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      const reportData = await reportResponse.json();
+      const reportData = await reportRequest.json();
       const uuid = reportData.UUID;
 
       if (!uuid) {
-        console.error("No UUID in report response:", reportData);
+        console.error(`No UUID received for chunk ${i + 1}:`, reportData);
+
+        // Обновляем запись в истории
+        if (syncId) {
+          await supabaseClient
+            .from("ozon_sync_history")
+            .update({
+              status: 'failed',
+              error_message: `No UUID received for chunk ${i + 1}`,
+              completed_at: new Date().toISOString(),
+            })
+            .eq("id", syncId);
+        }
+
         return new Response(
-          JSON.stringify({ error: "No UUID received from OZON API", details: JSON.stringify(reportData) }),
+          JSON.stringify({
+            error: "No UUID received from OZON API",
+            details: reportData
+          }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      console.log(`Chunk ${i + 1}: Report requested, UUID = ${uuid}`);
+      console.error(`Chunk ${i + 1} UUID: ${uuid}`);
+      reportUUIDs.push(uuid);
+    }
 
-      // Immediately poll and download this report (don't wait for other chunks)
+    // Шаг 2: Polling и скачивание отчетов
+    for (let i = 0; i < reportUUIDs.length; i++) {
+      const uuid = reportUUIDs[i];
+      console.error(`Polling report ${i + 1}/${reportUUIDs.length}: ${uuid}`);
+
+      // Polling с параметрами: 5s initial, 3s interval, 10 attempts
+      const pollResult = await pollReportStatus(uuid, accessToken, 10, 5000, 3000);
+
+      if (!pollResult.success) {
+        console.error(`Polling failed for UUID ${uuid}:`, pollResult.error);
+
+        // Обновляем запись в истории
+        if (syncId) {
+          await supabaseClient
+            .from("ozon_sync_history")
+            .update({
+              status: 'timeout',
+              error_message: `Polling failed for UUID ${uuid}: ${pollResult.error}`,
+              completed_at: new Date().toISOString(),
+            })
+            .eq("id", syncId);
+        }
+
+        return new Response(
+          JSON.stringify({
+            error: "Report polling failed",
+            details: pollResult.error,
+            uuid,
+            report: i + 1,
+            total_reports: reportUUIDs.length
+          }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Скачиваем и парсим отчет
       try {
-        await pollReportStatus(uuid, accessToken, 6, 3000, 2000);
-        console.log(`Chunk ${i + 1}: Report ${uuid} is ready`);
-
-        const chunkStats = await downloadAndParseReport(uuid, accessToken, '', formatDate(startDateObj));
-        console.log(`Chunk ${i + 1}: Downloaded and parsed ${chunkStats.length} rows`);
-
-        // Enrich stats with campaign name and type from mapping
-        chunkStats.forEach(stat => {
-          const campaignInfo = campaignMap.get(stat.campaign_id);
-          if (campaignInfo) {
-            stat.campaign_name = campaignInfo.title;
-            stat.campaign_type = campaignInfo.advObjectType;
-          }
-        });
-
+        const chunkStats = await downloadAndParseReport(uuid, accessToken);
+        console.error(`Report ${i + 1} returned ${chunkStats.length} rows`);
         allStats = allStats.concat(chunkStats);
-      } catch (pollError) {
-        console.error(`Chunk ${i + 1}: Error processing report ${uuid}:`, pollError);
-        // Continue with next chunk instead of failing completely
+      } catch (err) {
+        console.error(`Failed to download/parse report ${uuid}:`, err.message);
+
+        // Обновляем запись в истории
+        if (syncId) {
+          await supabaseClient
+            .from("ozon_sync_history")
+            .update({
+              status: 'failed',
+              error_message: `Failed to download/parse report ${uuid}: ${err.message}`,
+              completed_at: new Date().toISOString(),
+            })
+            .eq("id", syncId);
+        }
+
+        return new Response(
+          JSON.stringify({
+            error: "Failed to download/parse report",
+            details: err.message,
+            uuid
+          }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
     }
 
-    if (allStats.length === 0) {
+    console.error(`STEP 8: Collected total ${allStats.length} stat rows from all chunks`);
+    const stats = allStats;
+
+    if (stats.length === 0) {
       return new Response(
         JSON.stringify({ success: true, message: "No data for the specified period", inserted: 0 }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`Total stats collected: ${allStats.length} rows`);
-
-    // 7. Save to database
-    const records = allStats.map((stat) => ({
+    // 5. Сохраняем данные в базу
+    const records = stats.map((stat) => ({
       marketplace_id,
       stat_date: stat.date,
       sku: stat.sku,
@@ -538,12 +594,10 @@ serve(async (req) => {
       clicks: stat.clicks || 0,
       orders: stat.orders || 0,
       revenue: stat.revenue || null,
-      avg_bill: stat.avg_bill || null,
-      add_to_cart: stat.add_to_cart || null,
-      favorites: stat.favorites || null,
+      // CTR, CPC, conversion, DRR будут рассчитаны триггером
     }));
 
-    const { error: insertError } = await supabaseClient
+    const { error: insertError, count } = await supabaseClient
       .from("ozon_performance_daily")
       .upsert(records, { onConflict: "marketplace_id,stat_date,sku,campaign_id" });
 
@@ -555,34 +609,74 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Successfully saved ${records.length} records to database`);
-
-    const isPartialSync = chunks.length > maxChunks;
-    const warningMessage = isPartialSync
-      ? `⚠️ Partial sync: processed ${chunksToProcess.length * chunkSize} out of ${campaignIds.length} campaigns. Run sync again to continue.`
-      : "Synchronization completed";
+    // Обновляем запись в истории - успех
+    if (syncId) {
+      await supabaseClient
+        .from("ozon_sync_history")
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          campaigns_count: campaignIds.length,
+          chunks_count: chunksToProcess.length,
+          rows_inserted: records.length,
+          metadata: {
+            sync_period,
+            report_uuids: reportUUIDs,
+            total_campaigns: campaignIds.length,
+            processed_campaigns: chunksToProcess.length * chunkSize,
+          },
+        })
+        .eq("id", syncId);
+    }
 
     return new Response(
       JSON.stringify({
         success: true,
-        message: warningMessage,
-        partial_sync: isPartialSync,
-        period: { from: formatDate(startDateObj), to: formatDate(endDateObj) },
-        campaigns_total: campaignIds.length,
-        campaigns_processed: chunksToProcess.length * chunkSize,
-        campaigns_remaining: Math.max(0, campaignIds.length - (chunksToProcess.length * chunkSize)),
+        message: "Synchronization completed",
+        period: { from: formatDate(periodStart), to: formatDate(periodEnd) },
+        campaigns: campaignIds.length,
         chunks_processed: chunksToProcess.length,
-        chunks_total: chunks.length,
         inserted: records.length,
+        sync_id: syncId,
         version: "2.0.0-final",
-        build_date: "2025-12-14"
+        build_date: "2025-12-14",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("Function error:", error);
+
+    // Обновляем запись в истории - ошибка
+    try {
+      if (typeof syncId !== 'undefined' && syncId) {
+        await supabaseClient
+          .from("ozon_sync_history")
+          .update({
+            status: 'failed',
+            error_message: error.message,
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", syncId);
+      }
+    } catch (updateError) {
+      console.error("Failed to update sync history:", updateError);
+    }
+
+    // Более подробная информация об ошибке
+    const errorDetails = {
+      message: error.message,
+      name: error.name,
+      cause: error.cause,
+      stack: error.stack?.split('\n').slice(0, 3).join('\n'),
+    };
+
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({
+        error: "Internal server error",
+        details: errorDetails,
+        version: "2.0.0-final",
+        build_date: "2025-12-14",
+      }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
