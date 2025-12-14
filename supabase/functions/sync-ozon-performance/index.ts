@@ -66,15 +66,10 @@ async function pollReportStatus(
       headers: {
         "Authorization": `Bearer ${accessToken}`,
       },
-      redirect: "manual",
+      redirect: "follow",
     });
 
     console.log(`Status check response: ${statusResponse.status} ${statusResponse.statusText}`);
-
-    if (statusResponse.status >= 300 && statusResponse.status < 400) {
-      const location = statusResponse.headers.get("location");
-      throw new Error(`Redirect detected when checking report status: ${statusResponse.status} -> ${location}`);
-    }
 
     if (!statusResponse.ok) {
       const errorText = await statusResponse.text();
@@ -123,16 +118,11 @@ async function downloadAndParseReport(
       headers: {
         "Authorization": `Bearer ${accessToken}`,
       },
-      redirect: "manual",
+      redirect: "follow",
     }
   );
 
   console.log(`Download response: ${downloadResponse.status} ${downloadResponse.statusText}`);
-
-  if (downloadResponse.status >= 300 && downloadResponse.status < 400) {
-    const location = downloadResponse.headers.get("location");
-    throw new Error(`Redirect detected when downloading report: ${downloadResponse.status} -> ${location}`);
-  }
 
   if (!downloadResponse.ok) {
     const errorText = await downloadResponse.text();
@@ -286,15 +276,10 @@ async function getCampaigns(accessToken: string): Promise<Map<string, OzonCampai
     headers: {
       "Authorization": `Bearer ${accessToken}`,
     },
-    redirect: "manual",
+    redirect: "follow",
   });
 
   console.log(`Campaigns list response: ${campaignsResponse.status} ${campaignsResponse.statusText}`);
-
-  if (campaignsResponse.status >= 300 && campaignsResponse.status < 400) {
-    const location = campaignsResponse.headers.get("location");
-    throw new Error(`Redirect detected when fetching campaigns: ${campaignsResponse.status} -> ${location}`);
-  }
 
   if (!campaignsResponse.ok) {
     const errorText = await campaignsResponse.text();
@@ -460,18 +445,10 @@ serve(async (req) => {
           dateFrom: formatDate(startDateObj),
           dateTo: formatDate(endDateObj),
         }),
-        redirect: "manual",
+        redirect: "follow",
       });
 
       console.log(`Report request response: ${reportResponse.status} ${reportResponse.statusText}`);
-
-      if (reportResponse.status >= 300 && reportResponse.status < 400) {
-        const location = reportResponse.headers.get("location");
-        return new Response(
-          JSON.stringify({ error: "Redirect detected when requesting report", details: `${reportResponse.status} -> ${location}` }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
 
       if (!reportResponse.ok) {
         const errorText = await reportResponse.text();
