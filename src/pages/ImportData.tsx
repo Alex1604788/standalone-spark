@@ -14,19 +14,23 @@ import { ImportHistory } from "@/components/import/ImportHistory";
 import { useQuery } from "@tanstack/react-query";
 import { parseNumber, parseDate as parseOzonDate } from "@/lib/importUtils";
 
-// Безопасная очистка строки - только удаление BOM/zero-width/управляющих символов
-const safeClean = (s: string): string => {
-  return s
-    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "") // только BOM/ZWSP/управляющие
-    .trim();
-};
-
-// Нормализация для аналитики
+// Нормализация для аналитики (только для accrual_type_norm)
 const normalizeForAnalytics = (s: string): string => {
-  return safeClean(s)
+  return String(s || "")
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "") // только BOM/ZWSP/управляющие
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+};
+
+// Получение значения как есть (без изменений)
+const getValue = (value: any): any => {
+  return value != null ? value : "";
+};
+
+// Получение строкового значения как есть (без изменений)
+const getStringValue = (value: any): string => {
+  return value != null ? String(value) : "";
 };
 
 const ImportData = () => {
@@ -433,18 +437,18 @@ const ImportData = () => {
     return {
       marketplace_id: marketplaceId,
       accrual_date: parseOzonDate(date, periodStart) || periodStart || null,
-      offer_id: safeClean(String(offerId || "")),
-      sku: row["SKU"] ? safeClean(String(row["SKU"])) : null,
+      offer_id: getStringValue(offerId),
+      sku: getValue(row["SKU"]),
       accrual_type: accrualTypeNorm,
       accrual_type_raw: accrualTypeRaw,
       accrual_type_norm: accrualTypeNorm,
       quantity: parseNumber(row["Количество"] || 0),
       amount_before_commission: parseNumber(row["За продажу или возврат до вычета комиссий и услуг"] || 0),
       total_amount: parseNumber(row["Итого, руб."] || 0),
-      shipment_number: row["Номер отправления или идентификатор услуги"] ? safeClean(String(row["Номер отправления или идентификатор услуги"])) : null,
+      shipment_number: getValue(row["Номер отправления или идентификатор услуги"]),
       order_date: row["Дата принятия заказа в обработку или оказания услуги"] ? parseOzonDate(row["Дата принятия заказа в обработку или оказания услуги"]) : null,
-      warehouse: row["Склад отгрузки"] ? safeClean(String(row["Склад отгрузки"])) : null,
-      product_name: row["Название товара или услуги"] ? safeClean(String(row["Название товара или услуги"])) : null,
+      warehouse: getValue(row["Склад отгрузки"]),
+      product_name: getValue(row["Название товара или услуги"]),
       commission_percent: parseNumber(row["Вознаграждение Ozon, %"] || 0),
       commission_amount: parseNumber(row["Вознаграждение Ozon"] || 0),
       order_assembly: parseNumber(row["Сборка заказа"] || 0),
@@ -456,7 +460,7 @@ const ImportData = () => {
       cancelled_processing: parseNumber(row["Обработка отмененного или невостребованного товара (разбивается по товарам в отправлении в одинаковой пропорции)"] || 0),
       undelivered_processing: parseNumber(row["Обработка невыкупленного товара"] || 0),
       logistics: parseNumber(row["Логистика"] || 0),
-      localization_index: row["Индекс локализации"] ? safeClean(String(row["Индекс локализации"])) : null,
+      localization_index: getValue(row["Индекс локализации"]),
       avg_delivery_hours: row["Среднее время доставки, часы"] ? parseInt(String(row["Среднее время доставки, часы"])) || 0 : null,
       return_logistics: parseNumber(row["Обратная логистика"] || 0),
       import_batch_id: importBatchId,
@@ -480,14 +484,14 @@ const ImportData = () => {
     return {
       marketplace_id: marketplaceId,
       cost_date: parseOzonDate(date, periodStart) || periodStart,
-      offer_id: safeClean(String(offerId || "")),
-      sku: row["SKU"] ? safeClean(String(row["SKU"])) : null,
+      offer_id: getStringValue(offerId),
+      sku: getValue(row["SKU"]),
       storage_cost: parseNumber(row["Начисленная стоимость размещения"] || 0),
       stock_quantity: parseInt(String(row["Кол-во экземпляров"] || 0)) || 0,
-      category: row["Категория товара"] ? safeClean(String(row["Категория товара"])) : null,
-      descriptive_type: row["Описательный тип"] ? safeClean(String(row["Описательный тип"])) : null,
-      warehouse: row["Склад"] ? safeClean(String(row["Склад"])) : null,
-      product_attribute: row["Признак товара"] ? safeClean(String(row["Признак товара"])) : null,
+      category: getValue(row["Категория товара"]),
+      descriptive_type: getValue(row["Описательный тип"]),
+      warehouse: getValue(row["Склад"]),
+      product_attribute: getValue(row["Признак товара"]),
       total_volume_ml: parseInt(String(row["Суммарный объем в миллилитрах"] || 0)) || 0,
       paid_volume_ml: parseInt(String(row["Платный объем в миллилитрах"] || 0)) || 0,
       paid_instances: parseInt(String(row["Кол-во платных экземпляров"] || 0)) || 0,

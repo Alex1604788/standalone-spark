@@ -84,11 +84,13 @@ const normalizeForAnalytics = (s: string): string => {
 };
 
 /**
- * Извлечение текста заголовка из ячейки (только cell.v)
+ * Извлечение текста заголовка из ячейки (cell.w ?? cell.v)
  */
 const getHeaderValue = (cell?: XLSX.CellObject): string => {
   if (!cell) return "";
-  if (cell.v != null) return String(cell.v);
+  // Используем cell.w (formatted) если есть, иначе cell.v (raw)
+  const value = (cell as any).w ?? cell.v;
+  if (value != null) return String(value);
   return "";
 };
 
@@ -136,11 +138,11 @@ export const FileUploader = ({
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
 
-      // 3. Получаем сырые данные
+      // 3. Получаем данные (raw: false для использования cell.w)
       const rawData = XLSX.utils.sheet_to_json(worksheet, {
         header: 1,
         defval: "",
-        raw: true,
+        raw: false,  // Используем formatted values (cell.w)
       }) as any[][];
 
       if (!rawData.length) {
@@ -163,9 +165,10 @@ export const FileUploader = ({
 
       // Валидация: количество колонок
       if (fileHeaders.length !== expectedColumns.length) {
+        const fileTypeLabel = importType === "accruals" ? "«Начисления»" : "«Стоимость размещения»";
         toast({
-          title: "Неверный формат",
-          description: `Ожидается ${expectedColumns.length} колонок, найдено ${fileHeaders.length}. Загрузите файл из OZON без изменений структуры.`,
+          title: "Неверный формат файла",
+          description: `Ожидается файл OZON ${fileTypeLabel}. Ожидается ${expectedColumns.length} колонок, найдено ${fileHeaders.length}.`,
           variant: "destructive",
         });
         setSelectedFile(null);
@@ -173,14 +176,16 @@ export const FileUploader = ({
         return;
       }
 
-      // Валидация: текст заголовков и порядок
+      // Валидация: текст заголовков и порядок (строго 1-в-1)
       for (let i = 0; i < expectedColumns.length; i++) {
         const expected = safeClean(expectedColumns[i]);
-        const actual = fileHeaders[i];
+        const actual = safeClean(fileHeaders[i]);
         if (expected !== actual) {
+          const fileTypeLabel = importType === "accruals" ? "«Начисления»" : "«Стоимость размещения»";
+          const firstColumnName = importType === "accruals" ? "Дата начисления" : "Дата";
           toast({
-            title: "Неверный формат",
-            description: `Колонка ${i + 1}: ожидается "${expectedColumns[i]}", найдено "${fileHeaders[i]}". Загрузите файл из OZON без изменений структуры.`,
+            title: "Неверный формат файла",
+            description: `Ожидается файл OZON ${fileTypeLabel}. Колонка ${i + 1} должна быть "${expectedColumns[i]}", найдено "${fileHeaders[i]}".`,
             variant: "destructive",
           });
           setSelectedFile(null);
@@ -198,22 +203,15 @@ export const FileUploader = ({
         const rowObj: Record<string, any> = {};
         
         // Заполняем все колонки по порядку
+        // ЗАПРЕЩЕНО: менять регистр, нормализовывать, "чинить" значения
         for (let j = 0; j < expectedColumns.length; j++) {
           const value = row[j];
-          
-          // Для текстовых значений - сохраняем как есть (Unicode), только безопасная очистка
-          if (value != null && value !== "") {
-            if (typeof value === "string") {
-              rowObj[expectedColumns[j]] = safeClean(value);
-            } else {
-              rowObj[expectedColumns[j]] = value;
-            }
-          } else {
-            rowObj[expectedColumns[j]] = "";
-          }
+          // Сохраняем значение как есть, без изменений
+          rowObj[expectedColumns[j]] = value != null ? value : "";
         }
 
         // Специальная обработка для "Тип начисления" (accruals)
+        // Сохраняем оригинал и нормализованную версию для аналитики
         if (importType === "accruals" && rowObj["Тип начисления"]) {
           const accrualTypeRaw = String(rowObj["Тип начисления"]);
           rowObj["Тип начисления_raw"] = accrualTypeRaw; // оригинал для аудита
