@@ -155,18 +155,17 @@ export const FileUploader = ({
     const headerRow = rawData[headerRowIndex] || [];
 
     // Функция для извлечения текста заголовка из ячейки
-    const getCellHeaderText = (cell: XLSX.CellObject | undefined): string => {
+    // КЛЮЧЕВОЕ: для заголовков используем ТОЛЬКО raw value (cell.v)
+    const getHeaderValue = (cell?: XLSX.CellObject): string => {
       if (!cell) return "";
-
-      // Для заголовков: ТОЛЬКО raw value (v).
-      // w (formatted) может быть мусором/символами шрифта/кракозябрами.
+      // КЛЮЧЕВОЕ: для заголовков используем ТОЛЬКО raw value
       if (cell.v != null) return String(cell.v);
-
-      // fallback на w только если v отсутствует вообще
-      if ((cell as any).w) return String((cell as any).w);
-
       return "";
     };
+
+    // Проверка (для дебага)
+    console.log("A1 v:", worksheet["A1"]?.v);
+    console.log("A1 w:", (worksheet["A1"] as any)?.w);
 
     // Определяем максимальное количество колонок
     const maxCols = Math.max(...rawData.map(row => row?.length || 0), 0);
@@ -176,15 +175,8 @@ export const FileUploader = ({
     for (let col = 0; col < maxCols; col++) {
       const addr = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
       const cell = worksheet[addr] as XLSX.CellObject | undefined;
-
-      let headerValue = getCellHeaderText(cell);
-
-      // fallback на rawData только если пусто
-      if (!headerValue && headerRow[col] != null) {
-        headerValue = String(headerRow[col] ?? "");
-      }
-
-      originalHeaders.push(headerValue);
+      const header = getHeaderValue(cell).trim();
+      originalHeaders.push(header);
     }
 
     // 🔥 ЕДИНСТВЕННОЕ ПРАВИЛЬНОЕ МЕСТО ДЕКОДИРОВАНИЯ
