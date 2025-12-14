@@ -1,3 +1,16 @@
+/**
+ * OZON Performance API Sync Function
+ * Version: 2.0.0-final
+ * Date: 2025-12-14
+ *
+ * Key features:
+ * - Sequential processing (1 chunk = 10 campaigns)
+ * - ZIP extraction support with JSZip
+ * - All OZON endpoints use redirect: "follow" (fixes 307 redirects)
+ * - Optimized polling: 6 attempts × 2s = 13s
+ * - Handles { list: [...] } response format for campaigns
+ */
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import JSZip from "https://esm.sh/jszip@3.10.1";
@@ -382,7 +395,13 @@ serve(async (req) => {
 
     if (test) {
       return new Response(
-        JSON.stringify({ success: true, message: "Connection successful", token_obtained: true }),
+        JSON.stringify({
+          success: true,
+          message: "Connection successful",
+          token_obtained: true,
+          version: "2.0.0-final",
+          build_date: "2025-12-14"
+        }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -555,6 +574,8 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         chunks_total: chunks.length,
         inserted: records.length,
+        version: "2.0.0-final",
+        build_date: "2025-12-14"
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
