@@ -50,6 +50,7 @@ export const FileUploader = ({
   const [fileName, setFileName] = useState<string>("");
   const [initialMapping, setInitialMapping] = useState<ColumnMapping>({});
   const [rawData, setRawData] = useState<any[][]>([]);
+  const worksheetRef = useRef<XLSX.WorkSheet | null>(null);
   const [showHeaderSelector, setShowHeaderSelector] = useState(false);
   const [headerRowIndex, setHeaderRowIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -97,7 +98,7 @@ export const FileUploader = ({
       const rawData = XLSX.utils.sheet_to_json(worksheet, {
         header: 1,
         defval: "",
-        raw: false,
+        raw: true,      // важно: raw values для правильного чтения
       }) as any[][];
 
       if (!rawData.length) {
@@ -113,6 +114,7 @@ export const FileUploader = ({
 
       // 4. Останавливаемся и показываем селектор строки заголовков
       setRawData(rawData);
+      worksheetRef.current = worksheet;
       setFileName(file.name);
       setShowHeaderSelector(true);
       setIsProcessing(false);
@@ -147,12 +149,46 @@ export const FileUploader = ({
 
   // Реакция на выбор строки заголовков
   useEffect(() => {
-    if (headerRowIndex === null) return;
+    if (headerRowIndex === null || !worksheetRef.current) return;
 
+    const worksheet = worksheetRef.current;
     const headerRow = rawData[headerRowIndex] || [];
 
+    // Функция для извлечения текста заголовка из ячейки
+    const getCellHeaderText = (cell: XLSX.CellObject | undefined): string => {
+      if (!cell) return "";
+
+      // Для заголовков: ТОЛЬКО raw value (v).
+      // w (formatted) может быть мусором/символами шрифта/кракозябрами.
+      if (cell.v != null) return String(cell.v);
+
+      // fallback на w только если v отсутствует вообще
+      if ((cell as any).w) return String((cell as any).w);
+
+      return "";
+    };
+
+    // Определяем максимальное количество колонок
+    const maxCols = Math.max(...rawData.map(row => row?.length || 0), 0);
+
+    // Извлекаем заголовки напрямую из worksheet
+    const originalHeaders: string[] = [];
+    for (let col = 0; col < maxCols; col++) {
+      const addr = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
+      const cell = worksheet[addr] as XLSX.CellObject | undefined;
+
+      let headerValue = getCellHeaderText(cell);
+
+      // fallback на rawData только если пусто
+      if (!headerValue && headerRow[col] != null) {
+        headerValue = String(headerRow[col] ?? "");
+      }
+
+      originalHeaders.push(headerValue);
+    }
+
     // 🔥 ЕДИНСТВЕННОЕ ПРАВИЛЬНОЕ МЕСТО ДЕКОДИРОВАНИЯ
-    const cleanedHeaders = headerRow
+    const cleanedHeaders = originalHeaders
       .map(h => fixUtf16Mojibake(String(h ?? "")))
       .map(h => cleanHeaderKey(h))
       .filter(h => h.length > 0);
