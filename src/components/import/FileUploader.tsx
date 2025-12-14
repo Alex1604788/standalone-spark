@@ -1,18 +1,15 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { Upload, FileSpreadsheet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
-import { ColumnMappingModal, guessMapping, type ColumnMapping } from "./ColumnMappingModal";
-import { normalizeHeader, fixUtf16Mojibake, fixWeirdUtf16 } from "@/lib/importUtils";
 
 export type ImportType = "accruals" | "storage_costs";
 
 interface FileUploaderProps {
   importType: ImportType;
-  onFileSelect: (data: any[], fileName: string, columnMapping?: Record<string, string>) => void;
+  onFileSelect: (data: any[], fileName: string) => void;
   onClear?: () => void;
 }
 
@@ -21,20 +18,78 @@ const IMPORT_TYPE_LABELS: Record<ImportType, string> = {
   storage_costs: "Стоимость размещения",
 };
 
-const EXPECTED_COLUMNS: Record<ImportType, string[]> = {
-  accruals: ["Тип начисления", "Артикул"],
-  storage_costs: ["Дата", "Артикул"],
+// Строгие шаблоны колонок (порядок фиксированный)
+const TEMPLATE_COLUMNS: Record<ImportType, string[]> = {
+  accruals: [
+    "Дата начисления",
+    "Тип начисления",
+    "Номер отправления или идентификатор услуги",
+    "Дата принятия заказа в обработку или оказания услуги",
+    "Склад отгрузки",
+    "SKU",
+    "Артикул",
+    "Название товара или услуги",
+    "Количество",
+    "За продажу или возврат до вычета комиссий и услуг",
+    "Вознаграждение Ozon, %",
+    "Вознаграждение Ozon",
+    "Сборка заказа",
+    "Обработка отправления (Drop-off/Pick-up) (разбивается по товарам пропорционально количеству в отправлении)",
+    "Магистраль",
+    "Последняя миля (разбивается по товарам пропорционально доле цены товара в сумме отправления)",
+    "Обратная магистраль",
+    "Обработка возврата",
+    "Обработка отмененного или невостребованного товара (разбивается по товарам в отправлении в одинаковой пропорции)",
+    "Обработка невыкупленного товара",
+    "Логистика",
+    "Индекс локализации",
+    "Среднее время доставки, часы",
+    "Обратная логистика",
+    "Итого, руб.",
+  ],
+  storage_costs: [
+    "Дата",
+    "SKU",
+    "Артикул",
+    "Категория товара",
+    "Описательный тип",
+    "Склад",
+    "Признак товара",
+    "Суммарный объем в миллилитрах",
+    "Кол-во экземпляров",
+    "Платный объем в миллилитрах",
+    "Кол-во платных экземпляров",
+    "Начисленная стоимость размещения",
+  ],
 };
 
 /**
- * Чистим заголовок для использования в качестве ключа объекта.
- * Сохраняет регистр для ключей, но использует fixWeirdUtf16 для исправления кракозябр.
+ * Безопасная очистка строки - только удаление BOM/zero-width/управляющих символов
+ * НЕ использует fixWeirdUtf16, чтобы не ломать кириллицу
  */
-const cleanHeaderKey = (s: string) => {
-  // Исправляем UTF-16 кракозябры, но сохраняем регистр для ключей объекта
-  return fixWeirdUtf16(s)
-    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
+const safeClean = (s: string): string => {
+  return s
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "") // только BOM/ZWSP/управляющие
     .trim();
+};
+
+/**
+ * Нормализация для аналитики (lower + trim + убрать двойные пробелы + убрать невидимые символы)
+ */
+const normalizeForAnalytics = (s: string): string => {
+  return safeClean(s)
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+/**
+ * Извлечение текста заголовка из ячейки (только cell.v)
+ */
+const getHeaderValue = (cell?: XLSX.CellObject): string => {
+  if (!cell) return "";
+  if (cell.v != null) return String(cell.v);
+  return "";
 };
 
 export const FileUploader = ({
@@ -44,15 +99,6 @@ export const FileUploader = ({
 }: FileUploaderProps) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [showMappingModal, setShowMappingModal] = useState(false);
-  const [fileColumns, setFileColumns] = useState<string[]>([]);
-  const [parsedData, setParsedData] = useState<any[]>([]);
-  const [fileName, setFileName] = useState<string>("");
-  const [initialMapping, setInitialMapping] = useState<ColumnMapping>({});
-  const [rawData, setRawData] = useState<any[][]>([]);
-  const worksheetRef = useRef<XLSX.WorkSheet | null>(null);
-  const [showHeaderSelector, setShowHeaderSelector] = useState(false);
-  const [headerRowIndex, setHeaderRowIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -77,34 +123,49 @@ export const FileUploader = ({
     setIsProcessing(true);
 
     try {
-      // 1. читаем файл
+      // 1. Читаем файл
       const arrayBuffer = await file.arrayBuffer();
-
-      // пробуем более "безопасное" чтение через Uint8Array
       const data = new Uint8Array(arrayBuffer);
-      const workbook = XLSX.read(data, {
-        type: "array",
-      });
+      const workbook = XLSX.read(data, { type: "array" });
 
       if (!workbook.SheetNames.length) {
         throw new Error("В файле нет листов");
       }
 
-      // 2. берём первый лист
+      // 2. Берём первый лист
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
 
-      // 3. Получаем сырые данные как массив массивов (header: 1)
+      // 3. Получаем сырые данные
       const rawData = XLSX.utils.sheet_to_json(worksheet, {
         header: 1,
         defval: "",
-        raw: true,      // важно: raw values для правильного чтения
+        raw: true,
       }) as any[][];
 
       if (!rawData.length) {
+        throw new Error("Файл пуст");
+      }
+
+      // 4. ВАЛИДАЦИЯ: читаем заголовки из первой строки
+      const expectedColumns = TEMPLATE_COLUMNS[importType];
+      const headerRowIndex = 0;
+      const maxCols = Math.max(...rawData.map(row => row?.length || 0), 0);
+
+      // Извлекаем заголовки напрямую из worksheet
+      const fileHeaders: string[] = [];
+      for (let col = 0; col < maxCols; col++) {
+        const addr = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
+        const cell = worksheet[addr] as XLSX.CellObject | undefined;
+        const header = safeClean(getHeaderValue(cell));
+        fileHeaders.push(header);
+      }
+
+      // Валидация: количество колонок
+      if (fileHeaders.length !== expectedColumns.length) {
         toast({
-          title: "Файл пуст",
-          description: "Excel файл не содержит данных",
+          title: "Неверный формат",
+          description: `Ожидается ${expectedColumns.length} колонок, найдено ${fileHeaders.length}. Загрузите файл из OZON без изменений структуры.`,
           variant: "destructive",
         });
         setSelectedFile(null);
@@ -112,15 +173,65 @@ export const FileUploader = ({
         return;
       }
 
-      // 4. Останавливаемся и показываем селектор строки заголовков
-      setRawData(rawData);
-      worksheetRef.current = worksheet;
-      setFileName(file.name);
-      setShowHeaderSelector(true);
-      setIsProcessing(false);
-      return;
+      // Валидация: текст заголовков и порядок
+      for (let i = 0; i < expectedColumns.length; i++) {
+        const expected = safeClean(expectedColumns[i]);
+        const actual = fileHeaders[i];
+        if (expected !== actual) {
+          toast({
+            title: "Неверный формат",
+            description: `Колонка ${i + 1}: ожидается "${expectedColumns[i]}", найдено "${fileHeaders[i]}". Загрузите файл из OZON без изменений структуры.`,
+            variant: "destructive",
+          });
+          setSelectedFile(null);
+          setIsProcessing(false);
+          return;
+        }
+      }
+
+      // 5. Парсинг данных (начиная со строки 1, так как строка 0 - заголовки)
+      const parsedData: any[] = [];
+      for (let i = 1; i < rawData.length; i++) {
+        const row = rawData[i];
+        if (!row || row.every((c: any) => c === "")) continue;
+
+        const rowObj: Record<string, any> = {};
+        
+        // Заполняем все колонки по порядку
+        for (let j = 0; j < expectedColumns.length; j++) {
+          const value = row[j];
+          
+          // Для текстовых значений - сохраняем как есть (Unicode), только безопасная очистка
+          if (value != null && value !== "") {
+            if (typeof value === "string") {
+              rowObj[expectedColumns[j]] = safeClean(value);
+            } else {
+              rowObj[expectedColumns[j]] = value;
+            }
+          } else {
+            rowObj[expectedColumns[j]] = "";
+          }
+        }
+
+        // Специальная обработка для "Тип начисления" (accruals)
+        if (importType === "accruals" && rowObj["Тип начисления"]) {
+          const accrualTypeRaw = String(rowObj["Тип начисления"]);
+          rowObj["Тип начисления_raw"] = accrualTypeRaw; // оригинал для аудита
+          rowObj["Тип начисления_norm"] = normalizeForAnalytics(accrualTypeRaw); // для аналитики
+        }
+
+        parsedData.push(rowObj);
+      }
+
+      toast({
+        title: "Файл загружен",
+        description: `Найдено строк: ${parsedData.length}. Файл соответствует шаблону.`,
+      });
+
+      // 6. Отдаём данные дальше
+      onFileSelect(parsedData, file.name);
     } catch (error: any) {
-      console.error("❌ ОШИБКА при парсинге Excel в FileUploader:", error);
+      console.error("❌ ОШИБКА при парсинге Excel:", error);
       toast({
         title: "Ошибка при чтении файла",
         description: error?.message || "Не удалось прочитать Excel файл",
@@ -147,68 +258,7 @@ export const FileUploader = ({
     fileInputRef.current?.click();
   };
 
-  // Реакция на выбор строки заголовков
-  useEffect(() => {
-    if (headerRowIndex === null || !worksheetRef.current) return;
-
-    const worksheet = worksheetRef.current;
-    const headerRow = rawData[headerRowIndex] || [];
-
-    // Функция для извлечения текста заголовка из ячейки
-    // КЛЮЧЕВОЕ: для заголовков используем ТОЛЬКО raw value (cell.v)
-    const getHeaderValue = (cell?: XLSX.CellObject): string => {
-      if (!cell) return "";
-      // КЛЮЧЕВОЕ: для заголовков используем ТОЛЬКО raw value
-      if (cell.v != null) return String(cell.v);
-      return "";
-    };
-
-    // Проверка (для дебага)
-    console.log("A1 v:", worksheet["A1"]?.v);
-    console.log("A1 w:", (worksheet["A1"] as any)?.w);
-
-    // Определяем максимальное количество колонок
-    const maxCols = Math.max(...rawData.map(row => row?.length || 0), 0);
-
-    // Извлекаем заголовки напрямую из worksheet
-    const originalHeaders: string[] = [];
-    for (let col = 0; col < maxCols; col++) {
-      const addr = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
-      const cell = worksheet[addr] as XLSX.CellObject | undefined;
-      const header = getHeaderValue(cell).trim();
-      originalHeaders.push(header);
-    }
-
-    // 🔥 ЕДИНСТВЕННОЕ ПРАВИЛЬНОЕ МЕСТО ДЕКОДИРОВАНИЯ
-    const cleanedHeaders = originalHeaders
-      .map(h => fixUtf16Mojibake(String(h ?? "")))
-      .map(h => cleanHeaderKey(h))
-      .filter(h => h.length > 0);
-
-    console.log("HEADERS FINAL:", cleanedHeaders);
-
-    const data: any[] = [];
-
-    for (let i = headerRowIndex + 1; i < rawData.length; i++) {
-      const row = rawData[i];
-      if (!row || row.every((c: any) => c === "")) continue;
-
-      const obj: Record<string, any> = {};
-      cleanedHeaders.forEach((h, idx) => {
-        obj[h] = row[idx] ?? "";
-      });
-
-      data.push(obj);
-    }
-
-    // ❗❗❗ ВАЖНО
-    setFileColumns(cleanedHeaders);   // ← ТОЛЬКО ОНИ
-    setParsedData(data);
-
-    const guessed = guessMapping(importType, cleanedHeaders);
-    setInitialMapping(guessed);
-    setShowMappingModal(true);
-  }, [headerRowIndex]);
+  const expectedColumns = TEMPLATE_COLUMNS[importType];
 
   return (
     <Card>
@@ -261,74 +311,14 @@ export const FileUploader = ({
         )}
 
         <div className="mt-4 p-3 bg-muted/50 rounded-lg">
-          <p className="text-xs font-semibold mb-2">Ожидаемые колонки:</p>
+          <p className="text-xs font-semibold mb-2">
+            Ожидается файл с {expectedColumns.length} колонками:
+          </p>
           <p className="text-xs text-muted-foreground">
-            {EXPECTED_COLUMNS[importType].join(", ")}
+            {expectedColumns.slice(0, 3).join(", ")}...
           </p>
         </div>
       </CardContent>
-      
-      {/* Диалог выбора строки заголовков */}
-      {showHeaderSelector && (
-        <Dialog open={showHeaderSelector} onOpenChange={() => setShowHeaderSelector(false)}>
-          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Выберите строку с заголовками</DialogTitle>
-              <DialogDescription>
-                Кликните по строке, где находятся названия колонок (Артикул, SKU, Дата и т.д.)
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-1">
-              {rawData.slice(0, 20).map((row, idx) => (
-                <div
-                  key={idx}
-                  className="flex gap-2 p-2 border rounded cursor-pointer hover:bg-muted"
-                  onClick={() => {
-                    setHeaderRowIndex(idx);
-                    setShowHeaderSelector(false);
-                  }}
-                >
-                  <div className="w-10 text-xs text-muted-foreground">
-                    #{idx + 1}
-                  </div>
-                  {row.slice(0, 6).map((cell, i) => (
-                    <div
-                      key={i}
-                      className="truncate max-w-[180px] text-sm"
-                    >
-                      {String(cell)}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {/* Модалка настройки колонок */}
-      <ColumnMappingModal
-        open={showMappingModal}
-        onClose={() => {
-          setShowMappingModal(false);
-          setSelectedFile(null);
-          if (fileInputRef.current) {
-            fileInputRef.current.value = "";
-          }
-        }}
-        onSave={(mapping) => {
-          setShowMappingModal(false);
-          toast({
-            title: "Колонки настроены",
-            description: "Импорт готов к запуску",
-          });
-          onFileSelect(parsedData, fileName, mapping);
-        }}
-        importType={importType}
-        fileColumns={fileColumns}
-        initialMapping={initialMapping}
-      />
     </Card>
   );
 };

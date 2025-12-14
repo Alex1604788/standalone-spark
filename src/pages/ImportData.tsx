@@ -12,13 +12,27 @@ import { supabase } from "@/integrations/supabase/client";
 import { FileUploader, type ImportType } from "@/components/import/FileUploader";
 import { ImportHistory } from "@/components/import/ImportHistory";
 import { useQuery } from "@tanstack/react-query";
-import { cleanText, parseNumber, parseDate as parseOzonDate, normalize } from "@/lib/importUtils";
+import { parseNumber, parseDate as parseOzonDate } from "@/lib/importUtils";
+
+// Безопасная очистка строки - только удаление BOM/zero-width/управляющих символов
+const safeClean = (s: string): string => {
+  return s
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "") // только BOM/ZWSP/управляющие
+    .trim();
+};
+
+// Нормализация для аналитики
+const normalizeForAnalytics = (s: string): string => {
+  return safeClean(s)
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+};
 
 const ImportData = () => {
   const [importType, setImportType] = useState<ImportType>("accruals");
   const [fileData, setFileData] = useState<any[] | null>(null);
   const [fileName, setFileName] = useState<string>("");
-  const [columnMapping, setColumnMapping] = useState<Record<string, string> | null>(null); // Маппинг колонок
   const [periodStart, setPeriodStart] = useState<string>("");
   const [periodEnd, setPeriodEnd] = useState<string>("");
   const [isImporting, setIsImporting] = useState(false);
@@ -47,17 +61,15 @@ const ImportData = () => {
     },
   });
 
-  const handleFileSelect = (data: any[], name: string, mapping?: Record<string, string>) => {
+  const handleFileSelect = (data: any[], name: string) => {
     setFileData(data);
     setFileName(name);
-    setColumnMapping(mapping || null);
     setImportResult(null);
   };
 
   const handleClear = () => {
     setFileData(null);
     setFileName("");
-    setColumnMapping(null);
     setImportResult(null);
   };
 
@@ -84,33 +96,7 @@ const ImportData = () => {
       return;
     }
     
-    if (!columnMapping) {
-      window.console.error("❌ Ошибка: нет columnMapping");
-      toast({
-        title: "Ошибка",
-        description: "Не настроено сопоставление колонок. Загрузите файл снова.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    // Сохраняем маппинг в БД для будущих импортов
-    try {
-      await supabase
-        .from("import_column_mappings")
-        .upsert({
-          marketplace_id: marketplace.id,
-          import_type: importType,
-          mapping: columnMapping,
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: "marketplace_id,import_type"
-        });
-      window.console.log("✅ Маппинг колонок сохранен в БД");
-    } catch (error) {
-      window.console.warn("⚠️ Не удалось сохранить маппинг в БД:", error);
-      // Не критично, продолжаем импорт
-    }
+    // Валидация уже выполнена в FileUploader, продолжаем импорт
 
     window.console.log("📊 Информация о файле для импорта:", {
       importType,
@@ -247,10 +233,7 @@ const ImportData = () => {
         }
         
         try {
-          if (!columnMapping) {
-            throw new Error("Маппинг колонок не настроен");
-          }
-          const transformed = transformRow(row, importType, marketplace.id, importLog?.id || "", columnMapping, i);
+          const transformed = transformRow(row, importType, marketplace.id, importLog?.id || "", i);
           transformedRows.push(transformed);
           
           // Логируем успешное преобразование первых 3 строк
@@ -464,66 +447,60 @@ const ImportData = () => {
   const buildAccrualRow = (
     row: any,
     marketplaceId: string,
-    importBatchId: string,
-    mapping: Record<string, string>
+    importBatchId: string
   ) => {
-    // Получаем значения по маппингу
-    const accrualTypeCol = mapping.accrual_type;
-    const offerIdCol = mapping.offer_id;
-    const dateCol = mapping.date;
-    const skuCol = mapping.sku;
-    const quantityCol = mapping.quantity;
-    const amountBeforeCol = mapping.amount_before_commission;
-    const totalCol = mapping.total_amount;
-
-    // Проверяем обязательные поля
-    if (!accrualTypeCol || !offerIdCol) {
-      throw new Error(`Не найдены обязательные колонки в маппинге: accrual_type=${accrualTypeCol}, offer_id=${offerIdCol}`);
-    }
-
-    // Получаем значения из строки
-    const accrualType = row[accrualTypeCol];
-    const offerId = row[offerIdCol];
+    // Используем фиксированные имена колонок из шаблона
+    const accrualTypeRaw = row["Тип начисления"] || row["Тип начисления_raw"] || "";
+    const accrualTypeNorm = row["Тип начисления_norm"] || normalizeForAnalytics(accrualTypeRaw);
+    const offerId = row["Артикул"];
+    const date = row["Дата начисления"];
     
-    if (!accrualType || !offerId) {
-      throw new Error(`Пустые значения в обязательных полях: accrual_type="${accrualType}", offer_id="${offerId}"`);
+    if (!accrualTypeRaw || !offerId) {
+      throw new Error(`Пустые значения в обязательных полях: accrual_type="${accrualTypeRaw}", offer_id="${offerId}"`);
     }
 
     return {
       marketplace_id: marketplaceId,
-      accrual_date: dateCol && row[dateCol] ? parseOzonDate(row[dateCol], periodStart) : (periodStart || null),
-      offer_id: cleanText(offerId),
-      sku: skuCol && row[skuCol] ? cleanText(row[skuCol]) : null,
-      accrual_type: cleanText(accrualType),
-      quantity: quantityCol && row[quantityCol] ? parseNumber(row[quantityCol]) : 0,
-      amount_before_commission: amountBeforeCol && row[amountBeforeCol] ? parseNumber(row[amountBeforeCol]) : 0,
-      total_amount: totalCol && row[totalCol] ? parseNumber(row[totalCol]) : 0,
+      accrual_date: parseOzonDate(date, periodStart) || periodStart || null,
+      offer_id: safeClean(String(offerId || "")),
+      sku: row["SKU"] ? safeClean(String(row["SKU"])) : null,
+      accrual_type: accrualTypeNorm,
+      accrual_type_raw: accrualTypeRaw,
+      accrual_type_norm: accrualTypeNorm,
+      quantity: parseNumber(row["Количество"] || 0),
+      amount_before_commission: parseNumber(row["За продажу или возврат до вычета комиссий и услуг"] || 0),
+      total_amount: parseNumber(row["Итого, руб."] || 0),
+      shipment_number: row["Номер отправления или идентификатор услуги"] ? safeClean(String(row["Номер отправления или идентификатор услуги"])) : null,
+      order_date: row["Дата принятия заказа в обработку или оказания услуги"] ? parseOzonDate(row["Дата принятия заказа в обработку или оказания услуги"]) : null,
+      warehouse: row["Склад отгрузки"] ? safeClean(String(row["Склад отгрузки"])) : null,
+      product_name: row["Название товара или услуги"] ? safeClean(String(row["Название товара или услуги"])) : null,
+      commission_percent: parseNumber(row["Вознаграждение Ozon, %"] || 0),
+      commission_amount: parseNumber(row["Вознаграждение Ozon"] || 0),
+      order_assembly: parseNumber(row["Сборка заказа"] || 0),
+      shipment_processing: parseNumber(row["Обработка отправления (Drop-off/Pick-up) (разбивается по товарам пропорционально количеству в отправлении)"] || 0),
+      main_route: parseNumber(row["Магистраль"] || 0),
+      last_mile: parseNumber(row["Последняя миля (разбивается по товарам пропорционально доле цены товара в сумме отправления)"] || 0),
+      return_main_route: parseNumber(row["Обратная магистраль"] || 0),
+      return_processing: parseNumber(row["Обработка возврата"] || 0),
+      cancelled_processing: parseNumber(row["Обработка отмененного или невостребованного товара (разбивается по товарам в отправлении в одинаковой пропорции)"] || 0),
+      undelivered_processing: parseNumber(row["Обработка невыкупленного товара"] || 0),
+      logistics: parseNumber(row["Логистика"] || 0),
+      localization_index: row["Индекс локализации"] ? safeClean(String(row["Индекс локализации"])) : null,
+      avg_delivery_hours: row["Среднее время доставки, часы"] ? parseInt(String(row["Среднее время доставки, часы"])) || 0 : null,
+      return_logistics: parseNumber(row["Обратная логистика"] || 0),
       import_batch_id: importBatchId,
     };
   };
   
-  // Преобразование строки стоимости размещения в объект для вставки (использует маппинг)
+  // Преобразование строки стоимости размещения в объект для вставки
   const buildStorageCostRow = (
     row: any,
     marketplaceId: string,
-    importBatchId: string,
-    mapping: Record<string, string>
+    importBatchId: string
   ) => {
-    // Получаем значения по маппингу
-    const dateCol = mapping.date;
-    const offerIdCol = mapping.offer_id;
-    const skuCol = mapping.sku;
-    const costCol = mapping.cost;
-    const stockCol = mapping.stock;
-
-    // Проверяем обязательные поля
-    if (!dateCol || !offerIdCol) {
-      throw new Error(`Не найдены обязательные колонки в маппинге: date=${dateCol}, offer_id=${offerIdCol}`);
-    }
-
-    // Получаем значения из строки
-    const date = row[dateCol];
-    const offerId = row[offerIdCol];
+    // Используем фиксированные имена колонок из шаблона
+    const date = row["Дата"];
+    const offerId = row["Артикул"];
     
     if (!date || !offerId) {
       throw new Error(`Пустые значения в обязательных полях: date="${date}", offer_id="${offerId}"`);
@@ -532,27 +509,32 @@ const ImportData = () => {
     return {
       marketplace_id: marketplaceId,
       cost_date: parseOzonDate(date, periodStart) || periodStart,
-      offer_id: cleanText(offerId),
-      sku: skuCol && row[skuCol] ? cleanText(row[skuCol]) : null,
-      storage_cost: costCol && row[costCol] ? parseNumber(row[costCol]) : 0,
-      stock_quantity: stockCol && row[stockCol] ? parseNumber(row[stockCol]) : 0,
+      offer_id: safeClean(String(offerId || "")),
+      sku: row["SKU"] ? safeClean(String(row["SKU"])) : null,
+      storage_cost: parseNumber(row["Начисленная стоимость размещения"] || 0),
+      stock_quantity: parseInt(String(row["Кол-во экземпляров"] || 0)) || 0,
+      category: row["Категория товара"] ? safeClean(String(row["Категория товара"])) : null,
+      descriptive_type: row["Описательный тип"] ? safeClean(String(row["Описательный тип"])) : null,
+      warehouse: row["Склад"] ? safeClean(String(row["Склад"])) : null,
+      product_attribute: row["Признак товара"] ? safeClean(String(row["Признак товара"])) : null,
+      total_volume_ml: parseInt(String(row["Суммарный объем в миллилитрах"] || 0)) || 0,
+      paid_volume_ml: parseInt(String(row["Платный объем в миллилитрах"] || 0)) || 0,
+      paid_instances: parseInt(String(row["Кол-во платных экземпляров"] || 0)) || 0,
       import_batch_id: importBatchId,
     };
   };
   
-  // Преобразование строки в объект для вставки (обертка, использует маппинг)
+  // Преобразование строки в объект для вставки
   const transformRow = (
     row: any,
     type: ImportType,
     marketplaceId: string,
     importBatchId: string,
-    mapping: Record<string, string>,
     rowIndex?: number
   ) => {
     if (rowIndex !== undefined && rowIndex < 5) {
       window.console.log(`🔄 transformRow вызван для строки ${rowIndex}:`, {
         type,
-        mapping,
         rowKeys: Object.keys(row).slice(0, 30),
         rowSample: Object.fromEntries(
           Object.entries(row)
@@ -563,9 +545,9 @@ const ImportData = () => {
     }
 
     if (type === "accruals") {
-      return buildAccrualRow(row, marketplaceId, importBatchId, mapping);
+      return buildAccrualRow(row, marketplaceId, importBatchId);
     }
-    return buildStorageCostRow(row, marketplaceId, importBatchId, mapping);
+    return buildStorageCostRow(row, marketplaceId, importBatchId);
   };
 
   const formatDate = (dateString: string) => {
