@@ -306,15 +306,34 @@ const ImportData = () => {
         window.console.log(`📦 Батч ${batchNumber}/${totalBatches}: вставляем строки ${i + 1}–${i + chunk.length} (${progress.toFixed(1)}%)`);
 
         try {
-          // Используем upsert для избежания ошибок дубликатов
-          // onConflict указывает на уникальное ограничение
+          // Дедуплицируем данные в батче перед upsert
+          // Supabase не может обработать дубликаты в одном upsert запросе
+          const deduplicatedChunk = new Map<string, any>();
           const conflictColumns = importType === "accruals" 
             ? "marketplace_id,accrual_date,offer_id,accrual_type"  // UNIQUE constraint для ozon_accruals
             : "marketplace_id,cost_date,offer_id";  // UNIQUE constraint для storage_costs (без sku)
           
+          // Создаем ключ для каждой строки на основе уникального ограничения
+          for (const row of chunk) {
+            let key: string;
+            if (importType === "accruals") {
+              key = `${row.marketplace_id}|${row.accrual_date}|${row.offer_id || ""}|${row.accrual_type || ""}`;
+            } else {
+              key = `${row.marketplace_id}|${row.cost_date}|${row.offer_id || ""}`;
+            }
+            // Оставляем последнюю версию при дубликатах
+            deduplicatedChunk.set(key, row);
+          }
+          
+          const uniqueRows = Array.from(deduplicatedChunk.values());
+          
+          if (uniqueRows.length < chunk.length) {
+            window.console.log(`⚠️ Батч ${batchNumber}: удалено ${chunk.length - uniqueRows.length} дубликатов из ${chunk.length} строк`);
+          }
+          
           const { error } = await supabase
             .from(tableName)
-            .upsert(chunk, { 
+            .upsert(uniqueRows, { 
               onConflict: conflictColumns,
               ignoreDuplicates: false 
             });
