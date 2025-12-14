@@ -1,9 +1,10 @@
 import { useState, useRef } from "react";
-import { Upload, FileSpreadsheet, X } from "lucide-react";
+import { Upload, FileSpreadsheet, X, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
+import { fixWeirdUtf16, normalizeStringValue, parseNumber, parseDate } from "@/lib/importUtils";
 
 export type ImportType = "accruals" | "storage_costs";
 
@@ -18,7 +19,7 @@ const IMPORT_TYPE_LABELS: Record<ImportType, string> = {
   storage_costs: "Стоимость размещения",
 };
 
-// Строгие шаблоны колонок (порядок фиксированный)
+// Строгие шаблоны колонок (порядок фиксированный, строка 1)
 const TEMPLATE_COLUMNS: Record<ImportType, string[]> = {
   accruals: [
     "Дата начисления",
@@ -64,22 +65,13 @@ const TEMPLATE_COLUMNS: Record<ImportType, string[]> = {
 };
 
 /**
- * Безопасная очистка строки - только удаление BOM/zero-width/управляющих символов
- * НЕ использует fixWeirdUtf16, чтобы не ломать кириллицу
+ * Безопасная очистка строки для сравнения заголовков
+ * Убирает только BOM/zero-width/управляющие символы и нормализует пробелы
  */
-const safeClean = (s: string): string => {
+const cleanForComparison = (s: string): string => {
   return s
     .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "") // только BOM/ZWSP/управляющие
-    .trim();
-};
-
-/**
- * Нормализация для аналитики (lower + trim + убрать двойные пробелы + убрать невидимые символы)
- */
-const normalizeForAnalytics = (s: string): string => {
-  return safeClean(s)
-    .toLowerCase()
-    .replace(/\s+/g, " ")
+    .replace(/\s+/g, " ") // схлопываем пробелы
     .trim();
 };
 
@@ -88,10 +80,30 @@ const normalizeForAnalytics = (s: string): string => {
  */
 const getHeaderValue = (cell?: XLSX.CellObject): string => {
   if (!cell) return "";
-  // Используем cell.w (formatted) если есть, иначе cell.v (raw)
   const value = (cell as any).w ?? cell.v;
   if (value != null) return String(value);
   return "";
+};
+
+/**
+ * Генерация шаблона Excel для скачивания
+ */
+const generateTemplate = (importType: ImportType) => {
+  const columns = TEMPLATE_COLUMNS[importType];
+  const label = IMPORT_TYPE_LABELS[importType];
+  
+  // Создаем массив данных: заголовки в строке 1, подсказка в строке 2
+  const data: any[][] = [
+    columns, // Строка 1: заголовки
+    ["Вставьте данные начиная со строки 2", ...Array(columns.length - 1).fill("")], // Строка 2: подсказка
+  ];
+  
+  const worksheet = XLSX.utils.aoa_to_sheet(data);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Данные");
+  
+  const fileName = `шаблон_${importType === "accruals" ? "начисления_озон" : "стоимость_размещения"}_${new Date().toISOString().split("T")[0]}.xlsx`;
+  XLSX.writeFile(workbook, fileName);
 };
 
 export const FileUploader = ({
@@ -103,6 +115,14 @@ export const FileUploader = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  const handleDownloadTemplate = () => {
+    generateTemplate(importType);
+    toast({
+      title: "Шаблон скачан",
+      description: `Шаблон для ${IMPORT_TYPE_LABELS[importType]} готов к заполнению`,
+    });
+  };
 
   const handleFileChange = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -142,14 +162,14 @@ export const FileUploader = ({
       const rawData = XLSX.utils.sheet_to_json(worksheet, {
         header: 1,
         defval: "",
-        raw: false,  // Используем formatted values (cell.w)
+        raw: false,
       }) as any[][];
 
       if (!rawData.length) {
         throw new Error("Файл пуст");
       }
 
-      // 4. ВАЛИДАЦИЯ: читаем заголовки из первой строки
+      // 4. ВАЛИДАЦИЯ: читаем заголовки из строки 1 (индекс 0)
       const expectedColumns = TEMPLATE_COLUMNS[importType];
       const headerRowIndex = 0;
       const maxCols = Math.max(...rawData.map(row => row?.length || 0), 0);
@@ -162,19 +182,18 @@ export const FileUploader = ({
       for (let col = 0; col < maxCols; col++) {
         const addr = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
         const cell = worksheet[addr] as XLSX.CellObject | undefined;
-        const header = safeClean(getHeaderValue(cell));
+        const header = cleanForComparison(getHeaderValue(cell));
         fileHeaders.push(header);
       }
 
       console.log("🔍 ВАЛИДАЦИЯ: Первые 5 заголовков из файла:", fileHeaders.slice(0, 5));
-      console.log("🔍 ВАЛИДАЦИЯ: Первые 5 ожидаемых заголовков:", expectedColumns.slice(0, 5));
+      console.log("🔍 ВАЛИДАЦИЯ: Первые 5 ожидаемых заголовков:", expectedColumns.slice(0, 5).map(c => cleanForComparison(c)));
 
       // Валидация: количество колонок
       if (fileHeaders.length !== expectedColumns.length) {
-        const fileTypeLabel = importType === "accruals" ? "«Начисления»" : "«Стоимость размещения»";
         toast({
           title: "Неверный формат файла",
-          description: `Ожидается файл OZON ${fileTypeLabel}. Ожидается ${expectedColumns.length} колонок, найдено ${fileHeaders.length}.`,
+          description: `Ожидается файл OZON ${IMPORT_TYPE_LABELS[importType]}. Ожидается ${expectedColumns.length} колонок, найдено ${fileHeaders.length}. Загрузите файл, созданный через 'Скачать шаблон'.`,
           variant: "destructive",
         });
         setSelectedFile(null);
@@ -184,14 +203,12 @@ export const FileUploader = ({
 
       // Валидация: текст заголовков и порядок (строго 1-в-1)
       for (let i = 0; i < expectedColumns.length; i++) {
-        const expected = safeClean(expectedColumns[i]);
-        const actual = safeClean(fileHeaders[i]);
+        const expected = cleanForComparison(expectedColumns[i]);
+        const actual = fileHeaders[i];
         if (expected !== actual) {
-          const fileTypeLabel = importType === "accruals" ? "«Начисления»" : "«Стоимость размещения»";
-          const firstColumnName = importType === "accruals" ? "Дата начисления" : "Дата";
           toast({
             title: "Неверный формат файла",
-            description: `Ожидается файл OZON ${fileTypeLabel}. Колонка ${i + 1} должна быть "${expectedColumns[i]}", найдено "${fileHeaders[i]}".`,
+            description: `Ожидается файл OZON ${IMPORT_TYPE_LABELS[importType]}. Колонка ${i + 1} должна быть "${expectedColumns[i]}", найдено "${fileHeaders[i]}". Загрузите файл, созданный через 'Скачать шаблон'.`,
             variant: "destructive",
           });
           setSelectedFile(null);
@@ -200,28 +217,41 @@ export const FileUploader = ({
         }
       }
 
-      // 5. Парсинг данных (начиная со строки 1, так как строка 0 - заголовки)
+      // 5. Парсинг данных (начиная со строки 2, так как строка 1 - заголовки)
       const parsedData: any[] = [];
       for (let i = 1; i < rawData.length; i++) {
         const row = rawData[i];
         if (!row || row.every((c: any) => c === "")) continue;
 
+        // Читаем значения по индексу колонки (A=0, B=1, C=2...)
         const rowObj: Record<string, any> = {};
         
-        // Заполняем все колонки по порядку
-        // ЗАПРЕЩЕНО: менять регистр, нормализовывать, "чинить" значения
-        for (let j = 0; j < expectedColumns.length; j++) {
-          const value = row[j];
-          // Сохраняем значение как есть, без изменений
-          rowObj[expectedColumns[j]] = value != null ? value : "";
+        for (let colIndex = 0; colIndex < expectedColumns.length; colIndex++) {
+          const value = row[colIndex];
+          const columnName = expectedColumns[colIndex];
+          
+          // Нормализация значений в зависимости от типа колонки
+          if (value == null || value === "") {
+            rowObj[columnName] = "";
+          } else if (typeof value === "string") {
+            // Применяем fixWeirdUtf16 к КАЖДОЙ строковой ячейке
+            rowObj[columnName] = normalizeStringValue(value);
+          } else if (typeof value === "number") {
+            // Числа оставляем как есть (будут обработаны в ImportData)
+            rowObj[columnName] = value;
+          } else {
+            rowObj[columnName] = String(value);
+          }
         }
 
         // Специальная обработка для "Тип начисления" (accruals)
-        // Сохраняем оригинал и нормализованную версию для аналитики
         if (importType === "accruals" && rowObj["Тип начисления"]) {
           const accrualTypeRaw = String(rowObj["Тип начисления"]);
           rowObj["Тип начисления_raw"] = accrualTypeRaw; // оригинал для аудита
-          rowObj["Тип начисления_norm"] = normalizeForAnalytics(accrualTypeRaw); // для аналитики
+          rowObj["Тип начисления_norm"] = accrualTypeRaw
+            .toLowerCase()
+            .replace(/\s+/g, " ")
+            .trim(); // для аналитики
         }
 
         parsedData.push(rowObj);
@@ -267,6 +297,19 @@ export const FileUploader = ({
   return (
     <Card>
       <CardContent className="pt-6">
+        {/* Кнопка скачать шаблон */}
+        <div className="mb-4 flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownloadTemplate}
+            className="gap-2"
+          >
+            <Download className="w-4 h-4" />
+            Скачать шаблон: {IMPORT_TYPE_LABELS[importType]}
+          </Button>
+        </div>
+
         <input
           ref={fileInputRef}
           type="file"

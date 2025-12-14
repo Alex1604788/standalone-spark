@@ -436,33 +436,58 @@ const ImportData = () => {
 
     return {
       marketplace_id: marketplaceId,
+      // 1. Дата начисления
       accrual_date: parseOzonDate(date, periodStart) || periodStart || null,
-      offer_id: getStringValue(offerId),
-      sku: getValue(row["SKU"]),
+      // 2. Тип начисления
       accrual_type: accrualTypeNorm,
       accrual_type_raw: accrualTypeRaw,
       accrual_type_norm: accrualTypeNorm,
+      // 3. Номер отправления или идентификатор услуги
+      posting_number_or_service_id: getStringValue(row["Номер отправления или идентификатор услуги"]),
+      // 4. Дата принятия заказа в обработку или оказания услуги
+      accepted_or_service_date: row["Дата принятия заказа в обработку или оказания услуги"] ? parseOzonDate(row["Дата принятия заказа в обработку или оказания услуги"]) : null,
+      // 5. Склад отгрузки
+      warehouse: getStringValue(row["Склад отгрузки"]),
+      // 6. SKU OZON
+      sku: getStringValue(row["SKU"]),
+      // 7. Артикул (seller)
+      offer_id: getStringValue(offerId),
+      // 8. Название товара или услуги
+      item_name: getStringValue(row["Название товара или услуги"]),
+      // 9. Количество
       quantity: parseNumber(row["Количество"] || 0),
-      amount_before_commission: parseNumber(row["За продажу или возврат до вычета комиссий и услуг"] || 0),
-      total_amount: parseNumber(row["Итого, руб."] || 0),
-      shipment_number: getValue(row["Номер отправления или идентификатор услуги"]),
-      order_date: row["Дата принятия заказа в обработку или оказания услуги"] ? parseOzonDate(row["Дата принятия заказа в обработку или оказания услуги"]) : null,
-      warehouse: getValue(row["Склад отгрузки"]),
-      product_name: getValue(row["Название товара или услуги"]),
-      commission_percent: parseNumber(row["Вознаграждение Ozon, %"] || 0),
-      commission_amount: parseNumber(row["Вознаграждение Ozon"] || 0),
+      // 10. За продажу или возврат до вычета комиссий и услуг
+      amount_before_fees: parseNumber(row["За продажу или возврат до вычета комиссий и услуг"] || 0),
+      // 11. Вознаграждение Ozon, %
+      ozon_fee_percent: parseNumber(row["Вознаграждение Ozon, %"] || 0),
+      // 12. Вознаграждение Ozon
+      ozon_fee_amount: parseNumber(row["Вознаграждение Ozon"] || 0),
+      // 13. Сборка заказа
       order_assembly: parseNumber(row["Сборка заказа"] || 0),
-      shipment_processing: parseNumber(row["Обработка отправления (Drop-off/Pick-up) (разбивается по товарам пропорционально количеству в отправлении)"] || 0),
-      main_route: parseNumber(row["Магистраль"] || 0),
+      // 14. Обработка отправления (Drop-off/Pick-up)
+      dropoff_pickup_processing: parseNumber(row["Обработка отправления (Drop-off/Pick-up) (разбивается по товарам пропорционально количеству в отправлении)"] || 0),
+      // 15. Магистраль
+      linehaul: parseNumber(row["Магистраль"] || 0),
+      // 16. Последняя миля
       last_mile: parseNumber(row["Последняя миля (разбивается по товарам пропорционально доле цены товара в сумме отправления)"] || 0),
-      return_main_route: parseNumber(row["Обратная магистраль"] || 0),
+      // 17. Обратная магистраль
+      reverse_linehaul: parseNumber(row["Обратная магистраль"] || 0),
+      // 18. Обработка возврата
       return_processing: parseNumber(row["Обработка возврата"] || 0),
-      cancelled_processing: parseNumber(row["Обработка отмененного или невостребованного товара (разбивается по товарам в отправлении в одинаковой пропорции)"] || 0),
-      undelivered_processing: parseNumber(row["Обработка невыкупленного товара"] || 0),
+      // 19. Обработка отмененного или невостребованного товара
+      canceled_or_unclaimed_processing: parseNumber(row["Обработка отмененного или невостребованного товара (разбивается по товарам в отправлении в одинаковой пропорции)"] || 0),
+      // 20. Обработка невыкупленного товара
+      unredeemed_processing: parseNumber(row["Обработка невыкупленного товара"] || 0),
+      // 21. Логистика
       logistics: parseNumber(row["Логистика"] || 0),
-      localization_index: getValue(row["Индекс локализации"]),
-      avg_delivery_hours: row["Среднее время доставки, часы"] ? parseInt(String(row["Среднее время доставки, часы"])) || 0 : null,
-      return_logistics: parseNumber(row["Обратная логистика"] || 0),
+      // 22. Индекс локализации
+      localization_index: getStringValue(row["Индекс локализации"]),
+      // 23. Среднее время доставки, часы
+      avg_delivery_hours: row["Среднее время доставки, часы"] ? parseInt(String(row["Среднее время доставки, часы"])) || null : null,
+      // 24. Обратная логистика
+      reverse_logistics: parseNumber(row["Обратная логистика"] || 0),
+      // 25. Итого, руб.
+      total_rub: parseNumber(row["Итого, руб."] || 0),
       import_batch_id: importBatchId,
     };
   };
@@ -483,18 +508,30 @@ const ImportData = () => {
 
     return {
       marketplace_id: marketplaceId,
+      // 1. Дата
       cost_date: parseOzonDate(date, periodStart) || periodStart,
+      // 2. SKU OZON
+      sku: getStringValue(row["SKU"]),
+      // 3. Артикул (seller)
       offer_id: getStringValue(offerId),
-      sku: getValue(row["SKU"]),
-      storage_cost: parseNumber(row["Начисленная стоимость размещения"] || 0),
-      stock_quantity: parseInt(String(row["Кол-во экземпляров"] || 0)) || 0,
-      category: getValue(row["Категория товара"]),
-      descriptive_type: getValue(row["Описательный тип"]),
-      warehouse: getValue(row["Склад"]),
-      product_attribute: getValue(row["Признак товара"]),
+      // 4. Категория товара
+      category: getStringValue(row["Категория товара"]),
+      // 5. Описательный тип
+      descriptive_type: getStringValue(row["Описательный тип"]),
+      // 6. Склад
+      warehouse: getStringValue(row["Склад"]),
+      // 7. Признак товара
+      item_flag: getStringValue(row["Признак товара"]),
+      // 8. Суммарный объем в миллилитрах
       total_volume_ml: parseInt(String(row["Суммарный объем в миллилитрах"] || 0)) || 0,
+      // 9. Кол-во экземпляров
+      stock_quantity: parseInt(String(row["Кол-во экземпляров"] || 0)) || 0,
+      // 10. Платный объем в миллилитрах
       paid_volume_ml: parseInt(String(row["Платный объем в миллилитрах"] || 0)) || 0,
-      paid_instances: parseInt(String(row["Кол-во платных экземпляров"] || 0)) || 0,
+      // 11. Кол-во платных экземпляров
+      paid_units_count: parseInt(String(row["Кол-во платных экземпляров"] || 0)) || 0,
+      // 12. Начисленная стоимость размещения
+      storage_cost_amount: parseNumber(row["Начисленная стоимость размещения"] || 0),
       import_batch_id: importBatchId,
     };
   };

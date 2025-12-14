@@ -72,20 +72,36 @@ export const cleanText = (value: any): string => {
 
 /**
  * Парсинг числа
- * - убирает пробелы/nbsp
+ * - убирает пробелы/nbsp (включая пробелы-разделители тысяч: "1 234,56")
  * - заменяет запятую на точку
  * - заменяет "минус" − на -
+ * - Пример: "1 234,56" → 1234.56
  */
 export const parseNumber = (value: any): number => {
   if (value == null || value === "") return 0;
   
   const normalized = String(value)
-    .replace(/[\s\u00A0\u200B-\u200F\uFEFF]/g, "") // убираем пробелы, неразрывные пробелы, zero-width
+    .replace(/[\s\u00A0\u200B-\u200F\uFEFF]/g, "") // убираем все пробелы (включая разделители тысяч)
     .replace(/[−–—]/g, "-") // заменяем разные типы минусов на обычный минус
     .replace(",", "."); // заменяем запятую на точку
   
   const num = parseFloat(normalized);
   return isNaN(num) ? 0 : num;
+};
+
+/**
+ * Нормализация строкового значения с применением fixWeirdUtf16
+ * Применяется к КАЖДОЙ строковой ячейке при импорте
+ */
+export const normalizeStringValue = (value: any): string => {
+  if (value == null || value === "") return "";
+  const str = String(value);
+  // Применяем fixWeirdUtf16 для исправления кракозябр
+  const fixed = fixWeirdUtf16(str);
+  // Убираем невидимые символы
+  return fixed
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
+    .trim();
 };
 
 /**
