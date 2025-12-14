@@ -154,7 +154,7 @@ const ImportData = () => {
       const errors: string[] = [];
 
       // 2. Преобразуем все строки в объекты для вставки
-      const BATCH_SIZE = 100; // Уменьшили размер батча, чтобы не перегружать браузер
+      const BATCH_SIZE = 1000; // Увеличен размер батча для ускорения импорта
       const transformedRows: any[] = [];
 
       // МАКСИМАЛЬНОЕ логирование первой строки для диагностики
@@ -210,7 +210,7 @@ const ImportData = () => {
       // Логируем прогресс преобразования
       const totalRows = fileData.length;
       const logInterval = Math.max(1, Math.floor(totalRows / 100)); // Логируем каждые 1% или каждую строку для маленьких файлов
-      const PROCESSING_BATCH = 1000; // Обрабатываем по 1000 строк за раз, затем делаем паузу
+      const PROCESSING_BATCH = 5000; // Обрабатываем по 5000 строк за раз, затем делаем паузу (увеличено для ускорения)
       
       window.console.log(`🔄 Начинаем преобразование ${totalRows} строк...`);
       window.console.log(`📊 Будем логировать каждые ${logInterval} строк`);
@@ -306,12 +306,18 @@ const ImportData = () => {
         window.console.log(`📦 Батч ${batchNumber}/${totalBatches}: вставляем строки ${i + 1}–${i + chunk.length} (${progress.toFixed(1)}%)`);
 
         try {
-          // Добавляем задержку между батчами, чтобы избежать 429 ошибок
-          if (batchNumber > 1) {
-            await new Promise(resolve => setTimeout(resolve, 100)); // 100мс задержка между батчами
-          }
+          // Используем upsert для избежания ошибок дубликатов
+          // onConflict указывает на уникальное ограничение
+          const conflictColumns = importType === "accruals" 
+            ? "marketplace_id,accrual_date,offer_id,accrual_type"  // UNIQUE constraint для ozon_accruals
+            : "marketplace_id,cost_date,offer_id";  // UNIQUE constraint для storage_costs (без sku)
           
-          const { error } = await supabase.from(tableName).insert(chunk);
+          const { error } = await supabase
+            .from(tableName)
+            .upsert(chunk, { 
+              onConflict: conflictColumns,
+              ignoreDuplicates: false 
+            });
 
           if (error) {
             // Помечаем, что эти строки не удалось импортировать
@@ -319,10 +325,10 @@ const ImportData = () => {
             errors.push(`Ошибка при вставке строк ${i + 1}–${i + chunk.length}: ${error.message}`);
             window.console.error(`❌ Ошибка в батче ${batchNumber}:`, error);
             
-            // Если ошибка 429 (Too Many Requests), делаем большую паузу
+            // Если ошибка 429 (Too Many Requests), делаем паузу только при реальной перегрузке
             if (error.message?.includes('429') || error.code === 'PGRST429') {
-              window.console.warn(`⚠️ Получена ошибка 429, делаем паузу 5 секунд...`);
-              await new Promise(resolve => setTimeout(resolve, 5000));
+              window.console.warn(`⚠️ Получена ошибка 429, делаем паузу 2 секунды...`);
+              await new Promise(resolve => setTimeout(resolve, 2000));
             }
             
             console.error(`Error inserting batch ${batchNumber}:`, error);
@@ -335,10 +341,10 @@ const ImportData = () => {
           errors.push(`Ошибка при вставке строк ${i + 1}–${i + chunk.length}: ${error.message}`);
           window.console.error(`❌ Ошибка в батче ${batchNumber}:`, error);
           
-          // Если ошибка 429, делаем большую паузу
+          // Если ошибка 429, делаем паузу только при реальной перегрузке
           if (error.message?.includes('429') || error.status === 429) {
-            window.console.warn(`⚠️ Получена ошибка 429, делаем паузу 5 секунд...`);
-            await new Promise(resolve => setTimeout(resolve, 5000));
+            window.console.warn(`⚠️ Получена ошибка 429, делаем паузу 2 секунды...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
           }
           
           console.error(`Error inserting batch ${batchNumber}:`, error);

@@ -1,8 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, XCircle, Clock } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle2, XCircle, Clock, X } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 interface ImportLog {
   id: string;
@@ -24,6 +26,9 @@ const IMPORT_TYPE_LABELS: Record<string, string> = {
 };
 
 export const ImportHistory = () => {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  
   const { data: importLogs, isLoading } = useQuery({
     queryKey: ["import-logs"],
     queryFn: async () => {
@@ -37,6 +42,35 @@ export const ImportHistory = () => {
       return data as ImportLog[];
     },
   });
+
+  const handleDelete = async (logId: string) => {
+    if (!confirm("Удалить эту запись из истории импорта?")) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("import_logs")
+        .delete()
+        .eq("id", logId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Запись удалена",
+        description: "Запись успешно удалена из истории",
+      });
+
+      // Обновляем список
+      queryClient.invalidateQueries({ queryKey: ["import-logs"] });
+    } catch (error: any) {
+      toast({
+        title: "Ошибка",
+        description: error.message || "Не удалось удалить запись",
+        variant: "destructive",
+      });
+    }
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -93,7 +127,7 @@ export const ImportHistory = () => {
             {importLogs.map((log) => (
               <div
                 key={log.id}
-                className="flex items-start gap-3 p-3 border rounded-lg hover:bg-muted/50 transition-colors"
+                className="flex items-start gap-3 p-3 border rounded-lg hover:bg-muted/50 transition-colors group"
               >
                 <div className="mt-1">{getStatusIcon(log.status)}</div>
                 <div className="flex-1 min-w-0">
@@ -106,7 +140,18 @@ export const ImportHistory = () => {
                         {IMPORT_TYPE_LABELS[log.import_type] || log.import_type}
                       </p>
                     </div>
-                    {getStatusBadge(log.status)}
+                    <div className="flex items-center gap-2">
+                      {getStatusBadge(log.status)}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => handleDelete(log.id)}
+                        title="Удалить запись"
+                      >
+                        <X className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-4 text-xs text-muted-foreground mb-1">
