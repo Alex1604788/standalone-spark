@@ -356,6 +356,7 @@ serve(async (req) => {
     if (!accessToken || tokenExpired) {
       console.log("Getting new access token...");
 
+      // IMPORTANT: Token endpoint requires following redirects (returns 307 with __rr=1 parameter)
       const tokenResponse = await fetch("https://performance.ozon.ru/api/client/token", {
         method: "POST",
         headers: {
@@ -366,19 +367,10 @@ serve(async (req) => {
           client_secret: creds.client_secret,
           grant_type: "client_credentials",
         }),
-        redirect: "manual",
+        redirect: "follow", // Follow redirects for token endpoint
       });
 
       console.log(`Token response: ${tokenResponse.status} ${tokenResponse.statusText}`);
-
-      if (tokenResponse.status >= 300 && tokenResponse.status < 400) {
-        const location = tokenResponse.headers.get("location");
-        console.error("Token redirect:", tokenResponse.status, "->", location);
-        return new Response(
-          JSON.stringify({ error: "Redirect detected when getting token", details: `${tokenResponse.status} -> ${location}` }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
 
       if (!tokenResponse.ok) {
         const errorText = await tokenResponse.text();
