@@ -1,10 +1,10 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.1.0-zip-support
- * Date: 2025-12-15
+ * Version: 2.1.1-zip-jszip
+ * Date: 2025-12-16
  *
  * Key features:
- * - ZIP archive extraction support
+ * - ZIP archive extraction support (in-memory using JSZip)
  * - Sequential processing (1 chunk = 10 campaigns max) - OZON API limit!
  * - Async report generation with UUID polling
  * - Sync history tracking for partial sync support
@@ -14,7 +14,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { unzip } from "https://deno.land/x/zip@v1.2.5/mod.ts";
+import JSZip from "https://esm.sh/jszip@3.10.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -144,43 +144,30 @@ async function downloadAndParseReport(
     const jsonData = await reportResponse.json();
     return jsonData.rows || [];
   } else if (contentType.includes("application/zip") || contentType.includes("application/octet-stream")) {
-    // ZIP архив - нужно распаковать
-    console.error("Report is a ZIP archive, extracting...");
-
-    const zipBytes = await reportResponse.arrayBuffer();
-    const zipData = new Uint8Array(zipBytes);
+    // ZIP архив - распаковываем в памяти (без файлов на диске)
+    console.error("Report is a ZIP archive, extracting in-memory...");
 
     try {
-      // Создаем временный файл для ZIP
-      const tempZipPath = `/tmp/ozon_report_${uuid}.zip`;
-      await Deno.writeFile(tempZipPath, zipData);
+      const zipBytes = await reportResponse.arrayBuffer();
 
-      // Распаковываем
-      const tempExtractPath = `/tmp/ozon_report_${uuid}_extracted`;
-      await Deno.mkdir(tempExtractPath, { recursive: true });
+      // Загружаем ZIP в JSZip
+      const zip = await JSZip.loadAsync(zipBytes);
 
-      await unzip(tempZipPath, tempExtractPath);
+      // Ищем CSV файл в архиве
+      const csvFiles = Object.keys(zip.files).filter(name =>
+        name.endsWith('.csv') && !zip.files[name].dir
+      );
 
-      // Ищем CSV файл в распакованной папке
-      const files = [];
-      for await (const entry of Deno.readDir(tempExtractPath)) {
-        if (entry.isFile && entry.name.endsWith('.csv')) {
-          files.push(entry.name);
-        }
-      }
-
-      if (files.length === 0) {
+      if (csvFiles.length === 0) {
         throw new Error("No CSV file found in ZIP archive");
       }
 
       // Читаем первый CSV файл
-      const csvPath = `${tempExtractPath}/${files[0]}`;
-      console.error(`Reading CSV file: ${csvPath}`);
-      csvText = await Deno.readTextFile(csvPath);
+      const csvFileName = csvFiles[0];
+      console.error(`Extracting CSV file: ${csvFileName}`);
 
-      // Очищаем временные файлы
-      await Deno.remove(tempZipPath);
-      await Deno.remove(tempExtractPath, { recursive: true });
+      csvText = await zip.files[csvFileName].async("text");
+      console.error(`Extracted CSV size: ${csvText.length} bytes`);
 
     } catch (error) {
       console.error("ZIP extraction failed:", error);
@@ -405,8 +392,8 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.1.0-zip-support",
-          build_date: "2025-12-15"
+          version: "2.1.1-zip-jszip",
+          build_date: "2025-12-16"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
