@@ -1,7 +1,7 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.1.1-zip-jszip
- * Date: 2025-12-16
+ * Version: 2.1.2-bugfix-integer-types
+ * Date: 2025-12-18
  *
  * Key features:
  * - ZIP archive extraction support (in-memory using JSZip)
@@ -10,6 +10,7 @@
  * - Sync history tracking for partial sync support
  * - All OZON endpoints use redirect: "follow" for 307 redirects
  * - Proper campaign_id extraction from reports
+ * - Fixed: add_to_cart now uses parseInt for INTEGER column compatibility
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -244,7 +245,7 @@ async function downloadAndParseReport(
       clicks: parseInt(clicks),
       orders: parseInt(orders),
       revenue: parseNum(revenue),
-      add_to_cart: parseNum(toCart),
+      add_to_cart: parseInt(toCart),  // Fixed: use parseInt for INTEGER column
       avg_bill: parseNum(avgCpc),
     });
   }
@@ -392,8 +393,8 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.1.1-zip-jszip",
-          build_date: "2025-12-16"
+          version: "2.1.2-bugfix-integer-types",
+          build_date: "2025-12-18"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -634,8 +635,8 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.1.0-zip-support",
-        build_date: "2025-12-15",
+        version: "2.1.2-bugfix-integer-types",
+        build_date: "2025-12-18",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -652,8 +653,8 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.1.0-zip-support",
-        build_date: "2025-12-15",
+        version: "2.1.2-bugfix-integer-types",
+        build_date: "2025-12-18",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
