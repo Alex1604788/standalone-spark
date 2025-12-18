@@ -1,16 +1,17 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.1.2-bugfix-integer-types
+ * Version: 2.1.3-polling-timeout-fix
  * Date: 2025-12-18
  *
  * Key features:
  * - ZIP archive extraction support (in-memory using JSZip)
  * - Sequential processing (1 chunk = 10 campaigns max) - OZON API limit!
- * - Async report generation with UUID polling
+ * - Async report generation with UUID polling (40 attempts, ~3.5min timeout)
  * - Sync history tracking for partial sync support
  * - All OZON endpoints use redirect: "follow" for 307 redirects
  * - Proper campaign_id extraction from reports
  * - Fixed: add_to_cart now uses parseInt for INTEGER column compatibility
+ * - Fixed: Increased polling timeout for large reports (30+ campaigns)
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -63,9 +64,9 @@ interface CampaignInfo {
 async function pollReportStatus(
   uuid: string,
   accessToken: string,
-  maxAttempts: number = 10,
-  initialDelay: number = 5000,
-  pollInterval: number = 3000
+  maxAttempts: number = 40,      // Increased from 10 to 40 for large reports (30+ campaigns)
+  initialDelay: number = 10000,  // Increased from 5s to 10s - OZON needs time to start processing
+  pollInterval: number = 5000    // Increased from 3s to 5s - total timeout ~3.5 minutes
 ): Promise<{ success: boolean; link?: string; error?: string }> {
   // Начальная задержка
   await new Promise(resolve => setTimeout(resolve, initialDelay));
@@ -393,7 +394,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.1.2-bugfix-integer-types",
+          version: "2.1.3-polling-timeout-fix",
           build_date: "2025-12-18"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -525,8 +526,8 @@ serve(async (req) => {
 
       console.error(`Report UUID: ${uuid}`);
 
-      // Polling отчета
-      const pollResult = await pollReportStatus(uuid, accessToken, 10, 5000, 3000);
+      // Polling отчета (uses default params: 40 attempts, 10s initial delay, 5s interval)
+      const pollResult = await pollReportStatus(uuid, accessToken);
 
       if (!pollResult.success) {
         if (syncId) {
@@ -635,7 +636,7 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.1.2-bugfix-integer-types",
+        version: "2.1.3-polling-timeout-fix",
         build_date: "2025-12-18",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -653,7 +654,7 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.1.2-bugfix-integer-types",
+        version: "2.1.3-polling-timeout-fix",
         build_date: "2025-12-18",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
