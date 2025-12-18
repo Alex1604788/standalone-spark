@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.2.0-individual-campaign-reports
+ * Version: 2.2.1-fix-download-url
  * Date: 2025-12-18
  *
  * Key features:
@@ -13,6 +13,7 @@
  * - Fixed: add_to_cart now uses parseInt for INTEGER column compatibility
  * - Fixed: Increased polling timeout for large reports (30+ campaigns)
  * - Fixed: Request individual reports per campaign to avoid OZON returning same data for all
+ * - Fixed: Use UUID instead of pollResult.link to avoid double URL construction
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -395,7 +396,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.2.0-individual-campaign-reports",
+          version: "2.2.1-fix-download-url",
           build_date: "2025-12-18"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -520,7 +521,7 @@ serve(async (req) => {
 
         // Скачиваем и парсим отчет для ЭТОЙ кампании (не для всех!)
         try {
-          const campaignStats = await downloadAndParseReport(pollResult.link || uuid, accessToken, campaign);
+          const campaignStats = await downloadAndParseReport(uuid, accessToken, campaign);
           console.error(`Campaign ${campaign.name} returned ${campaignStats.length} rows`);
           allStats = allStats.concat(campaignStats);
         } catch (err) {
@@ -602,7 +603,7 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.2.0-individual-campaign-reports",
+        version: "2.2.1-fix-download-url",
         build_date: "2025-12-18",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -620,7 +621,7 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.2.0-individual-campaign-reports",
+        version: "2.2.1-fix-download-url",
         build_date: "2025-12-18",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
