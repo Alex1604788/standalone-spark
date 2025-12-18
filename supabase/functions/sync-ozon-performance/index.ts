@@ -1,17 +1,18 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.1.3-polling-timeout-fix
+ * Version: 2.2.0-individual-campaign-reports
  * Date: 2025-12-18
  *
  * Key features:
  * - ZIP archive extraction support (in-memory using JSZip)
- * - Sequential processing (1 chunk = 10 campaigns max) - OZON API limit!
+ * - Individual report requests per campaign (not batch!) - Fixes duplicate key violations
  * - Async report generation with UUID polling (40 attempts, ~3.5min timeout)
  * - Sync history tracking for partial sync support
  * - All OZON endpoints use redirect: "follow" for 307 redirects
  * - Proper campaign_id extraction from reports
  * - Fixed: add_to_cart now uses parseInt for INTEGER column compatibility
  * - Fixed: Increased polling timeout for large reports (30+ campaigns)
+ * - Fixed: Request individual reports per campaign to avoid OZON returning same data for all
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -394,7 +395,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.1.3-polling-timeout-fix",
+          version: "2.2.0-individual-campaign-reports",
           build_date: "2025-12-18"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -467,99 +468,64 @@ serve(async (req) => {
       console.error(`WARNING: Processing only first ${maxChunks * chunkSize} out of ${campaigns.length} campaigns.`);
     }
 
-    // Запрашиваем отчеты
+    // Запрашиваем отчеты ИНДИВИДУАЛЬНО для каждой кампании
+    // Fix: OZON returns same report for all campaigns when requested in batch
     for (let i = 0; i < chunksToProcess.length; i++) {
       const chunk = chunksToProcess[i];
-      console.error(`Requesting report for chunk ${i + 1} with ${chunk.length} campaigns`);
+      console.error(`Processing chunk ${i + 1} with ${chunk.length} campaigns`);
 
-      const campaignIds = chunk.map(c => c.id);
-
-      const reportRequest = await fetch("https://api-performance.ozon.ru:443/api/client/statistics", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-          "Authorization": `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          campaigns: campaignIds,
-          from: periodStart.toISOString(),
-          to: periodEnd.toISOString(),
-          groupBy: "DATE",
-        }),
-        redirect: "follow",
-      });
-
-      if (!reportRequest.ok) {
-        const errorText = await reportRequest.text();
-
-        if (syncId) {
-          await supabaseClient
-            .from("ozon_sync_history")
-            .update({
-              status: 'failed',
-              error_message: `Failed to request report: ${errorText}`,
-              completed_at: new Date().toISOString(),
-            })
-            .eq("id", syncId);
-        }
-
-        return new Response(
-          JSON.stringify({
-            error: "Failed to request performance report",
-            details: errorText
-          }),
-          { status: reportRequest.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      const reportData = await reportRequest.json();
-      const uuid = reportData.UUID;
-
-      if (!uuid) {
-        console.error(`No UUID received:`, reportData);
-        return new Response(
-          JSON.stringify({ error: "No UUID received from OZON API", details: reportData }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      console.error(`Report UUID: ${uuid}`);
-
-      // Polling отчета (uses default params: 40 attempts, 10s initial delay, 5s interval)
-      const pollResult = await pollReportStatus(uuid, accessToken);
-
-      if (!pollResult.success) {
-        if (syncId) {
-          await supabaseClient
-            .from("ozon_sync_history")
-            .update({
-              status: 'timeout',
-              error_message: `Polling failed: ${pollResult.error}`,
-              completed_at: new Date().toISOString(),
-            })
-            .eq("id", syncId);
-        }
-
-        return new Response(
-          JSON.stringify({
-            error: "Report polling failed",
-            details: pollResult.error,
-            uuid
-          }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // Скачиваем и парсим отчет для каждой кампании в chunk
+      // Обрабатываем каждую кампанию ОТДЕЛЬНО
       for (const campaign of chunk) {
+        console.error(`Requesting individual report for campaign: ${campaign.name} (ID: ${campaign.id})`);
+
+        const reportRequest = await fetch("https://api-performance.ozon.ru:443/api/client/statistics", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            campaigns: [campaign.id],  // Single campaign only! Not array of all campaigns
+            from: periodStart.toISOString(),
+            to: periodEnd.toISOString(),
+            groupBy: "DATE",
+          }),
+          redirect: "follow",
+        });
+
+        if (!reportRequest.ok) {
+          const errorText = await reportRequest.text();
+          console.error(`Failed to request report for campaign ${campaign.name}:`, errorText);
+          continue;  // Skip this campaign, continue with next one
+        }
+
+        const reportData = await reportRequest.json();
+        const uuid = reportData.UUID;
+
+        if (!uuid) {
+          console.error(`No UUID received for campaign ${campaign.name}:`, reportData);
+          continue;  // Skip this campaign
+        }
+
+        console.error(`Report UUID for campaign ${campaign.name}: ${uuid}`);
+
+        // Polling отчета (uses default params: 40 attempts, 10s initial delay, 5s interval)
+        const pollResult = await pollReportStatus(uuid, accessToken);
+
+        if (!pollResult.success) {
+          console.error(`Polling failed for campaign ${campaign.name}:`, pollResult.error);
+          continue;  // Skip this campaign
+        }
+
+        // Скачиваем и парсим отчет для ЭТОЙ кампании (не для всех!)
         try {
-          const chunkStats = await downloadAndParseReport(uuid, accessToken, campaign);
-          console.error(`Campaign ${campaign.name} returned ${chunkStats.length} rows`);
-          allStats = allStats.concat(chunkStats);
+          const campaignStats = await downloadAndParseReport(pollResult.link || uuid, accessToken, campaign);
+          console.error(`Campaign ${campaign.name} returned ${campaignStats.length} rows`);
+          allStats = allStats.concat(campaignStats);
         } catch (err) {
-          console.error(`Failed to parse report for campaign ${campaign.id}:`, err.message);
-          // Продолжаем с другими кампаниями
+          console.error(`Failed to parse report for campaign ${campaign.name}:`, err.message);
+          // Продолжаем со следующей кампанией
         }
       }
     }
@@ -636,7 +602,7 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.1.3-polling-timeout-fix",
+        version: "2.2.0-individual-campaign-reports",
         build_date: "2025-12-18",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -654,7 +620,7 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.1.3-polling-timeout-fix",
+        version: "2.2.0-individual-campaign-reports",
         build_date: "2025-12-18",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
