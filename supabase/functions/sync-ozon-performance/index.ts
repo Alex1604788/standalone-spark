@@ -1,7 +1,7 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.2.3-deduplicate-cumulative-snapshots
- * Date: 2025-12-18
+ * Version: 2.2.4-debug-insert
+ * Date: 2025-12-20
  *
  * Key features:
  * - ZIP archive extraction support (in-memory using JSZip)
@@ -417,8 +417,8 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.2.3-deduplicate-cumulative-snapshots",
-          build_date: "2025-12-18"
+          version: "2.2.4-debug-insert",
+          build_date: "2025-12-20"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -589,9 +589,15 @@ serve(async (req) => {
       avg_bill: stat.avg_bill || null,
     }));
 
-    const { error: insertError } = await supabaseClient
+    // Debug: показываем что вставляем
+    console.error(`Inserting ${records.length} records for marketplace_id: ${marketplace_id}`);
+    console.error(`First record sample:`, JSON.stringify(records[0], null, 2));
+    console.error(`Date range in records: ${records[0]?.stat_date} to ${records[records.length - 1]?.stat_date}`);
+
+    const { data: insertData, error: insertError } = await supabaseClient
       .from("ozon_performance_daily")
-      .upsert(records, { onConflict: "marketplace_id,stat_date,sku,campaign_id" });
+      .upsert(records, { onConflict: "marketplace_id,stat_date,sku,campaign_id" })
+      .select();
 
     if (insertError) {
       console.error("Insert error:", insertError);
@@ -600,6 +606,8 @@ serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    console.error(`Insert successful! Returned ${insertData?.length || 0} rows from database`);
 
     // Обновляем историю
     if (syncId) {
@@ -629,8 +637,8 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.2.3-deduplicate-cumulative-snapshots",
-        build_date: "2025-12-18",
+        version: "2.2.4-debug-insert",
+        build_date: "2025-12-20",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
