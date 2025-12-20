@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -359,6 +359,15 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
 
   const selectedProduct = selectedProductInfo;
 
+  // Автоматическая прокрутка к блоку деталей при выборе товара
+  useEffect(() => {
+    if (selectedProductId && detailsBlockRef.current) {
+      setTimeout(() => {
+        detailsBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    }
+  }, [selectedProductId]);
+
   return (
     <div className="space-y-6">
       {/* Общие метрики */}
@@ -511,6 +520,7 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
                             selectedProductId === summary.productId ? "bg-muted" : ""
                           }`}
                           onClick={() => {
+                            console.log("Клик по товару:", summary.productId, summary.productName);
                             setSelectedProductId(summary.productId);
                           }}
                         >
@@ -586,7 +596,7 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
 
       {/* Блок негативных отзывов с ИИ-рекомендациями */}
       {selectedProductId && (
-        <Card>
+        <Card ref={detailsBlockRef}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" />

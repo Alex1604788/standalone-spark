@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -448,6 +448,15 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics, initialFilter = "a
 
   const selectedProduct = selectedProductInfo;
 
+  // Автоматическая прокрутка к блоку деталей при выборе товара
+  useEffect(() => {
+    if (selectedProductId && detailsBlockRef.current) {
+      setTimeout(() => {
+        detailsBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    }
+  }, [selectedProductId]);
+
   return (
     <div className="space-y-6">
       {/* Общие метрики */}
@@ -560,6 +569,7 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics, initialFilter = "a
                             selectedProductId === summary.productId ? "bg-muted" : ""
                           }`}
                           onClick={() => {
+                            console.log("Клик по товару:", summary.productId, summary.productName);
                             setSelectedProductId(summary.productId);
                           }}
                         >
@@ -626,7 +636,7 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics, initialFilter = "a
 
       {/* Блок анализа тем вопросов с ИИ-рекомендациями */}
       {selectedProductId && (
-        <Card>
+        <Card ref={detailsBlockRef}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <HelpCircle className="h-5 w-5 text-primary" />
