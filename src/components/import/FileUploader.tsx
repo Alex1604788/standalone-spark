@@ -70,7 +70,7 @@ const TEMPLATE_COLUMNS: Record<ImportType, string[]> = {
  */
 const cleanForComparison = (s: string): string => {
   return s
-    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "") // только BOM/ZWSP/управляющие
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/gu, "") // только BOM/ZWSP/управляющие (флаг u для Unicode)
     .replace(/\s+/g, " ") // схлопываем пробелы
     .trim();
 };
@@ -337,7 +337,7 @@ export const FileUploader = ({
             // Используем только базовую очистку, без fixWeirdUtf16 для каждой ячейки
             const str = String(value);
             rowObj[columnName] = str
-              .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
+              .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/gu, "") // флаг u для Unicode
               .trim();
           } else if (typeof value === "number") {
             // Числа оставляем как есть (будут обработаны в ImportData)
