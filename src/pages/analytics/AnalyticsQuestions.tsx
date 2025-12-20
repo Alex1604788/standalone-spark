@@ -517,12 +517,13 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics, initialFilter = "a
       </div>
 
       {/* Таблица по товарам */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Сводка по товарам (Вопросы)</CardTitle>
-          <CardDescription>Анализ вопросов по каждому товару</CardDescription>
-        </CardHeader>
-        <CardContent>
+      {!selectedProductId && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Сводка по товарам (Вопросы)</CardTitle>
+            <CardDescription>Анализ вопросов по каждому товару</CardDescription>
+          </CardHeader>
+          <CardContent>
           <div className="space-y-4">
             {/* Фильтры */}
             <div className="flex flex-col sm:flex-row gap-4">
