@@ -18,7 +18,7 @@ const Reviews = lazy(() => import("./pages/Reviews"));
 const Questions = lazy(() => import("./pages/Questions"));
 const Profile = lazy(() => import("./pages/Profile"));
 const ReviewQueue = lazy(() => import("./pages/ReviewQueue"));
-const Analytics = lazy(() => import("./pages/Analytics"));
+const Analytics = lazy(() => import("./pages/analytics/AnalyticsMain"));
 const FallbackMode = lazy(() => import("./pages/FallbackMode"));
 const Templates = lazy(() => import("./pages/Templates"));
 const Settings = lazy(() => import("./pages/Settings"));
