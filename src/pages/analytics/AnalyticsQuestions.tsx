@@ -634,7 +634,8 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics, initialFilter = "a
             )}
           </div>
         </CardContent>
-      </Card>
+        </Card>
+      )}
 
       {/* Блок анализа тем вопросов с ИИ-рекомендациями */}
       {selectedProductId && (
