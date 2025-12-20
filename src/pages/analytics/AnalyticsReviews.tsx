@@ -594,7 +594,8 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
             )}
           </div>
         </CardContent>
-      </Card>
+        </Card>
+      )}
 
       {/* Блок негативных отзывов с ИИ-рекомендациями */}
       {selectedProductId && (
