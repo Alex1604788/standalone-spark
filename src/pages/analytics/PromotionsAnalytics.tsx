@@ -109,7 +109,7 @@ const PromotionsAnalytics = () => {
           conversion,
           drr,
           stat_date,
-          products!inner(id, name, image_url, marketplace_id)
+          products(id, name, image_url, marketplace_id)
         `)
         .eq("marketplace_id", marketplace.id)
         .gte("stat_date", format(dateRange.start, "yyyy-MM-dd"))
