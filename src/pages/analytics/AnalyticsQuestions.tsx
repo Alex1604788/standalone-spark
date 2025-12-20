@@ -754,6 +754,7 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics, initialFilter = "a
             )}
           </CardContent>
         </Card>
+        </div>
       )}
     </div>
   );

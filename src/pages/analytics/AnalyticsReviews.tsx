@@ -726,6 +726,7 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
             )}
           </CardContent>
         </Card>
+        </div>
       )}
     </div>
   );
