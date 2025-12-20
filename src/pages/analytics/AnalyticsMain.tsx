@@ -9,6 +9,8 @@ import { AnalyticsSettings } from "./AnalyticsSettings";
 const AnalyticsMain = () => {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [reviewsFilter, setReviewsFilter] = useState<"all" | "negative" | "unanswered">("all");
+  const [questionsFilter, setQuestionsFilter] = useState<"all" | "unanswered">("all");
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
@@ -35,8 +37,14 @@ const AnalyticsMain = () => {
 
           <TabsContent value="dashboard" className="mt-6">
             <AnalyticsDashboard
-              onNavigateToReviews={() => setActiveTab("reviews")}
-              onNavigateToQuestions={() => setActiveTab("questions")}
+              onNavigateToReviews={() => {
+                setReviewsFilter("unanswered");
+                setActiveTab("reviews");
+              }}
+              onNavigateToQuestions={() => {
+                setQuestionsFilter("unanswered");
+                setActiveTab("questions");
+              }}
               onNavigateToDiagnostics={(productId) => {
                 setSelectedProductId(productId);
                 setActiveTab("diagnostics");
@@ -46,6 +54,7 @@ const AnalyticsMain = () => {
 
           <TabsContent value="reviews" className="mt-6">
             <AnalyticsReviews
+              initialFilter={reviewsFilter}
               onNavigateToDiagnostics={(productId) => {
                 setSelectedProductId(productId);
                 setActiveTab("diagnostics");
@@ -55,6 +64,7 @@ const AnalyticsMain = () => {
 
           <TabsContent value="questions" className="mt-6">
             <AnalyticsQuestions
+              initialFilter={questionsFilter}
               onNavigateToDiagnostics={(productId) => {
                 setSelectedProductId(productId);
                 setActiveTab("diagnostics");

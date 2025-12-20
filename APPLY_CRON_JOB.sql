@@ -30,3 +30,5 @@ SELECT cron.schedule(
 -- Проверка, что cron job создан
 SELECT jobname, schedule, active FROM cron.job WHERE jobname = 'auto-generate-drafts-cron';
 
+
+

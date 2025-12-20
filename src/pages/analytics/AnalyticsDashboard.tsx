@@ -47,7 +47,6 @@ export const AnalyticsDashboard = ({
   onNavigateToQuestions,
   onNavigateToDiagnostics,
 }: AnalyticsDashboardProps) => {
-  const navigate = useNavigate();
   const { toast } = useToast();
   const [kpis, setKpis] = useState<DashboardKPIs>({
     unansweredReviews: 0,
@@ -423,7 +422,7 @@ export const AnalyticsDashboard = ({
               <div
                 className="flex items-center justify-between hover:bg-muted/50 p-2 rounded cursor-pointer transition-colors"
                 onClick={() => {
-                  navigate("/app/reviews/unanswered");
+                  onNavigateToReviews();
                 }}
               >
                 <div className="flex items-center gap-2">
@@ -435,7 +434,7 @@ export const AnalyticsDashboard = ({
               <div
                 className="flex items-center justify-between hover:bg-muted/50 p-2 rounded cursor-pointer transition-colors"
                 onClick={() => {
-                  navigate("/app/questions/unanswered");
+                  onNavigateToQuestions();
                 }}
               >
                 <div className="flex items-center gap-2">

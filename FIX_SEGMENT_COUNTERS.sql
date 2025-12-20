@@ -45,3 +45,5 @@ WHERE r.segment != calculate_review_segment(r.id)
   AND r.deleted_at IS NULL
 LIMIT 20;
 
+
+

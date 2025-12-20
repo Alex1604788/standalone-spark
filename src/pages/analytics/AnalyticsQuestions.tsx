@@ -12,6 +12,7 @@ import { subDays, differenceInMinutes } from "date-fns";
 
 interface AnalyticsQuestionsProps {
   onNavigateToDiagnostics: (productId: string) => void;
+  initialFilter?: "all" | "unanswered";
 }
 
 interface QuestionMetrics {
@@ -44,9 +45,10 @@ interface AIRecommendations {
   actions: string[];
 }
 
-export const AnalyticsQuestions = ({ onNavigateToDiagnostics }: AnalyticsQuestionsProps) => {
+export const AnalyticsQuestions = ({ onNavigateToDiagnostics, initialFilter = "all" }: AnalyticsQuestionsProps) => {
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showUnansweredOnly, setShowUnansweredOnly] = useState(initialFilter === "unanswered");
 
   // Получаем marketplace_id пользователя
   const { data: marketplace } = useQuery({
@@ -320,6 +322,7 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics }: AnalyticsQuestio
   // Фильтруем сводку
   const filteredSummaries = productSummaries
     ?.filter((s) => {
+      if (showUnansweredOnly && s.unansweredCount === 0) return false;
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         return s.productName.toLowerCase().includes(query);
@@ -336,7 +339,7 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics }: AnalyticsQuestio
 
       const { data: questions } = await supabase
         .from("questions")
-        .select("id, text")
+        .select("id, text, author_name, question_date, is_answered")
         .eq("product_id", selectedProductId)
         .order("question_date", { ascending: false })
         .limit(50);
@@ -410,6 +413,19 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics }: AnalyticsQuestio
         themes: themes.filter((t) => t.count > 0),
         recommendations,
         totalQuestions: questions.length,
+        unansweredQuestions: questions.filter((q) => !q.is_answered).map((q) => ({
+          id: q.id,
+          text: q.text || "",
+          author_name: q.author_name || "",
+          question_date: q.question_date || "",
+        })),
+        allQuestions: questions.map((q) => ({
+          id: q.id,
+          text: q.text || "",
+          author_name: q.author_name || "",
+          question_date: q.question_date || "",
+          is_answered: q.is_answered || false,
+        })),
       };
     },
     enabled: !!selectedProductId,
@@ -612,6 +628,33 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics }: AnalyticsQuestio
               <div className="text-center py-8 text-muted-foreground">Анализ вопросов...</div>
             ) : questionAnalysis ? (
               <div className="space-y-6">
+                {/* Список неотвеченных вопросов */}
+                {questionAnalysis.unansweredQuestions && questionAnalysis.unansweredQuestions.length > 0 && (
+                  <div>
+                    <h3 className="font-semibold mb-3">
+                      Неотвеченные вопросы ({questionAnalysis.unansweredQuestions.length})
+                    </h3>
+                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                      {questionAnalysis.unansweredQuestions.map((question) => (
+                        <Card key={question.id} className="p-4">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Badge variant="destructive">Не отвечено</Badge>
+                                <span className="text-sm font-medium">{question.author_name}</span>
+                              </div>
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(question.question_date).toLocaleDateString("ru-RU")}
+                              </span>
+                            </div>
+                            <p className="text-sm">{question.text}</p>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Кластеризация тем */}
                 <div>
                   <h3 className="font-semibold mb-3">Темы вопросов</h3>

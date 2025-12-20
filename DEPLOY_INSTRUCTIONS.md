@@ -50,3 +50,5 @@ supabase functions deploy auto-generate-drafts
 2. Дождитесь следующего запуска cron job (каждые 5 минут)
 3. Проверьте, что отзывы обрабатываются быстрее
 
+
+

@@ -25,3 +25,5 @@ COMMENT ON COLUMN public.marketplace_settings.use_templates_3 IS 'Использ
 COMMENT ON COLUMN public.marketplace_settings.use_templates_4 IS 'Использовать шаблоны ответов для отзывов с рейтингом 4';
 COMMENT ON COLUMN public.marketplace_settings.use_templates_5 IS 'Использовать шаблоны ответов для отзывов с рейтингом 5';
 
+
+

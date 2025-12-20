@@ -13,6 +13,7 @@ import { subDays } from "date-fns";
 
 interface AnalyticsReviewsProps {
   onNavigateToDiagnostics: (productId: string) => void;
+  initialFilter?: "all" | "negative" | "unanswered";
 }
 
 interface ReviewMetrics {
@@ -56,10 +57,10 @@ interface AIRecommendations {
   actions: string[];
 }
 
-export const AnalyticsReviews = ({ onNavigateToDiagnostics }: AnalyticsReviewsProps) => {
+export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all" }: AnalyticsReviewsProps) => {
   const navigate = useNavigate();
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
-  const [filterNegativeOnly, setFilterNegativeOnly] = useState(false);
+  const [filterNegativeOnly, setFilterNegativeOnly] = useState(initialFilter === "negative");
   const [sortBy, setSortBy] = useState<"negativeShare" | "negativeCount">("negativeShare");
   const [searchQuery, setSearchQuery] = useState("");
 

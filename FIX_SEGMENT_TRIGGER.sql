@@ -70,3 +70,5 @@ WHERE deleted_at IS NULL
 GROUP BY segment
 ORDER BY segment;
 
+
+

@@ -67,3 +67,5 @@ WHERE r.is_answered = true
   )
   AND r.segment != 'archived';
 
+
+

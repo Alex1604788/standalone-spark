@@ -57,3 +57,5 @@ SELECT * FROM cron.job WHERE jobname = 'auto-generate-drafts-cron';
 - `*/10 * * * *` - каждые 10 минут
 - `*/1 * * * *` - каждую минуту (не рекомендуется, может перегрузить систему)
 
+
+
