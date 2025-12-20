@@ -1,12 +1,13 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.2.2-reduce-chunk-size
+ * Version: 2.2.3-deduplicate-cumulative-snapshots
  * Date: 2025-12-18
  *
  * Key features:
  * - ZIP archive extraction support (in-memory using JSZip)
  * - Individual report requests per campaign (not batch!) - Fixes duplicate key violations
  * - Processes 5 campaigns per sync (reduced from 10) to avoid Supabase timeout (150s limit)
+ * - Deduplicates cumulative snapshots - keeps last row (end-of-day data at 00:00 MSK)
  * - Async report generation with UUID polling (40 attempts, ~3.5min timeout)
  * - Sync history tracking for partial sync support
  * - All OZON endpoints use redirect: "follow" for 307 redirects
@@ -16,6 +17,7 @@
  * - Fixed: Request individual reports per campaign to avoid OZON returning same data for all
  * - Fixed: Use UUID instead of pollResult.link to avoid double URL construction
  * - Fixed: Reduced chunk size to 5 to stay under Supabase Edge Function timeout
+ * - Fixed: Deduplicate rows within CSV - OZON returns cumulative snapshots, we keep the last one
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -259,6 +261,23 @@ async function downloadAndParseReport(
   return stats;
 }
 
+// Функция дедупликации: убирает дубликаты, оставляя последнюю строку
+// OZON возвращает кумулятивные снимки данных в течение дня
+// Последняя строка = финальное состояние на конец дня (00:00 МСК)
+function deduplicateStats(rows: OzonPerformanceStats[]): OzonPerformanceStats[] {
+  const grouped = new Map<string, OzonPerformanceStats>();
+
+  for (const row of rows) {
+    // Ключ: дата + SKU + кампания
+    const key = `${row.date}_${row.sku}_${row.campaign_id}`;
+
+    // Просто перезаписываем - последняя строка побеждает
+    grouped.set(key, row);
+  }
+
+  return Array.from(grouped.values());
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -398,7 +417,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.2.2-reduce-chunk-size",
+          version: "2.2.3-deduplicate-cumulative-snapshots",
           build_date: "2025-12-18"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -535,7 +554,12 @@ serve(async (req) => {
 
     console.error(`Collected total ${allStats.length} stat rows`);
 
-    if (allStats.length === 0) {
+    // Дедупликация: убираем дубликаты, оставляя последнюю строку для каждого (date, sku, campaign_id)
+    // OZON возвращает кумулятивные снимки в течение дня - берём финальные данные на 00:00 МСК
+    const deduplicatedStats = deduplicateStats(allStats);
+    console.error(`After deduplication: ${deduplicatedStats.length} unique rows (removed ${allStats.length - deduplicatedStats.length} duplicates)`);
+
+    if (deduplicatedStats.length === 0) {
       return new Response(
         JSON.stringify({
           success: true,
@@ -547,8 +571,8 @@ serve(async (req) => {
       );
     }
 
-    // Сохраняем данные в базу
-    const records = allStats.map((stat) => ({
+    // Сохраняем дедуплицированные данные в базу
+    const records = deduplicatedStats.map((stat) => ({
       marketplace_id,
       stat_date: stat.date,
       sku: stat.sku,
@@ -605,7 +629,7 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.2.2-reduce-chunk-size",
+        version: "2.2.3-deduplicate-cumulative-snapshots",
         build_date: "2025-12-18",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -623,7 +647,7 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.2.2-reduce-chunk-size",
+        version: "2.2.3-deduplicate-cumulative-snapshots",
         build_date: "2025-12-18",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
