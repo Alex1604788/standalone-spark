@@ -29,7 +29,7 @@ interface ApiCredentials {
   token_expires_at?: string | null;
 }
 
-const OzonApiSettings = () => {
+export const OzonApiSettings = () => {
   const [marketplaces, setMarketplaces] = useState<Marketplace[]>([]);
   const [selectedMarketplaceId, setSelectedMarketplaceId] = useState<string>("");
   const [credentials, setCredentials] = useState<ApiCredentials | null>(null);
@@ -460,21 +460,13 @@ const OzonApiSettings = () => {
                   )}
                   За 7 дней
                 </Button>
-                <Button onClick={() => handleSyncData(30)} disabled={isSyncing} variant="outline">
+                <Button onClick={() => handleSyncData(62)} disabled={isSyncing} variant="outline">
                   {isSyncing ? (
                     <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
                     <RefreshCw className="w-4 h-4 mr-2" />
                   )}
-                  За 30 дней
-                </Button>
-                <Button onClick={() => handleSyncData(90)} disabled={isSyncing} variant="outline">
-                  {isSyncing ? (
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                  )}
-                  За 90 дней
+                  За 62 дня
                 </Button>
               </div>
             </div>
@@ -493,5 +485,3 @@ const OzonApiSettings = () => {
     </div>
   );
 };
-
-export default OzonApiSettings;
