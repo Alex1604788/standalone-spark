@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.4.1-running-and-stopped-campaigns
+ * Version: 2.5.0-process-all-filtered-campaigns
  * Date: 2025-12-20
  *
  * Key features:
@@ -20,6 +20,8 @@
  * - Fixed: Deduplicate rows within CSV - OZON returns cumulative snapshots, we keep the last one
  * - Fixed: CSV column mapping - first column is DATE, not SKU! Updated destructuring to match actual OZON CSV structure
  * - Filter: Process RUNNING + STOPPED campaigns (exclude only ARCHIVED + ENDED) - captures historical data from recently stopped campaigns
+ * - Process ALL filtered campaigns (removed 5-campaign limit) - now syncs all ~44 active campaigns instead of just 5
+ * - Increased chunk size from 5 to 8 campaigns - reduces number of chunks from 9 to 6 for better performance
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -429,7 +431,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.4.1-running-and-stopped-campaigns",
+          version: "2.5.0-process-all-filtered-campaigns",
           build_date: "2025-12-20"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -494,24 +496,23 @@ serve(async (req) => {
       );
     }
 
-    // 5. Запрашиваем статистику (максимум 5 кампаний за раз - Supabase timeout limit!)
-    const chunkSize = 5;  // Reduced from 10 to avoid Edge Function timeout (150s limit)
+    // 5. Запрашиваем статистику для всех RUNNING + STOPPED кампаний
+    // После фильтрации осталось ~44 кампании (вместо 345)
+    // Chunk size = 8: позволяет обработать ~44 кампании за 6 чанков без превышения таймаута
+    const chunkSize = 8;  // Increased from 5 now that we filter campaigns
     const campaignChunks = [];
     for (let i = 0; i < campaigns.length; i += chunkSize) {
       campaignChunks.push(campaigns.slice(i, i + chunkSize));
     }
 
-    console.error(`Split into ${campaignChunks.length} chunks`);
+    console.error(`Split into ${campaignChunks.length} chunks of ${chunkSize} campaigns each`);
 
     let allStats: OzonPerformanceStats[] = [];
 
-    // Обрабатываем только первый chunk (OZON API лимит)
-    const maxChunks = 1;
-    const chunksToProcess = campaignChunks.slice(0, maxChunks);
+    // Обрабатываем ВСЕ chunks (фильтр уже сократил количество кампаний)
+    const chunksToProcess = campaignChunks;
 
-    if (campaignChunks.length > maxChunks) {
-      console.error(`WARNING: Processing only first ${maxChunks * chunkSize} out of ${campaigns.length} campaigns.`);
-    }
+    console.error(`Processing ALL ${chunksToProcess.length} chunks (${campaigns.length} campaigns total)`);
 
     // Запрашиваем отчеты ИНДИВИДУАЛЬНО для каждой кампании
     // Fix: OZON returns same report for all campaigns when requested in batch
