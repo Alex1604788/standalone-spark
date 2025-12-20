@@ -1,11 +1,12 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.2.1-fix-download-url
+ * Version: 2.2.2-reduce-chunk-size
  * Date: 2025-12-18
  *
  * Key features:
  * - ZIP archive extraction support (in-memory using JSZip)
  * - Individual report requests per campaign (not batch!) - Fixes duplicate key violations
+ * - Processes 5 campaigns per sync (reduced from 10) to avoid Supabase timeout (150s limit)
  * - Async report generation with UUID polling (40 attempts, ~3.5min timeout)
  * - Sync history tracking for partial sync support
  * - All OZON endpoints use redirect: "follow" for 307 redirects
@@ -14,6 +15,7 @@
  * - Fixed: Increased polling timeout for large reports (30+ campaigns)
  * - Fixed: Request individual reports per campaign to avoid OZON returning same data for all
  * - Fixed: Use UUID instead of pollResult.link to avoid double URL construction
+ * - Fixed: Reduced chunk size to 5 to stay under Supabase Edge Function timeout
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -396,7 +398,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.2.1-fix-download-url",
+          version: "2.2.2-reduce-chunk-size",
           build_date: "2025-12-18"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -450,8 +452,8 @@ serve(async (req) => {
       );
     }
 
-    // 5. Запрашиваем статистику (максимум 10 кампаний за раз)
-    const chunkSize = 10;
+    // 5. Запрашиваем статистику (максимум 5 кампаний за раз - Supabase timeout limit!)
+    const chunkSize = 5;  // Reduced from 10 to avoid Edge Function timeout (150s limit)
     const campaignChunks = [];
     for (let i = 0; i < campaigns.length; i += chunkSize) {
       campaignChunks.push(campaigns.slice(i, i + chunkSize));
@@ -603,7 +605,7 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.2.1-fix-download-url",
+        version: "2.2.2-reduce-chunk-size",
         build_date: "2025-12-18",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -621,7 +623,7 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.2.1-fix-download-url",
+        version: "2.2.2-reduce-chunk-size",
         build_date: "2025-12-18",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
