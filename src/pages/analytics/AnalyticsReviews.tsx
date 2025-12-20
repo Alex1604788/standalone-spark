@@ -63,6 +63,7 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
   const [filterNegativeOnly, setFilterNegativeOnly] = useState(initialFilter === "negative");
   const [sortBy, setSortBy] = useState<"negativeShare" | "negativeCount">("negativeShare");
   const [searchQuery, setSearchQuery] = useState("");
+  const detailsBlockRef = useRef<HTMLDivElement>(null);
 
   // Получаем marketplace_id пользователя
   const { data: marketplace } = useQuery({

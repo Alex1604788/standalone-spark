@@ -49,6 +49,7 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics, initialFilter = "a
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showUnansweredOnly, setShowUnansweredOnly] = useState(initialFilter === "unanswered");
+  const detailsBlockRef = useRef<HTMLDivElement>(null);
 
   // Получаем marketplace_id пользователя
   const { data: marketplace } = useQuery({
