@@ -372,6 +372,7 @@ const ImportData = () => {
           // Дедуплицируем данные в батче перед upsert
           // Supabase не может обработать дубликаты в одном upsert запросе
           const deduplicatedChunk = new Map<string, any>();
+          const duplicateKeys = new Map<string, number>(); // Отслеживаем дубликаты
           const conflictColumns = importType === "accruals" 
             ? "marketplace_id,accrual_date,offer_id,accrual_type"  // UNIQUE constraint для ozon_accruals
             : "marketplace_id,cost_date,offer_id";  // UNIQUE constraint для storage_costs (без sku)
@@ -384,14 +385,42 @@ const ImportData = () => {
             } else {
               key = `${row.marketplace_id}|${row.cost_date}|${row.offer_id || ""}`;
             }
+            
+            // Отслеживаем дубликаты
+            if (deduplicatedChunk.has(key)) {
+              const count = duplicateKeys.get(key) || 1;
+              duplicateKeys.set(key, count + 1);
+            }
+            
             // Оставляем последнюю версию при дубликатах
             deduplicatedChunk.set(key, row);
           }
           
           const uniqueRows = Array.from(deduplicatedChunk.values());
+          const duplicatesCount = chunk.length - uniqueRows.length;
           
-          if (uniqueRows.length < chunk.length) {
-            window.console.log(`⚠️ Батч ${batchNumber}: удалено ${chunk.length - uniqueRows.length} дубликатов из ${chunk.length} строк`);
+          if (duplicatesCount > 0) {
+            window.console.log(`⚠️ Батч ${batchNumber}: удалено ${duplicatesCount} дубликатов из ${chunk.length} строк`);
+            
+            // Детальное логирование дубликатов (первые 10 для примера)
+            const duplicateEntries = Array.from(duplicateKeys.entries())
+              .filter(([_, count]) => count > 1)
+              .slice(0, 10);
+            
+            if (duplicateEntries.length > 0) {
+              window.console.log(`📋 Примеры удаленных дубликатов (первые ${duplicateEntries.length} из ${duplicateKeys.size}):`);
+              for (const [key, count] of duplicateEntries) {
+                const parts = key.split('|');
+                if (importType === "accruals") {
+                  window.console.log(`  - Ключ: marketplace_id=${parts[0]}, accrual_date=${parts[1]}, offer_id=${parts[2]}, accrual_type=${parts[3]} (встретилось ${count + 1} раз, оставлена последняя версия)`);
+                } else {
+                  window.console.log(`  - Ключ: marketplace_id=${parts[0]}, cost_date=${parts[1]}, offer_id=${parts[2]} (встретилось ${count + 1} раз, оставлена последняя версия)`);
+                }
+              }
+              if (duplicateKeys.size > 10) {
+                window.console.log(`  ... и еще ${duplicateKeys.size - 10} дубликатов`);
+              }
+            }
           }
           
           const { error } = await supabase
