@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { MessageSquare, HelpCircle, Clock, AlertTriangle, TrendingUp, Sparkles } from "lucide-react";
+import { MessageSquare, HelpCircle, Clock, AlertTriangle, TrendingUp, Sparkles, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { useToast } from "@/hooks/use-toast";
 
 interface DashboardKPIs {
   unansweredReviews: number;
@@ -45,6 +46,7 @@ export const AnalyticsDashboard = ({
   onNavigateToQuestions,
   onNavigateToDiagnostics,
 }: AnalyticsDashboardProps) => {
+  const { toast } = useToast();
   const [kpis, setKpis] = useState<DashboardKPIs>({
     unansweredReviews: 0,
     unansweredQuestions: 0,
@@ -60,79 +62,88 @@ export const AnalyticsDashboard = ({
   const [anomalies, setAnomalies] = useState<AnomalyProduct[]>([]);
   const [weeklySummary, setWeeklySummary] = useState<WeeklySummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Получаем активный маркетплейс
-  const { data: marketplace } = useQuery({
-    queryKey: ["active-marketplace"],
+  // Получаем маркетплейсы пользователя (как в других компонентах)
+  const { data: marketplaces } = useQuery({
+    queryKey: ["user-marketplaces"],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+
       const { data, error } = await supabase
         .from("marketplaces")
-        .select("*")
-        .eq("is_active", true)
-        .single();
+        .select("id")
+        .eq("user_id", user.id);
+
       if (error) throw error;
-      return data;
+      return data || [];
     },
   });
 
   useEffect(() => {
-    if (marketplace) {
+    if (marketplaces && marketplaces.length > 0) {
       loadDashboardData();
+    } else if (marketplaces && marketplaces.length === 0) {
+      setLoading(false);
+      setError("У вас нет подключенных маркетплейсов");
     }
-  }, [marketplace]);
+  }, [marketplaces]);
 
   const loadDashboardData = async () => {
-    if (!marketplace) return;
+    if (!marketplaces || marketplaces.length === 0) return;
 
     setLoading(true);
+    setError(null);
     try {
+      const marketplaceIds = marketplaces.map((m) => m.id);
       const now = new Date();
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
 
-      // 1. Неотвеченные отзывы и вопросы
+      // 1. Неотвеченные отзывы и вопросы (через products join)
       const { count: unansweredReviews } = await supabase
         .from("reviews")
         .select("*", { count: "exact", head: true })
-        .eq("marketplace_id", marketplace.id)
-        .eq("is_answered", false)
+        .eq("segment", "unanswered")
+        .in("products!inner.marketplace_id", marketplaceIds)
         .is("deleted_at", null);
 
       const { count: unansweredQuestions } = await supabase
         .from("questions")
         .select("*", { count: "exact", head: true })
-        .eq("marketplace_id", marketplace.id)
-        .eq("is_answered", false);
+        .eq("is_answered", false)
+        .in("products!inner.marketplace_id", marketplaceIds);
 
       // 2. Всего за неделю
       const { data: reviewsWeek } = await supabase
         .from("reviews")
-        .select("review_date")
-        .eq("marketplace_id", marketplace.id)
-        .gte("review_date", sevenDaysAgo.toISOString().split("T")[0])
+        .select("review_date, products!inner(marketplace_id)")
+        .in("products.marketplace_id", marketplaceIds)
+        .gte("review_date", sevenDaysAgo.toISOString())
         .is("deleted_at", null);
 
       const { data: questionsWeek } = await supabase
         .from("questions")
-        .select("question_date")
-        .eq("marketplace_id", marketplace.id)
-        .gte("question_date", sevenDaysAgo.toISOString().split("T")[0]);
+        .select("question_date, products!inner(marketplace_id)")
+        .in("products.marketplace_id", marketplaceIds)
+        .gte("question_date", sevenDaysAgo.toISOString());
 
       // Предыдущая неделя для сравнения
       const { data: reviewsPrevWeek } = await supabase
         .from("reviews")
-        .select("review_date")
-        .eq("marketplace_id", marketplace.id)
-        .gte("review_date", fourteenDaysAgo.toISOString().split("T")[0])
-        .lt("review_date", sevenDaysAgo.toISOString().split("T")[0])
+        .select("review_date, products!inner(marketplace_id)")
+        .in("products.marketplace_id", marketplaceIds)
+        .gte("review_date", fourteenDaysAgo.toISOString())
+        .lt("review_date", sevenDaysAgo.toISOString())
         .is("deleted_at", null);
 
       const { data: questionsPrevWeek } = await supabase
         .from("questions")
-        .select("question_date")
-        .eq("marketplace_id", marketplace.id)
-        .gte("question_date", fourteenDaysAgo.toISOString().split("T")[0])
-        .lt("question_date", sevenDaysAgo.toISOString().split("T")[0]);
+        .select("question_date, products!inner(marketplace_id)")
+        .in("products.marketplace_id", marketplaceIds)
+        .gte("question_date", fourteenDaysAgo.toISOString())
+        .lt("question_date", sevenDaysAgo.toISOString());
 
       const totalReviewsWeek = reviewsWeek?.length || 0;
       const totalQuestionsWeek = questionsWeek?.length || 0;
@@ -142,43 +153,51 @@ export const AnalyticsDashboard = ({
       const reviewsWeekChange =
         totalReviewsPrevWeek > 0
           ? ((totalReviewsWeek - totalReviewsPrevWeek) / totalReviewsPrevWeek) * 100
-          : 0;
+          : totalReviewsWeek > 0
+            ? 100
+            : 0;
       const questionsWeekChange =
         totalQuestionsPrevWeek > 0
           ? ((totalQuestionsWeek - totalQuestionsPrevWeek) / totalQuestionsPrevWeek) * 100
-          : 0;
+          : totalQuestionsWeek > 0
+            ? 100
+            : 0;
 
-      // 3. Среднее время ответа
+      // 3. Среднее время ответа (получаем первый опубликованный ответ)
       const { data: reviewsWithReplies } = await supabase
         .from("reviews")
         .select(`
+          id,
           review_date,
-          replies!inner(published_at, status)
+          replies(id, published_at, status, created_at)
         `)
-        .eq("marketplace_id", marketplace.id)
-        .eq("replies.status", "published")
-        .gte("review_date", sevenDaysAgo.toISOString().split("T")[0])
+        .in("products!inner.marketplace_id", marketplaceIds)
+        .gte("review_date", sevenDaysAgo.toISOString())
         .is("deleted_at", null)
         .limit(1000);
 
       const { data: questionsWithReplies } = await supabase
         .from("questions")
         .select(`
+          id,
           question_date,
-          replies!inner(published_at, status)
+          replies(id, published_at, status, created_at)
         `)
-        .eq("marketplace_id", marketplace.id)
-        .eq("replies.status", "published")
-        .gte("question_date", sevenDaysAgo.toISOString().split("T")[0])
+        .in("products!inner.marketplace_id", marketplaceIds)
+        .gte("question_date", sevenDaysAgo.toISOString())
         .limit(1000);
 
       let totalResponseTimeReviews = 0;
       let countReviews = 0;
       reviewsWithReplies?.forEach((review: any) => {
-        const reply = review.replies?.[0];
-        if (reply?.published_at) {
+        // Находим первый опубликованный ответ
+        const publishedReply = review.replies
+          ?.filter((r: any) => r.status === "published" && r.published_at)
+          .sort((a: any, b: any) => new Date(a.published_at).getTime() - new Date(b.published_at).getTime())[0];
+
+        if (publishedReply?.published_at) {
           const reviewDate = new Date(review.review_date);
-          const replyDate = new Date(reply.published_at);
+          const replyDate = new Date(publishedReply.published_at);
           const diffMinutes = (replyDate.getTime() - reviewDate.getTime()) / (1000 * 60);
           if (diffMinutes > 0) {
             totalResponseTimeReviews += diffMinutes;
@@ -190,10 +209,14 @@ export const AnalyticsDashboard = ({
       let totalResponseTimeQuestions = 0;
       let countQuestions = 0;
       questionsWithReplies?.forEach((question: any) => {
-        const reply = question.replies?.[0];
-        if (reply?.published_at) {
+        // Находим первый опубликованный ответ
+        const publishedReply = question.replies
+          ?.filter((r: any) => r.status === "published" && r.published_at)
+          .sort((a: any, b: any) => new Date(a.published_at).getTime() - new Date(b.published_at).getTime())[0];
+
+        if (publishedReply?.published_at) {
           const questionDate = new Date(question.question_date);
-          const replyDate = new Date(reply.published_at);
+          const replyDate = new Date(publishedReply.published_at);
           const diffMinutes = (replyDate.getTime() - questionDate.getTime()) / (1000 * 60);
           if (diffMinutes > 0) {
             totalResponseTimeQuestions += diffMinutes;
@@ -208,10 +231,10 @@ export const AnalyticsDashboard = ({
       // 4. Доля негативных отзывов (1-3⭐)
       const { data: negativeReviews } = await supabase
         .from("reviews")
-        .select("id")
-        .eq("marketplace_id", marketplace.id)
+        .select("id, products!inner(marketplace_id)")
+        .in("products.marketplace_id", marketplaceIds)
         .lte("rating", 3)
-        .gte("review_date", sevenDaysAgo.toISOString().split("T")[0])
+        .gte("review_date", sevenDaysAgo.toISOString())
         .is("deleted_at", null);
 
       const negativeReviewsCount = negativeReviews?.length || 0;
@@ -232,20 +255,24 @@ export const AnalyticsDashboard = ({
       });
 
       // 5. Аномальный рост негатива
-      await loadAnomalies();
+      await loadAnomalies(marketplaceIds);
 
       // 6. ИИ-сводка недели
       await loadWeeklySummary();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error loading dashboard data:", error);
+      setError(error.message || "Не удалось загрузить данные");
+      toast({
+        title: "Ошибка",
+        description: "Не удалось загрузить данные дашборда",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const loadAnomalies = async () => {
-    if (!marketplace) return;
-
+  const loadAnomalies = async (marketplaceIds: string[]) => {
     try {
       const now = new Date();
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -254,20 +281,20 @@ export const AnalyticsDashboard = ({
       // Получаем негативные отзывы за последние 7 дней по товарам
       const { data: recentNegative } = await supabase
         .from("reviews")
-        .select("product_id, rating")
-        .eq("marketplace_id", marketplace.id)
+        .select("product_id, rating, products!inner(id, marketplace_id)")
+        .in("products.marketplace_id", marketplaceIds)
         .lte("rating", 3)
-        .gte("review_date", sevenDaysAgo.toISOString().split("T")[0])
+        .gte("review_date", sevenDaysAgo.toISOString())
         .is("deleted_at", null);
 
       // Получаем негативные отзывы за предыдущие 4 недели (для нормы)
       const { data: historicalNegative } = await supabase
         .from("reviews")
-        .select("product_id, rating")
-        .eq("marketplace_id", marketplace.id)
+        .select("product_id, rating, products!inner(id, marketplace_id)")
+        .in("products.marketplace_id", marketplaceIds)
         .lte("rating", 3)
-        .gte("review_date", thirtyFiveDaysAgo.toISOString().split("T")[0])
-        .lt("review_date", sevenDaysAgo.toISOString().split("T")[0])
+        .gte("review_date", thirtyFiveDaysAgo.toISOString())
+        .lt("review_date", sevenDaysAgo.toISOString())
         .is("deleted_at", null);
 
       // Группируем по товарам
@@ -285,6 +312,20 @@ export const AnalyticsDashboard = ({
         }
       });
 
+      // Получаем информацию о всех товарах одним запросом
+      const productIds = Array.from(new Set([...recentByProduct.keys(), ...historicalByProduct.keys()]));
+      if (productIds.length === 0) {
+        setAnomalies([]);
+        return;
+      }
+
+      const { data: products } = await supabase
+        .from("products")
+        .select("id, name, image_url")
+        .in("id", productIds);
+
+      const productMap = new Map(products?.map((p) => [p.id, p]) || []);
+
       // Вычисляем норму (среднее за 4 недели) и находим аномалии
       const anomaliesList: AnomalyProduct[] = [];
       const threshold = 3; // x3 от нормы
@@ -294,13 +335,7 @@ export const AnalyticsDashboard = ({
         const normalAverage = historicalCount / 4; // среднее за неделю за 4 недели
 
         if (normalAverage > 0 && recentCount / normalAverage >= threshold) {
-          // Получаем информацию о товаре
-          const { data: product } = await supabase
-            .from("products")
-            .select("name, image_url")
-            .eq("id", productId)
-            .single();
-
+          const product = productMap.get(productId);
           if (product) {
             anomaliesList.push({
               product_id: productId,
@@ -323,12 +358,10 @@ export const AnalyticsDashboard = ({
   };
 
   const loadWeeklySummary = async () => {
-    if (!marketplace) return;
-
     try {
       // Вызываем edge function для генерации ИИ-сводки
       const { data, error } = await supabase.functions.invoke("generate-weekly-summary", {
-        body: { marketplace_id: marketplace.id },
+        body: { marketplace_ids: marketplaces?.map((m) => m.id) || [] },
       });
 
       if (error) throw error;
@@ -354,6 +387,25 @@ export const AnalyticsDashboard = ({
     const mins = Math.round(minutes % 60);
     return mins > 0 ? `${hours}ч ${mins}мин` : `${hours}ч`;
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center">
+          <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
+          <p className="text-destructive font-medium">{error}</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -397,10 +449,13 @@ export const AnalyticsDashboard = ({
                   <span className="text-2xl font-bold">{kpis.totalReviewsWeek}</span>
                   {kpis.reviewsWeekChange !== 0 && (
                     <span
-                      className={`text-xs ${
+                      className={`text-xs flex items-center gap-1 ${
                         kpis.reviewsWeekChange > 0 ? "text-green-600" : "text-red-600"
                       }`}
                     >
+                      <TrendingUp
+                        className={`w-3 h-3 ${kpis.reviewsWeekChange < 0 ? "rotate-180" : ""}`}
+                      />
                       {kpis.reviewsWeekChange > 0 ? "+" : ""}
                       {kpis.reviewsWeekChange.toFixed(1)}%
                     </span>
@@ -413,10 +468,13 @@ export const AnalyticsDashboard = ({
                   <span className="text-2xl font-bold">{kpis.totalQuestionsWeek}</span>
                   {kpis.questionsWeekChange !== 0 && (
                     <span
-                      className={`text-xs ${
+                      className={`text-xs flex items-center gap-1 ${
                         kpis.questionsWeekChange > 0 ? "text-green-600" : "text-red-600"
                       }`}
                     >
+                      <TrendingUp
+                        className={`w-3 h-3 ${kpis.questionsWeekChange < 0 ? "rotate-180" : ""}`}
+                      />
                       {kpis.questionsWeekChange > 0 ? "+" : ""}
                       {kpis.questionsWeekChange.toFixed(1)}%
                     </span>
@@ -436,15 +494,17 @@ export const AnalyticsDashboard = ({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm">Отзывы</span>
-                <span className="text-2xl font-bold">
-                  {formatResponseTime(kpis.avgResponseTimeReviews)}
-                </span>
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-2xl font-bold">{formatResponseTime(kpis.avgResponseTimeReviews)}</span>
+                </div>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm">Вопросы</span>
-                <span className="text-2xl font-bold">
-                  {formatResponseTime(kpis.avgResponseTimeQuestions)}
-                </span>
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-2xl font-bold">{formatResponseTime(kpis.avgResponseTimeQuestions)}</span>
+                </div>
               </div>
             </div>
           </CardContent>
@@ -489,12 +549,16 @@ export const AnalyticsDashboard = ({
                   onClick={() => onNavigateToDiagnostics(anomaly.product_id)}
                 >
                   <div className="flex items-center gap-3 flex-1">
-                    {anomaly.product_image && (
+                    {anomaly.product_image ? (
                       <img
                         src={anomaly.product_image}
                         alt={anomaly.product_name}
                         className="w-12 h-12 object-cover rounded"
                       />
+                    ) : (
+                      <div className="w-12 h-12 bg-muted rounded flex items-center justify-center">
+                        <MessageSquare className="w-6 h-6 text-muted-foreground" />
+                      </div>
                     )}
                     <div className="flex-1">
                       <div className="font-medium">{anomaly.product_name}</div>
@@ -556,4 +620,3 @@ export const AnalyticsDashboard = ({
     </div>
   );
 };
-
