@@ -348,8 +348,14 @@ const PromotionsAnalytics = () => {
           {isLoading ? (
             <div className="text-center py-8 text-muted-foreground">Загрузка...</div>
           ) : filteredCampaigns.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              Нет данных за выбранный период
+            <div className="text-center py-8 text-muted-foreground space-y-2">
+              <p className="text-lg">Нет данных за выбранный период</p>
+              <p className="text-sm">
+                Убедитесь, что данные по продвижениям загружены в таблицу ozon_performance_daily
+              </p>
+              <p className="text-xs text-muted-foreground mt-4">
+                Период: {format(dateRange.start, "dd.MM.yyyy", { locale: ru })} - {format(dateRange.end, "dd.MM.yyyy", { locale: ru })}
+              </p>
             </div>
           ) : (
             <div className="border rounded-lg overflow-hidden">
