@@ -191,6 +191,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     if (item) return item.label;
 
     // Проверяем аналитику
+    if (location.pathname === "/app/analytics") return "Аналитика";
     const analyticsTitles: Record<string, string> = {
       "/app/analytics/reviews-questions": "Аналитика Отзывов и Вопросов",
       "/app/sales-analytics": "Аналитика Продаж",
@@ -224,7 +225,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     <div className="flex flex-col h-full bg-card">
       {/* Logo */}
       <div className="p-6 border-b border-border">
-        <Link to="/app/analytics/reviews-questions" onClick={() => setIsMobileMenuOpen(false)}>
+        <Link to="/app/analytics" onClick={() => setIsMobileMenuOpen(false)}>
           <h2 className="text-2xl font-bold bg-gradient-to-r from-primary to-purple-500 bg-clip-text text-transparent">Автоответ</h2>
         </Link>
       </div>
@@ -240,6 +241,18 @@ const AppLayout = ({ children }: AppLayoutProps) => {
               {analyticsOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </CollapsibleTrigger>
             <CollapsibleContent className="ml-4 mt-1 space-y-1">
+              <Link
+                to="/app/analytics"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/analytics"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <BarChart3 className="w-4 h-4" />
+                <span className="text-sm">Дашборд</span>
+              </Link>
               <Link
                 to="/app/analytics/reviews-questions"
                 onClick={() => setIsMobileMenuOpen(false)}
