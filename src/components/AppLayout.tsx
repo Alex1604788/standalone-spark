@@ -44,7 +44,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [reviewsOpen, setReviewsOpen] = useState(true);
   const [questionsOpen, setQuestionsOpen] = useState(true);
-  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [analyticsOpen, setAnalyticsOpen] = useState(location.pathname.startsWith("/app/analytics"));
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Счётчики
@@ -55,6 +55,10 @@ const AppLayout = ({ children }: AppLayoutProps) => {
   const [archivedQuestionsCount, setArchivedQuestionsCount] = useState(0);
 
   useEffect(() => {
+    // Автоматически открываем раздел аналитики, если мы на странице аналитики
+    if (location.pathname.startsWith("/app/analytics")) {
+      setAnalyticsOpen(true);
+    }
     fetchCounts();
 
     const handler = () => {
