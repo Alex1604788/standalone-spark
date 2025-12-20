@@ -337,7 +337,7 @@ export const FileUploader = ({
             // Используем только базовую очистку, без fixWeirdUtf16 для каждой ячейки
             const str = String(value);
             rowObj[columnName] = str
-              .replace(/[\u0000-\u001F\u007F-\u009F\u200B-200F\uFEFF]/g, "")
+              .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
               .trim();
           } else if (typeof value === "number") {
             // Числа оставляем как есть (будут обработаны в ImportData)
