@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MessageSquare, HelpCircle, Clock, AlertTriangle, TrendingUp, Sparkles, Loader2 } from "lucide-react";
@@ -46,6 +47,7 @@ export const AnalyticsDashboard = ({
   onNavigateToQuestions,
   onNavigateToDiagnostics,
 }: AnalyticsDashboardProps) => {
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [kpis, setKpis] = useState<DashboardKPIs>({
     unansweredReviews: 0,
@@ -421,7 +423,7 @@ export const AnalyticsDashboard = ({
               <div
                 className="flex items-center justify-between hover:bg-muted/50 p-2 rounded cursor-pointer transition-colors"
                 onClick={() => {
-                  window.location.href = "/app/reviews/unanswered";
+                  navigate("/app/reviews/unanswered");
                 }}
               >
                 <div className="flex items-center gap-2">
@@ -433,7 +435,7 @@ export const AnalyticsDashboard = ({
               <div
                 className="flex items-center justify-between hover:bg-muted/50 p-2 rounded cursor-pointer transition-colors"
                 onClick={() => {
-                  window.location.href = "/app/questions/unanswered";
+                  navigate("/app/questions/unanswered");
                 }}
               >
                 <div className="flex items-center gap-2">
@@ -531,8 +533,8 @@ export const AnalyticsDashboard = ({
             <div
               className="space-y-2 cursor-pointer"
               onClick={() => {
-                // Переходим на страницу отзывов с фильтром по негативным
-                window.location.href = "/app/reviews/unanswered?rating=1,2,3";
+                // Переходим на вкладку Отзывы с фильтром по негативным
+                onNavigateToReviews();
               }}
             >
               <div className="text-3xl font-bold">{kpis.negativeReviewsPercent.toFixed(1)}%</div>

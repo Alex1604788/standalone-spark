@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,9 +9,7 @@ import { Input } from "@/components/ui/input";
 import { AlertTriangle, TrendingDown, Star, Search, Sparkles, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
-import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
-import { subDays, startOfWeek, endOfWeek } from "date-fns";
+import { subDays } from "date-fns";
 
 interface AnalyticsReviewsProps {
   onNavigateToDiagnostics: (productId: string) => void;
@@ -42,12 +41,23 @@ interface NegativeReviewCluster {
   examples: string[];
 }
 
+interface NegativeReview {
+  id: string;
+  text: string;
+  advantages: string;
+  disadvantages: string;
+  rating: number;
+  author_name: string;
+  review_date: string;
+}
+
 interface AIRecommendations {
   summary: string;
   actions: string[];
 }
 
 export const AnalyticsReviews = ({ onNavigateToDiagnostics }: AnalyticsReviewsProps) => {
+  const navigate = useNavigate();
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [filterNegativeOnly, setFilterNegativeOnly] = useState(false);
   const [sortBy, setSortBy] = useState<"negativeShare" | "negativeCount">("negativeShare");
@@ -240,7 +250,7 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics }: AnalyticsReviewsPr
 
       const { data: reviews } = await supabase
         .from("reviews")
-        .select("id, text, advantages, disadvantages, rating")
+        .select("id, text, advantages, disadvantages, rating, author_name, review_date")
         .eq("product_id", selectedProductId)
         .lte("rating", 3)
         .order("review_date", { ascending: false })
@@ -317,6 +327,15 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics }: AnalyticsReviewsPr
         clusters: clusters.filter((c) => c.count > 0),
         recommendations,
         totalNegative: reviews.length,
+        reviews: reviews.map((r) => ({
+          id: r.id,
+          text: r.text || "",
+          advantages: r.advantages || "",
+          disadvantages: r.disadvantages || "",
+          rating: r.rating,
+          author_name: r.author_name || "",
+          review_date: r.review_date || "",
+        })),
       };
     },
     enabled: !!selectedProductId,
@@ -570,6 +589,45 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics }: AnalyticsReviewsPr
               <div className="text-center py-8 text-muted-foreground">Анализ отзывов...</div>
             ) : negativeReviewsData ? (
               <div className="space-y-6">
+                {/* Список негативных отзывов */}
+                <div>
+                  <h3 className="font-semibold mb-3">
+                    Список негативных отзывов ({negativeReviewsData.totalNegative})
+                  </h3>
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {negativeReviewsData.reviews?.map((review) => (
+                      <Card key={review.id} className="p-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="destructive">⭐ {review.rating}</Badge>
+                              <span className="text-sm font-medium">{review.author_name}</span>
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(review.review_date).toLocaleDateString("ru-RU")}
+                            </span>
+                          </div>
+                          {review.text && (
+                            <p className="text-sm">{review.text}</p>
+                          )}
+                          {review.advantages && (
+                            <div>
+                              <span className="text-xs font-medium text-green-600">Плюсы: </span>
+                              <span className="text-sm">{review.advantages}</span>
+                            </div>
+                          )}
+                          {review.disadvantages && (
+                            <div>
+                              <span className="text-xs font-medium text-red-600">Минусы: </span>
+                              <span className="text-sm">{review.disadvantages}</span>
+                            </div>
+                          )}
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Кластеризация причин */}
                 <div>
                   <h3 className="font-semibold mb-3">Причины негативных отзывов</h3>
