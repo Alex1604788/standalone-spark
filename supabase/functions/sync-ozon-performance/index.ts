@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.3.0-fix-csv-columns
+ * Version: 2.4.0-active-campaigns-only
  * Date: 2025-12-20
  *
  * Key features:
@@ -19,6 +19,7 @@
  * - Fixed: Reduced chunk size to 5 to stay under Supabase Edge Function timeout
  * - Fixed: Deduplicate rows within CSV - OZON returns cumulative snapshots, we keep the last one
  * - Fixed: CSV column mapping - first column is DATE, not SKU! Updated destructuring to match actual OZON CSV structure
+ * - Filter: Process only ACTIVE campaigns (CAMPAIGN_STATE_RUNNING) - reduces from 345 to ~40-50 campaigns
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -65,6 +66,7 @@ interface CampaignInfo {
   id: string;
   name: string;
   type: string;
+  state: string; // CAMPAIGN_STATE_RUNNING, CAMPAIGN_STATE_STOPPED, CAMPAIGN_STATE_ARCHIVED, CAMPAIGN_STATE_ENDED
 }
 
 // Вспомогательная функция для polling статуса отчета
@@ -427,7 +429,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.3.0-fix-csv-columns",
+          version: "2.4.0-active-campaigns-only",
           build_date: "2025-12-20"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -462,13 +464,20 @@ serve(async (req) => {
     const campaignsData = await campaignsResponse.json();
 
     // Извлекаем кампании и их метаданные
-    const campaigns: CampaignInfo[] = (campaignsData.list || []).map((campaign: any) => ({
+    const allCampaigns: CampaignInfo[] = (campaignsData.list || []).map((campaign: any) => ({
       id: campaign.id || String(campaign.campaignId || ''),
       name: campaign.title || campaign.name || 'Unknown Campaign',
-      type: campaign.advObjectType || campaign.type || 'UNKNOWN'
+      type: campaign.advObjectType || campaign.type || 'UNKNOWN',
+      state: campaign.state || 'UNKNOWN'
     }));
 
-    console.error(`Found ${campaigns.length} campaigns`);
+    console.error(`Found ${allCampaigns.length} campaigns (all states)`);
+
+    // Фильтруем только АКТИВНЫЕ кампании (CAMPAIGN_STATE_RUNNING)
+    const campaigns = allCampaigns.filter(c => c.state === 'CAMPAIGN_STATE_RUNNING');
+
+    console.error(`Filtered to ${campaigns.length} ACTIVE campaigns (state=CAMPAIGN_STATE_RUNNING)`);
+    console.error(`Skipped ${allCampaigns.length - campaigns.length} inactive campaigns`);
 
     if (campaigns.length === 0) {
       return new Response(
