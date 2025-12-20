@@ -636,7 +636,8 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics, initialFilter = "a
 
       {/* Блок анализа тем вопросов с ИИ-рекомендациями */}
       {selectedProductId && (
-        <Card ref={detailsBlockRef}>
+        <div ref={detailsBlockRef}>
+          <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <HelpCircle className="h-5 w-5 text-primary" />

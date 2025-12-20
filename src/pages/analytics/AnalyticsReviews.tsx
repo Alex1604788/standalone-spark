@@ -596,7 +596,8 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
 
       {/* Блок негативных отзывов с ИИ-рекомендациями */}
       {selectedProductId && (
-        <Card ref={detailsBlockRef}>
+        <div ref={detailsBlockRef}>
+          <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" />
