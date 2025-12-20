@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.2.4-debug-insert
+ * Version: 2.2.5-debug-csv-structure
  * Date: 2025-12-20
  *
  * Key features:
@@ -200,8 +200,17 @@ async function downloadAndParseReport(
   const firstLine = lines[0];
   console.error(`CSV first line (metadata): ${firstLine.substring(0, 200)}`);
 
+  // Вторая строка - заголовки столбцов
+  const headerLine = lines[1];
+  console.error(`CSV headers: ${headerLine}`);
+
   // Пропускаем заголовок (вторая строка) и начинаем с данных
   const dataLines = lines.slice(2);
+
+  // Показываем первую строку данных для отладки
+  if (dataLines.length > 0) {
+    console.error(`CSV first data row: ${dataLines[0]}`);
+  }
 
   const stats: OzonPerformanceStats[] = [];
 
@@ -417,7 +426,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.2.4-debug-insert",
+          version: "2.2.5-debug-csv-structure",
           build_date: "2025-12-20"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -637,7 +646,7 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.2.4-debug-insert",
+        version: "2.2.5-debug-csv-structure",
         build_date: "2025-12-20",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
