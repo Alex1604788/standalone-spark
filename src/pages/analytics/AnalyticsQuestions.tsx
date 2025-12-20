@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { HelpCircle, Clock, Search, Sparkles, ExternalLink, TrendingUp } from "lucide-react";
+import { HelpCircle, Clock, Search, Sparkles, ExternalLink, TrendingUp, ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { subDays, differenceInMinutes } from "date-fns";
@@ -642,13 +642,25 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics, initialFilter = "a
         <div ref={detailsBlockRef}>
           <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <HelpCircle className="h-5 w-5 text-primary" />
-              Анализ тем вопросов + ИИ-рекомендации
-            </CardTitle>
-            <CardDescription>
-              {selectedProduct?.productName || "Загрузка..."} — анализ вопросов и рекомендации по улучшению карточки
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <CardTitle className="flex items-center gap-2">
+                  <HelpCircle className="h-5 w-5 text-primary" />
+                  Анализ тем вопросов + ИИ-рекомендации
+                </CardTitle>
+                <CardDescription>
+                  {selectedProduct?.productName || "Загрузка..."} — анализ вопросов и рекомендации по улучшению карточки
+                </CardDescription>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setSelectedProductId(null)}
+                className="ml-4"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {analysisLoading ? (

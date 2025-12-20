@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, TrendingDown, Star, Search, Sparkles, ExternalLink } from "lucide-react";
+import { AlertTriangle, TrendingDown, Star, Search, Sparkles, ExternalLink, ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { subDays } from "date-fns";
@@ -602,13 +602,25 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
         <div ref={detailsBlockRef}>
           <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-              Негативные отзывы (1-3⭐) + ИИ-рекомендации
-            </CardTitle>
-            <CardDescription>
-              {selectedProduct?.productName || "Загрузка..."} — анализ причин негативных отзывов
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <CardTitle className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                  Негативные отзывы (1-3⭐) + ИИ-рекомендации
+                </CardTitle>
+                <CardDescription>
+                  {selectedProduct?.productName || "Загрузка..."} — анализ причин негативных отзывов
+                </CardDescription>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setSelectedProductId(null)}
+                className="ml-4"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {negativeLoading ? (
