@@ -363,8 +363,32 @@ export const ProductDiagnostics = ({ productId, onBack }: ProductDiagnosticsProp
           <h2 className="text-2xl font-bold">Диагностика товара</h2>
         </div>
         <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            Выберите товар для диагностики
+          <CardHeader>
+            <CardTitle>Выберите товар для диагностики</CardTitle>
+            <CardDescription>
+              Перейдите на вкладку "Отзывы" или "Вопросы" и выберите товар из таблицы для просмотра детальной диагностики
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="py-8 text-center">
+            <div className="space-y-4">
+              <p className="text-muted-foreground">
+                Для просмотра диагностики товара:
+              </p>
+              <ul className="text-left space-y-2 text-sm text-muted-foreground max-w-md mx-auto">
+                <li className="flex items-start gap-2">
+                  <span className="text-primary mt-1">•</span>
+                  <span>Перейдите на вкладку "Отзывы" или "Вопросы"</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary mt-1">•</span>
+                  <span>Кликните на строку с товаром в таблице</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary mt-1">•</span>
+                  <span>Или кликните на товар в блоке "Аномальный рост негатива" на дашборде</span>
+                </li>
+              </ul>
+            </div>
           </CardContent>
         </Card>
       </div>

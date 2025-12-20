@@ -65,7 +65,10 @@ const AnalyticsMain = () => {
           <TabsContent value="diagnostics" className="mt-6">
             <ProductDiagnostics
               productId={selectedProductId}
-              onBack={() => setActiveTab("dashboard")}
+              onBack={() => {
+                setSelectedProductId(null);
+                setActiveTab("dashboard");
+              }}
             />
           </TabsContent>
 

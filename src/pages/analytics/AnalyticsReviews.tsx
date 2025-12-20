@@ -508,17 +508,28 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics }: AnalyticsReviewsPr
                           </TableCell>
                           <TableCell className="text-center">{summary.negativeCount}</TableCell>
                           <TableCell className="text-center">
-                            <Badge
-                              variant={
-                                summary.negativeShare > 20
-                                  ? "destructive"
-                                  : summary.negativeShare > 10
-                                    ? "secondary"
-                                    : "outline"
-                              }
-                            >
-                              {summary.negativeShare}%
-                            </Badge>
+                            {summary.negativeCount > 0 ? (
+                              <Badge
+                                variant={
+                                  summary.negativeShare > 20
+                                    ? "destructive"
+                                    : summary.negativeShare > 10
+                                      ? "secondary"
+                                      : "outline"
+                                }
+                                className="cursor-pointer hover:opacity-80"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedProductId(
+                                    selectedProductId === summary.productId ? null : summary.productId
+                                  );
+                                }}
+                              >
+                                {summary.negativeShare}%
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground">0%</span>
+                            )}
                           </TableCell>
                           <TableCell className="text-center">{summary.negativeLastWeek}</TableCell>
                           <TableCell className="text-center">

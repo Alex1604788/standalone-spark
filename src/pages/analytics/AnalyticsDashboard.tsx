@@ -104,16 +104,16 @@ export const AnalyticsDashboard = ({
       // 1. Неотвеченные отзывы и вопросы (через products join)
       const { count: unansweredReviews } = await supabase
         .from("reviews")
-        .select("*", { count: "exact", head: true })
+        .select("id, products!inner(marketplace_id)", { count: "exact", head: true })
         .eq("segment", "unanswered")
-        .in("products!inner.marketplace_id", marketplaceIds)
+        .in("products.marketplace_id", marketplaceIds)
         .is("deleted_at", null);
 
       const { count: unansweredQuestions } = await supabase
         .from("questions")
-        .select("*", { count: "exact", head: true })
+        .select("id, products!inner(marketplace_id)", { count: "exact", head: true })
         .eq("is_answered", false)
-        .in("products!inner.marketplace_id", marketplaceIds);
+        .in("products.marketplace_id", marketplaceIds);
 
       // 2. Всего за неделю
       const { data: reviewsWeek } = await supabase
@@ -412,20 +412,30 @@ export const AnalyticsDashboard = ({
       {/* KPI Карточки */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Карточка 1: Неотвеченные */}
-        <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={onNavigateToReviews}>
+        <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-muted-foreground">Неотвеченные</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
+              <div
+                className="flex items-center justify-between hover:bg-muted/50 p-2 rounded cursor-pointer transition-colors"
+                onClick={() => {
+                  window.location.href = "/app/reviews/unanswered";
+                }}
+              >
                 <div className="flex items-center gap-2">
                   <MessageSquare className="w-4 h-4 text-muted-foreground" />
                   <span className="text-sm">Отзывы</span>
                 </div>
                 <span className="text-2xl font-bold">{kpis.unansweredReviews}</span>
               </div>
-              <div className="flex items-center justify-between">
+              <div
+                className="flex items-center justify-between hover:bg-muted/50 p-2 rounded cursor-pointer transition-colors"
+                onClick={() => {
+                  window.location.href = "/app/questions/unanswered";
+                }}
+              >
                 <div className="flex items-center gap-2">
                   <HelpCircle className="w-4 h-4 text-muted-foreground" />
                   <span className="text-sm">Вопросы</span>
@@ -511,17 +521,23 @@ export const AnalyticsDashboard = ({
         </Card>
 
         {/* Карточка 4: Доля негативных отзывов */}
-        <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={onNavigateToReviews}>
+        <Card className="hover:shadow-lg transition-shadow">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Доля негативных отзывов (1–3⭐)
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
+            <div
+              className="space-y-2 cursor-pointer"
+              onClick={() => {
+                // Переходим на страницу отзывов с фильтром по негативным
+                window.location.href = "/app/reviews/unanswered?rating=1,2,3";
+              }}
+            >
               <div className="text-3xl font-bold">{kpis.negativeReviewsPercent.toFixed(1)}%</div>
-              <div className="text-sm text-muted-foreground">
-                {kpis.negativeReviewsCount} из {kpis.totalReviewsWeek} отзывов
+              <div className="text-sm text-muted-foreground hover:text-primary transition-colors">
+                {kpis.negativeReviewsCount} из {kpis.totalReviewsWeek} отзывов →
               </div>
             </div>
           </CardContent>
