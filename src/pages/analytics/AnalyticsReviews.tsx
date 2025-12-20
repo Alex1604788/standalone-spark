@@ -494,11 +494,11 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
                       filteredSummaries.map((summary) => (
                         <TableRow
                           key={summary.productId}
-                          className="cursor-pointer hover:bg-muted/50"
+                          className={`cursor-pointer hover:bg-muted/50 transition-colors ${
+                            selectedProductId === summary.productId ? "bg-muted" : ""
+                          }`}
                           onClick={() => {
-                            setSelectedProductId(
-                              selectedProductId === summary.productId ? null : summary.productId
-                            );
+                            setSelectedProductId(summary.productId);
                           }}
                         >
                           <TableCell>
@@ -537,12 +537,10 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
                                       ? "secondary"
                                       : "outline"
                                 }
-                                className="cursor-pointer hover:opacity-80"
+                                className="cursor-pointer hover:opacity-80 transition-opacity"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setSelectedProductId(
-                                    selectedProductId === summary.productId ? null : summary.productId
-                                  );
+                                  setSelectedProductId(summary.productId);
                                 }}
                               >
                                 {summary.negativeShare}%

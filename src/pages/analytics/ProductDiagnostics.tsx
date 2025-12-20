@@ -18,6 +18,7 @@ interface ProductInfo {
   image_url: string | null;
   external_id: string | null;
   offer_id: string | null;
+  sku: string | null;
 }
 
 interface ReviewSummary {
@@ -62,7 +63,7 @@ export const ProductDiagnostics = ({ productId, onBack }: ProductDiagnosticsProp
 
       const { data, error } = await supabase
         .from("products")
-        .select("id, name, image_url, external_id, offer_id")
+        .select("id, name, image_url, external_id, offer_id, sku")
         .eq("id", productId)
         .single();
 
@@ -349,8 +350,16 @@ export const ProductDiagnostics = ({ productId, onBack }: ProductDiagnosticsProp
     enabled: !!productId,
   });
 
-  const ozonCardUrl = productInfo?.external_id
-    ? `https://www.ozon.ru/product/${productInfo.external_id}`
+  // Формируем ссылку на карточку OZON
+  // Приоритет: external_id (product_id) > sku > offer_id
+  const ozonCardUrl = productInfo
+    ? productInfo.external_id
+      ? `https://www.ozon.ru/product/${productInfo.external_id}`
+      : productInfo.sku
+        ? `https://www.ozon.ru/product/${productInfo.sku}`
+        : productInfo.offer_id
+          ? `https://www.ozon.ru/search/?text=${encodeURIComponent(productInfo.offer_id)}`
+          : null
     : null;
 
   if (!productId) {
