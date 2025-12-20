@@ -7,10 +7,11 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import type { Session } from "@supabase/supabase-js";
 
-// Eager load public pages
+// Eager load public pages and AppLayout (used on all protected pages)
 import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
+import AppLayout from "./components/AppLayout";
 
 // Lazy load protected pages
 const Marketplaces = lazy(() => import("./pages/Marketplaces"));
@@ -35,7 +36,6 @@ const ProductKnowledge = lazy(() => import("./pages/ProductKnowledge"));
 const Suppliers = lazy(() => import("./pages/Suppliers"));
 const SalesAnalytics = lazy(() => import("./pages/SalesAnalytics"));
 const ImportData = lazy(() => import("./pages/ImportData"));
-const AppLayout = lazy(() => import("./components/AppLayout"));
 const ReviewsQuestionsAnalytics = lazy(() => import("./pages/analytics/ReviewsQuestionsAnalytics"));
 const PricesAnalytics = lazy(() => import("./pages/analytics/PricesAnalytics"));
 const PromotionAnalytics = lazy(() => import("./pages/analytics/PromotionAnalytics"));
