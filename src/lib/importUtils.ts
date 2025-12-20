@@ -29,7 +29,13 @@ export const fixWeirdUtf16 = (s: string): string => {
       }
       return c;
     });
-    return String.fromCharCode(...fixedCodes);
+    // Безопасное создание строки из массива кодов (избегаем переполнения стека)
+    // Используем цикл вместо spread оператора для больших массивов
+    let result = "";
+    for (const code of fixedCodes) {
+      result += String.fromCharCode(code);
+    }
+    return result;
   }
 
   return s;

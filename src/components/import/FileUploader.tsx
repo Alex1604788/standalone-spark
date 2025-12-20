@@ -158,32 +158,117 @@ export const FileUploader = ({
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
 
-      // 3. Получаем данные (raw: false для использования cell.w)
-      const rawData = XLSX.utils.sheet_to_json(worksheet, {
-        header: 1,
-        defval: "",
-        raw: false,
-      }) as any[][];
+      // 3. Получаем данные построчно (безопасный способ для больших файлов)
+      // Вместо sheet_to_json используем прямое чтение из worksheet для избежания переполнения стека
+      let rawData: any[][];
+      try {
+        // Получаем диапазон данных
+        const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+        const maxRows = 200000; // Максимальное количество строк
+        
+        if (range.e.r > maxRows) {
+          throw new Error(`Файл содержит слишком много строк (${range.e.r + 1}). Максимально поддерживается ${maxRows} строк. Пожалуйста, разбейте файл на части.`);
+        }
+        
+        // Читаем данные построчно напрямую из worksheet (безопаснее, чем sheet_to_json)
+        // Используем простую итерацию по ключам worksheet без decode_cell для избежания переполнения стека
+        rawData = [];
+        const totalRows = Math.min(range.e.r + 1, 150000); // Ограничиваем до 150,000 строк
+        
+        // Создаем карту ячеек для быстрого доступа (парсим адреса вручную без decode_cell)
+        const cellMap = new Map<string, any>();
+        for (const addr in worksheet) {
+          if (addr[0] === '!') continue; // Пропускаем служебные свойства
+          const cell = worksheet[addr];
+          if (cell && cell.v != null) {
+            // Парсим адрес вручную (например, "A1" -> row=0, col=0)
+            const match = addr.match(/^([A-Z]+)(\d+)$/);
+            if (match) {
+              const colStr = match[1];
+              const rowNum = parseInt(match[2]) - 1; // Excel использует 1-based индексы
+              
+              // Конвертируем буквы колонки в число (A=0, B=1, ..., Z=25, AA=26, ...)
+              let colNum = 0;
+              for (let i = 0; i < colStr.length; i++) {
+                colNum = colNum * 26 + (colStr.charCodeAt(i) - 64);
+              }
+              colNum -= 1; // A=1 в Excel, но нам нужен 0-based индекс
+              
+              if (rowNum < totalRows && colNum <= range.e.c) {
+                cellMap.set(`${rowNum}_${colNum}`, cell.v);
+              }
+            }
+          }
+        }
+        
+        for (let rowIndex = 0; rowIndex < totalRows; rowIndex++) {
+          const row: any[] = [];
+          for (let colIndex = 0; colIndex <= range.e.c; colIndex++) {
+            const key = `${rowIndex}_${colIndex}`;
+            row[colIndex] = cellMap.get(key) || "";
+          }
+          rawData.push(row);
+          
+          // Пауза каждые 5000 строк для предотвращения блокировки браузера
+          if (rowIndex > 0 && rowIndex % 5000 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+        }
+        
+        if (range.e.r + 1 > 150000) {
+          toast({
+            title: "Предупреждение",
+            description: `Файл содержит ${range.e.r + 1} строк. Обработано только первые ${totalRows} строк. Разбейте файл на части для полной обработки.`,
+            variant: "destructive",
+          });
+        }
+      } catch (error: any) {
+        if (error.message?.includes("stack") || error.message?.includes("Maximum") || error.name === "RangeError") {
+          throw new Error("Файл слишком большой для обработки. Попробуйте разбить файл на части (максимум 150,000 строк) или использовать файл меньшего размера.");
+        }
+        throw error;
+      }
 
       if (!rawData.length) {
         throw new Error("Файл пуст");
       }
 
-      // 4. ВАЛИДАЦИЯ: читаем заголовки из строки 1 (индекс 0)
+      // 4. ВАЛИДАЦИЯ: читаем заголовки из rawData[0] (как и для Начислений)
+      // Это безопаснее и быстрее, чем обращаться к worksheet для каждой ячейки
       const expectedColumns = TEMPLATE_COLUMNS[importType];
       const headerRowIndex = 0;
-      const maxCols = Math.max(...rawData.map(row => row?.length || 0), 0);
+      
+      // Безопасное вычисление максимума (избегаем переполнения стека при больших файлах)
+      // Используем цикл вместо Math.max(...rawData.map(...))
+      let maxCols = 0;
+      if (rawData.length > 0) {
+        // Для заголовков достаточно проверить первую строку
+        maxCols = rawData[0]?.length || 0;
+      }
 
+      console.log("🔍 ВАЛИДАЦИЯ: Длина rawData:", rawData.length);
       console.log("🔍 ВАЛИДАЦИЯ: Ожидается колонок:", expectedColumns.length);
       console.log("🔍 ВАЛИДАЦИЯ: Найдено колонок в файле:", maxCols);
+      console.log("🔍 ВАЛИДАЦИЯ: Первые 3 заголовка:", rawData[0]?.slice(0, 3));
+      if (rawData.length > 1) {
+        console.log("🔍 ВАЛИДАЦИЯ: Первые 3 строки данных (первые 3 колонки):", 
+          rawData.slice(1, 4).map(row => row?.slice(0, 3))
+        );
+      }
 
-      // Извлекаем заголовки напрямую из worksheet
+      // Извлекаем заголовки из rawData[0] (такая же логика, как для Начислений)
+      // Это безопаснее, чем обращаться к worksheet для каждой ячейки
+      const headerRow = rawData[headerRowIndex] || [];
       const fileHeaders: string[] = [];
-      for (let col = 0; col < maxCols; col++) {
-        const addr = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
-        const cell = worksheet[addr] as XLSX.CellObject | undefined;
-        const header = cleanForComparison(getHeaderValue(cell));
-        fileHeaders.push(header);
+      for (let col = 0; col < Math.max(maxCols, expectedColumns.length); col++) {
+        const headerValue = headerRow[col];
+        // Упрощенная нормализация заголовка (без fixWeirdUtf16 для избежания переполнения стека)
+        if (headerValue == null || headerValue === "") {
+          fileHeaders.push("");
+        } else {
+          const header = cleanForComparison(String(headerValue));
+          fileHeaders.push(header);
+        }
       }
 
       console.log("🔍 ВАЛИДАЦИЯ: Первые 5 заголовков из файла:", fileHeaders.slice(0, 5));
@@ -218,10 +303,23 @@ export const FileUploader = ({
       }
 
       // 5. Парсинг данных (начиная со строки 2, так как строка 1 - заголовки)
+      // Оптимизация для больших файлов: обрабатываем батчами, чтобы не блокировать браузер
       const parsedData: any[] = [];
+      const PARSE_BATCH_SIZE = 5000; // Обрабатываем по 5000 строк за раз
+      
       for (let i = 1; i < rawData.length; i++) {
         const row = rawData[i];
-        if (!row || row.every((c: any) => c === "")) continue;
+        
+        // Проверка на пустую строку (безопасная, без every для больших массивов)
+        if (!row) continue;
+        let isEmpty = true;
+        for (let j = 0; j < row.length; j++) {
+          if (row[j] !== "" && row[j] != null) {
+            isEmpty = false;
+            break;
+          }
+        }
+        if (isEmpty) continue;
 
         // Читаем значения по индексу колонки (A=0, B=1, C=2...)
         const rowObj: Record<string, any> = {};
@@ -231,11 +329,16 @@ export const FileUploader = ({
           const columnName = expectedColumns[colIndex];
           
           // Нормализация значений в зависимости от типа колонки
+          // Оптимизация: минимальная обработка для избежания переполнения стека
           if (value == null || value === "") {
             rowObj[columnName] = "";
           } else if (typeof value === "string") {
-            // Применяем fixWeirdUtf16 к КАЖДОЙ строковой ячейке
-            rowObj[columnName] = normalizeStringValue(value);
+            // Для больших файлов применяем упрощенную нормализацию
+            // Используем только базовую очистку, без fixWeirdUtf16 для каждой ячейки
+            const str = String(value);
+            rowObj[columnName] = str
+              .replace(/[\u0000-\u001F\u007F-\u009F\u200B-200F\uFEFF]/g, "")
+              .trim();
           } else if (typeof value === "number") {
             // Числа оставляем как есть (будут обработаны в ImportData)
             rowObj[columnName] = value;
@@ -255,6 +358,11 @@ export const FileUploader = ({
         }
 
         parsedData.push(rowObj);
+        
+        // Пауза каждые PARSE_BATCH_SIZE строк для предотвращения блокировки браузера
+        if (i > 1 && i % PARSE_BATCH_SIZE === 0) {
+          await new Promise(resolve => setTimeout(resolve, 0)); // Отдаем управление браузеру
+        }
       }
 
       toast({
@@ -263,7 +371,33 @@ export const FileUploader = ({
       });
 
       // 6. Отдаём данные дальше
-      onFileSelect(parsedData, file.name);
+      // Проверяем размер данных перед передачей (избегаем переполнения стека)
+      if (parsedData.length > 200000) {
+        toast({
+          title: "Предупреждение",
+          description: `Файл содержит ${parsedData.length} строк. Рекомендуется разбить файл на части для более быстрой обработки.`,
+          variant: "destructive",
+        });
+      }
+      
+      // Передаем данные асинхронно, чтобы не блокировать текущий стек вызовов
+      try {
+        // Используем requestIdleCallback или setTimeout для асинхронной передачи
+        if (typeof requestIdleCallback !== 'undefined') {
+          requestIdleCallback(() => {
+            onFileSelect(parsedData, file.name);
+          }, { timeout: 1000 });
+        } else {
+          setTimeout(() => {
+            onFileSelect(parsedData, file.name);
+          }, 0);
+        }
+      } catch (error: any) {
+        if (error.message?.includes("stack") || error.message?.includes("Maximum") || error.name === "RangeError") {
+          throw new Error("Файл слишком большой для обработки. Пожалуйста, разбейте файл на части (максимум 200,000 строк).");
+        }
+        throw error;
+      }
     } catch (error: any) {
       console.error("❌ ОШИБКА при парсинге Excel:", error);
       toast({

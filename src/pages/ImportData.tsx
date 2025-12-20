@@ -66,9 +66,35 @@ const ImportData = () => {
   });
 
   const handleFileSelect = (data: any[], name: string) => {
-    setFileData(data);
-    setFileName(name);
-    setImportResult(null);
+    // Безопасная установка больших массивов данных
+    // Используем setTimeout для избежания переполнения стека при установке состояния
+    try {
+      // Проверяем размер данных
+      if (data.length > 200000) {
+        toast({
+          title: "Предупреждение",
+          description: `Файл содержит ${data.length} строк. Рекомендуется разбить файл на части.`,
+          variant: "destructive",
+        });
+      }
+      
+      // Устанавливаем данные асинхронно, чтобы не блокировать UI
+      setTimeout(() => {
+        setFileData(data);
+        setFileName(name);
+        setImportResult(null);
+      }, 0);
+    } catch (error: any) {
+      if (error.message?.includes("stack") || error.message?.includes("Maximum") || error.name === "RangeError") {
+        toast({
+          title: "Ошибка",
+          description: "Файл слишком большой для обработки. Пожалуйста, разбейте файл на части.",
+          variant: "destructive",
+        });
+        return;
+      }
+      throw error;
+    }
   };
 
   const handleClear = () => {
@@ -102,17 +128,38 @@ const ImportData = () => {
     
     // Валидация уже выполнена в FileUploader, продолжаем импорт
 
-    window.console.log("📊 Информация о файле для импорта:", {
-      importType,
-      fileDataLength: fileData.length,
-      marketplaceId: marketplace.id,
-      periodStart,
-      periodEnd,
-      firstRowKeys: fileData.length > 0 ? Object.keys(fileData[0]).slice(0, 30) : [],
-      firstRowSample: fileData.length > 0 ? Object.fromEntries(
-        Object.entries(fileData[0]).slice(0, 20).map(([k, v]) => [k, String(v).substring(0, 100)])
-      ) : null
-    });
+    // Безопасное логирование (избегаем переполнения стека при больших объектах)
+    try {
+      const firstRowKeys = fileData.length > 0 ? Object.keys(fileData[0]).slice(0, 30) : [];
+      const firstRowSample = fileData.length > 0 ? (() => {
+        const entries = Object.entries(fileData[0]);
+        const sample: Record<string, string> = {};
+        for (let i = 0; i < Math.min(20, entries.length); i++) {
+          const [k, v] = entries[i];
+          sample[k] = String(v).substring(0, 100);
+        }
+        return sample;
+      })() : null;
+      
+      window.console.log("📊 Информация о файле для импорта:", {
+        importType,
+        fileDataLength: fileData.length,
+        marketplaceId: marketplace.id,
+        periodStart,
+        periodEnd,
+        firstRowKeys,
+        firstRowSample
+      });
+    } catch (logError: any) {
+      // Если логирование вызывает ошибку, просто логируем базовую информацию
+      window.console.log("📊 Информация о файле для импорта:", {
+        importType,
+        fileDataLength: fileData.length,
+        marketplaceId: marketplace.id,
+        periodStart,
+        periodEnd
+      });
+    }
     
     // Оценка времени импорта
     const estimatedTime = Math.ceil(fileData.length / 1000); // Примерно 1 секунда на 1000 строк преобразования
@@ -168,9 +215,14 @@ const ImportData = () => {
         window.console.log("Все колонки в первой строке:", firstRowKeys);
         window.console.log("Количество колонок:", firstRowKeys.length);
         window.console.log("Первые 30 колонок:", firstRowKeys.slice(0, 30));
-        window.console.log("Образец данных (первые 20 колонок):", Object.fromEntries(
-          Object.entries(firstRow).slice(0, 20).map(([k, v]) => [k, String(v).substring(0, 100)])
-        ));
+        // Безопасное создание образца данных (избегаем переполнения стека)
+        const sampleData: Record<string, string> = {};
+        const entries = Object.entries(firstRow);
+        for (let i = 0; i < Math.min(20, entries.length); i++) {
+          const [k, v] = entries[i];
+          sampleData[k] = String(v).substring(0, 100);
+        }
+        window.console.log("Образец данных (первые 20 колонок):", sampleData);
         
         // Проверяем, есть ли колонки с похожими названиями
         const normalizedKeys = firstRowKeys.map(k => ({
@@ -240,9 +292,15 @@ const ImportData = () => {
           const transformed = transformRow(row, importType, marketplace.id, importLog?.id || "", i);
           transformedRows.push(transformed);
           
-          // Логируем успешное преобразование первых 3 строк
+          // Логируем успешное преобразование первых 3 строк (ограничиваем размер для избежания переполнения стека)
           if (i < 3) {
-            window.console.log(`✅ Строка ${i + 1} успешно преобразована:`, transformed);
+            const transformedPreview: Record<string, string> = {};
+            const transformedEntries = Object.entries(transformed);
+            for (let j = 0; j < Math.min(10, transformedEntries.length); j++) {
+              const [k, v] = transformedEntries[j];
+              transformedPreview[k] = String(v).substring(0, 50);
+            }
+            window.console.log(`✅ Строка ${i + 1} успешно преобразована:`, transformedPreview);
           }
         } catch (error: any) {
           failedCount++;
@@ -256,9 +314,14 @@ const ImportData = () => {
             window.console.error("Сообщение об ошибке:", error.message);
             window.console.error("Все ключи строки:", Object.keys(row));
             window.console.error("Количество ключей:", Object.keys(row).length);
-            window.console.error("Образец данных строки:", Object.fromEntries(
-              Object.entries(row).slice(0, 30).map(([k, v]) => [k, String(v).substring(0, 100)])
-            ));
+            // Безопасное создание образца данных строки (избегаем переполнения стека)
+            const rowSample: Record<string, string> = {};
+            const rowEntries = Object.entries(row);
+            for (let j = 0; j < Math.min(30, rowEntries.length); j++) {
+              const [k, v] = rowEntries[j];
+              rowSample[k] = String(v).substring(0, 100);
+            }
+            window.console.error("Образец данных строки:", rowSample);
             
             // Пытаемся найти колонки вручную
             const rowKeys = Object.keys(row);
@@ -452,11 +515,25 @@ const ImportData = () => {
     // Используем фиксированные имена колонок из шаблона
     const accrualTypeRaw = row["Тип начисления"] || row["Тип начисления_raw"] || "";
     const accrualTypeNorm = row["Тип начисления_norm"] || normalizeForAnalytics(accrualTypeRaw);
-    const offerId = row["Артикул"];
+    let offerId = getStringValue(row["Артикул"]).trim();
     const date = row["Дата начисления"];
     
-    if (!accrualTypeRaw || !offerId) {
-      throw new Error(`Пустые значения в обязательных полях: accrual_type="${accrualTypeRaw}", offer_id="${offerId}"`);
+    // Если offer_id пустой, используем значение-заглушку
+    // Это может быть для услуг без привязки к конкретному товару
+    if (!offerId) {
+      // Пытаемся использовать номер отправления или идентификатор услуги как fallback
+      const postingOrServiceId = getStringValue(row["Номер отправления или идентификатор услуги"]).trim();
+      if (postingOrServiceId) {
+        offerId = `SERVICE_${postingOrServiceId}`;
+      } else {
+        // Если и его нет, используем общую заглушку с типом начисления
+        offerId = `SERVICE_${accrualTypeNorm || "UNKNOWN"}`;
+      }
+      // Логируем использование заглушки (будет логироваться в transformRow для первых строк)
+    }
+    
+    if (!accrualTypeRaw) {
+      throw new Error(`Пустое значение в обязательном поле: accrual_type="${accrualTypeRaw}"`);
     }
 
     return {
@@ -475,8 +552,8 @@ const ImportData = () => {
       warehouse: getStringValue(row["Склад отгрузки"]),
       // 6. SKU OZON
       sku: getStringValue(row["SKU"]),
-      // 7. Артикул (seller)
-      offer_id: getStringValue(offerId),
+      // 7. Артикул (seller) - используем обработанное значение (может быть заглушкой)
+      offer_id: offerId,
       // 8. Название товара или услуги
       item_name: getStringValue(row["Название товара или услуги"]),
       // 9. Количество
@@ -525,10 +602,21 @@ const ImportData = () => {
   ) => {
     // Используем фиксированные имена колонок из шаблона
     const date = row["Дата"];
-    const offerId = row["Артикул"];
+    let offerId = getStringValue(row["Артикул"]).trim();
     
-    if (!date || !offerId) {
-      throw new Error(`Пустые значения в обязательных полях: date="${date}", offer_id="${offerId}"`);
+    // Если offer_id пустой, используем значение-заглушку
+    if (!offerId) {
+      // Для стоимости размещения обычно всегда есть артикул, но на всякий случай используем SKU или заглушку
+      const sku = getStringValue(row["SKU"]).trim();
+      if (sku) {
+        offerId = `SKU_${sku}`;
+      } else {
+        offerId = "UNKNOWN";
+      }
+    }
+    
+    if (!date) {
+      throw new Error(`Пустое значение в обязательном поле: date="${date}"`);
     }
 
     return {
@@ -537,8 +625,8 @@ const ImportData = () => {
       cost_date: parseOzonDate(date, periodStart) || periodStart,
       // 2. SKU OZON
       sku: getStringValue(row["SKU"]),
-      // 3. Артикул (seller)
-      offer_id: getStringValue(offerId),
+      // 3. Артикул (seller) - используем обработанное значение (может быть заглушкой)
+      offer_id: offerId,
       // 4. Категория товара
       category: getStringValue(row["Категория товара"]),
       // 5. Описательный тип
@@ -570,14 +658,18 @@ const ImportData = () => {
     rowIndex?: number
   ) => {
     if (rowIndex !== undefined && rowIndex < 5) {
+      // Безопасное создание образца строки (избегаем переполнения стека)
+      const rowKeys = Object.keys(row).slice(0, 30);
+      const rowSample: Record<string, string> = {};
+      const rowEntries = Object.entries(row);
+      for (let j = 0; j < Math.min(15, rowEntries.length); j++) {
+        const [k, v] = rowEntries[j];
+        rowSample[k] = String(v).substring(0, 50);
+      }
       window.console.log(`🔄 transformRow вызван для строки ${rowIndex}:`, {
         type,
-        rowKeys: Object.keys(row).slice(0, 30),
-        rowSample: Object.fromEntries(
-          Object.entries(row)
-            .slice(0, 15)
-            .map(([k, v]) => [k, String(v).substring(0, 50)])
-        ),
+        rowKeys,
+        rowSample,
       });
     }
 
