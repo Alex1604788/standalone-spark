@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.5.1-limit-to-avoid-timeout
+ * Version: 2.5.2-single-chunk-only
  * Date: 2025-12-20
  *
  * Key features:
@@ -22,7 +22,7 @@
  * - Filter: Process RUNNING + STOPPED campaigns (exclude only ARCHIVED + ENDED) - captures historical data from recently stopped campaigns
  * - Process ALL filtered campaigns (removed 5-campaign limit) - now syncs all ~44 active campaigns instead of just 5
  * - Increased chunk size from 5 to 8 campaigns - reduces number of chunks from 9 to 6 for better performance
- * - Limit to 2 chunks per run (16 campaigns) to stay under Edge Function timeout - processes first 16 campaigns consistently
+ * - Limit to 1 chunk per run (8 campaigns) to stay under Edge Function timeout - processes first 8 campaigns consistently
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -432,7 +432,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.5.1-limit-to-avoid-timeout",
+          version: "2.5.2-single-chunk-only",
           build_date: "2025-12-20"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -510,13 +510,13 @@ serve(async (req) => {
 
     let allStats: OzonPerformanceStats[] = [];
 
-    // ВАЖНО: Обрабатываем только первые 2 chunks чтобы не превысить Supabase timeout (150s)
-    // 2 chunks × 8 campaigns × 15 sec/campaign = ~4 минуты (безопасно)
+    // ВАЖНО: Обрабатываем только первый 1 chunk чтобы гарантированно уложиться в Supabase timeout (150s)
+    // 1 chunk × 8 campaigns × 15 sec/campaign = ~2 минуты + запас на overhead
     //
-    // ОГРАНИЧЕНИЕ: Каждый запуск обрабатывает одни и те же первые 16 кампаний
-    // TODO: Добавить параметр campaign_offset для пагинации (offset=0, offset=16, offset=32 и т.д.)
+    // ОГРАНИЧЕНИЕ: Каждый запуск обрабатывает одни и те же первые 8 кампаний
+    // TODO: Добавить параметр campaign_offset для пагинации (offset=0, offset=8, offset=16 и т.д.)
     // Или: Сохранять последний обработанный campaign_id в sync_history и продолжать с него
-    const maxChunksPerRun = 2;
+    const maxChunksPerRun = 1;  // Reduced from 2 - even 16 campaigns cause timeout!
     const chunksToProcess = campaignChunks.slice(0, maxChunksPerRun);
 
     const skippedCampaigns = campaigns.length - (chunksToProcess.length * chunkSize);
