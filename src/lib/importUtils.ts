@@ -50,7 +50,7 @@ export const fixUtf16Mojibake = fixWeirdUtf16;
  */
 export const normalize = (s: string): string =>
   s
-    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "") // удалить скрытые символы (BOM, ZERO WIDTH SPACE и т.д.)
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/gu, "") // удалить скрытые символы (BOM, ZERO WIDTH SPACE и т.д.)
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
@@ -61,7 +61,7 @@ export const normalize = (s: string): string =>
  */
 export const normalizeHeader = (s: string): string =>
   fixWeirdUtf16(s)
-    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/gu, "")
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
@@ -106,7 +106,7 @@ export const normalizeStringValue = (value: any): string => {
   const fixed = fixWeirdUtf16(str);
   // Убираем невидимые символы
   return fixed
-    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/g, "")
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\uFEFF]/gu, "")
     .trim();
 };
 

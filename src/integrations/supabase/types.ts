@@ -569,43 +569,142 @@ export type Database = {
       }
       ozon_accruals: {
         Row: {
+          accepted_or_service_date: string | null
           accrual_date: string
           accrual_type: string
+          accrual_type_norm: string | null
+          accrual_type_raw: string | null
           amount_before_commission: number | null
+          amount_before_fees: number | null
+          avg_delivery_hours: number | null
+          canceled_or_unclaimed_processing: number | null
+          cancelled_processing: number | null
+          commission_amount: number | null
+          commission_percent: number | null
+          dropoff_pickup_processing: number | null
           id: string
           import_batch_id: string | null
           imported_at: string
+          item_name: string | null
+          last_mile: number | null
+          linehaul: number | null
+          localization_index: string | null
+          logistics: number | null
+          main_route: number | null
           marketplace_id: string
           offer_id: string
+          order_assembly: number | null
+          order_date: string | null
+          ozon_fee_amount: number | null
+          ozon_fee_percent: number | null
+          posting_number_or_service_id: string | null
+          product_name: string | null
           quantity: number | null
+          return_logistics: number | null
+          return_main_route: number | null
+          return_processing: number | null
+          reverse_linehaul: number | null
+          reverse_logistics: number | null
+          shipment_number: string | null
+          shipment_processing: number | null
           sku: string | null
           total_amount: number | null
+          total_rub: number | null
+          undelivered_processing: number | null
+          unredeemed_processing: number | null
+          warehouse: string | null
         }
         Insert: {
+          accepted_or_service_date?: string | null
           accrual_date: string
           accrual_type: string
+          accrual_type_norm?: string | null
+          accrual_type_raw?: string | null
           amount_before_commission?: number | null
+          amount_before_fees?: number | null
+          avg_delivery_hours?: number | null
+          canceled_or_unclaimed_processing?: number | null
+          cancelled_processing?: number | null
+          commission_amount?: number | null
+          commission_percent?: number | null
+          dropoff_pickup_processing?: number | null
           id?: string
           import_batch_id?: string | null
           imported_at?: string
+          item_name?: string | null
+          last_mile?: number | null
+          linehaul?: number | null
+          localization_index?: string | null
+          logistics?: number | null
+          main_route?: number | null
           marketplace_id: string
           offer_id: string
+          order_assembly?: number | null
+          order_date?: string | null
+          ozon_fee_amount?: number | null
+          ozon_fee_percent?: number | null
+          posting_number_or_service_id?: string | null
+          product_name?: string | null
           quantity?: number | null
+          return_logistics?: number | null
+          return_main_route?: number | null
+          return_processing?: number | null
+          reverse_linehaul?: number | null
+          reverse_logistics?: number | null
+          shipment_number?: string | null
+          shipment_processing?: number | null
           sku?: string | null
           total_amount?: number | null
+          total_rub?: number | null
+          undelivered_processing?: number | null
+          unredeemed_processing?: number | null
+          warehouse?: string | null
         }
         Update: {
+          accepted_or_service_date?: string | null
           accrual_date?: string
           accrual_type?: string
+          accrual_type_norm?: string | null
+          accrual_type_raw?: string | null
           amount_before_commission?: number | null
+          amount_before_fees?: number | null
+          avg_delivery_hours?: number | null
+          canceled_or_unclaimed_processing?: number | null
+          cancelled_processing?: number | null
+          commission_amount?: number | null
+          commission_percent?: number | null
+          dropoff_pickup_processing?: number | null
           id?: string
           import_batch_id?: string | null
           imported_at?: string
+          item_name?: string | null
+          last_mile?: number | null
+          linehaul?: number | null
+          localization_index?: string | null
+          logistics?: number | null
+          main_route?: number | null
           marketplace_id?: string
           offer_id?: string
+          order_assembly?: number | null
+          order_date?: string | null
+          ozon_fee_amount?: number | null
+          ozon_fee_percent?: number | null
+          posting_number_or_service_id?: string | null
+          product_name?: string | null
           quantity?: number | null
+          return_logistics?: number | null
+          return_main_route?: number | null
+          return_processing?: number | null
+          reverse_linehaul?: number | null
+          reverse_logistics?: number | null
+          shipment_number?: string | null
+          shipment_processing?: number | null
           sku?: string | null
           total_amount?: number | null
+          total_rub?: number | null
+          undelivered_processing?: number | null
+          unredeemed_processing?: number | null
+          warehouse?: string | null
         }
         Relationships: [
           {
@@ -1664,37 +1763,64 @@ export type Database = {
       }
       storage_costs: {
         Row: {
+          category: string | null
           cost_date: string
+          descriptive_type: string | null
           id: string
           import_batch_id: string | null
           imported_at: string
+          item_flag: string | null
           marketplace_id: string
           offer_id: string
+          paid_instances: number | null
+          paid_units_count: number | null
+          paid_volume_ml: number | null
+          product_attribute: string | null
           sku: string | null
           stock_quantity: number | null
-          storage_cost: number | null
+          storage_cost_amount: number | null
+          total_volume_ml: number | null
+          warehouse: string | null
         }
         Insert: {
+          category?: string | null
           cost_date: string
+          descriptive_type?: string | null
           id?: string
           import_batch_id?: string | null
           imported_at?: string
+          item_flag?: string | null
           marketplace_id: string
           offer_id: string
+          paid_instances?: number | null
+          paid_units_count?: number | null
+          paid_volume_ml?: number | null
+          product_attribute?: string | null
           sku?: string | null
           stock_quantity?: number | null
-          storage_cost?: number | null
+          storage_cost_amount?: number | null
+          total_volume_ml?: number | null
+          warehouse?: string | null
         }
         Update: {
+          category?: string | null
           cost_date?: string
+          descriptive_type?: string | null
           id?: string
           import_batch_id?: string | null
           imported_at?: string
+          item_flag?: string | null
           marketplace_id?: string
           offer_id?: string
+          paid_instances?: number | null
+          paid_units_count?: number | null
+          paid_volume_ml?: number | null
+          product_attribute?: string | null
           sku?: string | null
           stock_quantity?: number | null
-          storage_cost?: number | null
+          storage_cost_amount?: number | null
+          total_volume_ml?: number | null
+          warehouse?: string | null
         }
         Relationships: [
           {
