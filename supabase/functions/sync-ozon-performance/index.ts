@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.4.0-active-campaigns-only
+ * Version: 2.4.1-running-and-stopped-campaigns
  * Date: 2025-12-20
  *
  * Key features:
@@ -19,7 +19,7 @@
  * - Fixed: Reduced chunk size to 5 to stay under Supabase Edge Function timeout
  * - Fixed: Deduplicate rows within CSV - OZON returns cumulative snapshots, we keep the last one
  * - Fixed: CSV column mapping - first column is DATE, not SKU! Updated destructuring to match actual OZON CSV structure
- * - Filter: Process only ACTIVE campaigns (CAMPAIGN_STATE_RUNNING) - reduces from 345 to ~40-50 campaigns
+ * - Filter: Process RUNNING + STOPPED campaigns (exclude only ARCHIVED + ENDED) - captures historical data from recently stopped campaigns
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -429,7 +429,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.4.0-active-campaigns-only",
+          version: "2.4.1-running-and-stopped-campaigns",
           build_date: "2025-12-20"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -473,11 +473,15 @@ serve(async (req) => {
 
     console.error(`Found ${allCampaigns.length} campaigns (all states)`);
 
-    // Фильтруем только АКТИВНЫЕ кампании (CAMPAIGN_STATE_RUNNING)
-    const campaigns = allCampaigns.filter(c => c.state === 'CAMPAIGN_STATE_RUNNING');
+    // Фильтруем: RUNNING + STOPPED (могли быть активны в период синхронизации)
+    // Исключаем только ARCHIVED и ENDED (мертвые кампании)
+    const campaigns = allCampaigns.filter(c =>
+      c.state === 'CAMPAIGN_STATE_RUNNING' || c.state === 'CAMPAIGN_STATE_STOPPED'
+    );
 
-    console.error(`Filtered to ${campaigns.length} ACTIVE campaigns (state=CAMPAIGN_STATE_RUNNING)`);
-    console.error(`Skipped ${allCampaigns.length - campaigns.length} inactive campaigns`);
+    const excludedCount = allCampaigns.length - campaigns.length;
+    console.error(`Filtered to ${campaigns.length} campaigns (RUNNING + STOPPED)`);
+    console.error(`Excluded ${excludedCount} dead campaigns (ARCHIVED + ENDED)`);
 
     if (campaigns.length === 0) {
       return new Response(
