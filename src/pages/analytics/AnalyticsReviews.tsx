@@ -342,9 +342,22 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
     enabled: !!selectedProductId,
   });
 
-  const selectedProduct = selectedProductId
-    ? productSummaries?.find((p) => p.productId === selectedProductId)
-    : null;
+  // Загружаем информацию о выбранном товаре отдельно
+  const { data: selectedProductInfo } = useQuery({
+    queryKey: ["selected-product-info", selectedProductId],
+    queryFn: async () => {
+      if (!selectedProductId) return null;
+      const { data } = await supabase
+        .from("products")
+        .select("id, name, image_url")
+        .eq("id", selectedProductId)
+        .single();
+      return data ? { productId: data.id, productName: data.name || "Без названия", productImage: data.image_url } : null;
+    },
+    enabled: !!selectedProductId,
+  });
+
+  const selectedProduct = selectedProductInfo;
 
   return (
     <div className="space-y-6">
@@ -572,7 +585,7 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
       </Card>
 
       {/* Блок негативных отзывов с ИИ-рекомендациями */}
-      {selectedProductId && selectedProduct && (
+      {selectedProductId && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -580,7 +593,7 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
               Негативные отзывы (1-3⭐) + ИИ-рекомендации
             </CardTitle>
             <CardDescription>
-              {selectedProduct.productName} — анализ причин негативных отзывов
+              {selectedProduct?.productName || "Загрузка..."} — анализ причин негативных отзывов
             </CardDescription>
           </CardHeader>
           <CardContent>

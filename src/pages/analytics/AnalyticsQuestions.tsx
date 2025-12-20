@@ -431,9 +431,22 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics, initialFilter = "a
     enabled: !!selectedProductId,
   });
 
-  const selectedProduct = selectedProductId
-    ? productSummaries?.find((p) => p.productId === selectedProductId)
-    : null;
+  // Загружаем информацию о выбранном товаре отдельно
+  const { data: selectedProductInfo } = useQuery({
+    queryKey: ["selected-product-info-questions", selectedProductId],
+    queryFn: async () => {
+      if (!selectedProductId) return null;
+      const { data } = await supabase
+        .from("products")
+        .select("id, name, image_url")
+        .eq("id", selectedProductId)
+        .single();
+      return data ? { productId: data.id, productName: data.name || "Без названия", productImage: data.image_url } : null;
+    },
+    enabled: !!selectedProductId,
+  });
+
+  const selectedProduct = selectedProductInfo;
 
   return (
     <div className="space-y-6">
@@ -612,7 +625,7 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics, initialFilter = "a
       </Card>
 
       {/* Блок анализа тем вопросов с ИИ-рекомендациями */}
-      {selectedProductId && selectedProduct && (
+      {selectedProductId && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -620,7 +633,7 @@ export const AnalyticsQuestions = ({ onNavigateToDiagnostics, initialFilter = "a
               Анализ тем вопросов + ИИ-рекомендации
             </CardTitle>
             <CardDescription>
-              {selectedProduct.productName} — анализ вопросов и рекомендации по улучшению карточки
+              {selectedProduct?.productName || "Загрузка..."} — анализ вопросов и рекомендации по улучшению карточки
             </CardDescription>
           </CardHeader>
           <CardContent>
