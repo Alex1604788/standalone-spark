@@ -403,7 +403,7 @@ const PromotionsAnalytics = () => {
                               <div className="font-medium">{campaign.campaign_name}</div>
                               {campaign.campaign_type && (
                                 <Badge variant="secondary" className="text-xs mt-1">
-                                  {campaign.campaign_type}
+                                  <span>{campaign.campaign_type}</span>
                                 </Badge>
                               )}
                             </div>
