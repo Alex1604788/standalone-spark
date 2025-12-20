@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.2.5-debug-csv-structure
+ * Version: 2.3.0-fix-csv-columns
  * Date: 2025-12-20
  *
  * Key features:
@@ -18,6 +18,7 @@
  * - Fixed: Use UUID instead of pollResult.link to avoid double URL construction
  * - Fixed: Reduced chunk size to 5 to stay under Supabase Edge Function timeout
  * - Fixed: Deduplicate rows within CSV - OZON returns cumulative snapshots, we keep the last one
+ * - Fixed: CSV column mapping - first column is DATE, not SKU! Updated destructuring to match actual OZON CSV structure
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -223,13 +224,14 @@ async function downloadAndParseReport(
     // Разбираем по точке с запятой
     const columns = line.split(';').map(col => col.trim());
 
-    // Ожидаемая структура: [sku, name, price, views, clicks, ctr, to_cart, avg_cpc, avg_cpm, spent, orders, revenue, model_orders, model_revenue, drr, date]
-    if (columns.length < 11) {
+    // ПРАВИЛЬНАЯ структура OZON CSV: [Дата, sku, Название товара, Цена, Показы, Клики, CTR, В корзину, Средняя стоимость клика, Расход, Заказы, Продажи, ...]
+    // ВАЖНО: Первый столбец - это ДАТА, не SKU!
+    if (columns.length < 12) {
       console.error(`Skipping malformed line (${columns.length} columns): ${line.substring(0, 100)}`);
       continue;
     }
 
-    const [sku, productName, price, views, clicks, ctr, toCart, avgCpc, avgCpm, spent, orders, revenue, ...rest] = columns;
+    const [dateStr, sku, productName, price, views, clicks, ctr, toCart, avgCpc, spent, orders, revenue, ...rest] = columns;
 
     // Парсим числовые значения (заменяем запятые на точки и убираем пробелы)
     const parseNum = (str: string): number => {
@@ -244,8 +246,7 @@ async function downloadAndParseReport(
       return isNaN(num) ? 0 : num;
     };
 
-    // Извлекаем дату (последний столбец или текущая дата)
-    const dateStr = rest.length > 0 ? rest[rest.length - 1] : '';
+    // Дата уже в первом столбце (dateStr), парсим её из формата DD.MM.YYYY в YYYY-MM-DD
     const statDate = dateStr && /\d{2}\.\d{2}\.\d{4}/.test(dateStr)
       ? dateStr.split('.').reverse().join('-') // DD.MM.YYYY -> YYYY-MM-DD
       : new Date().toISOString().split('T')[0];
@@ -426,7 +427,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.2.5-debug-csv-structure",
+          version: "2.3.0-fix-csv-columns",
           build_date: "2025-12-20"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
