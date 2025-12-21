@@ -21,6 +21,8 @@ interface ReviewMetrics {
   total30Days: number;
   ratingDistribution: { rating: number; count: number }[];
   averageRating: number;
+  negativeShare7Days: number;
+  negativeCount7Days: number;
 }
 
 interface ProductReviewSummary {
@@ -108,26 +110,43 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
         .gte("review_date", date30DaysAgo.toISOString())
         .is("deleted_at", null);
 
-      // Распределение по рейтингам (с фильтром deleted_at)
-      const { data: allReviews } = await supabase
+      // Распределение по рейтингам за 30 дней (с фильтром deleted_at)
+      const { data: allReviews30Days } = await supabase
         .from("reviews")
         .select("rating, products!inner(marketplace_id)")
         .in("products.marketplace_id", marketplaceIds)
+        .gte("review_date", date30DaysAgo.toISOString())
+        .is("deleted_at", null);
+
+      // Негативные отзывы за 7 дней (для расчета доли)
+      const { count: negative7DaysCount } = await supabase
+        .from("reviews")
+        .select("id, products!inner(marketplace_id)", { count: "exact", head: true })
+        .in("products.marketplace_id", marketplaceIds)
+        .lte("rating", 3)
+        .gte("review_date", date7DaysAgo.toISOString())
         .is("deleted_at", null);
 
       const ratingDistribution = [1, 2, 3, 4, 5].map((rating) => ({
         rating,
-        count: allReviews?.filter((r) => r.rating === rating).length || 0,
+        count: allReviews30Days?.filter((r) => r.rating === rating).length || 0,
       }));
 
-      const totalRating = allReviews?.reduce((sum, r) => sum + r.rating, 0) || 0;
-      const averageRating = allReviews?.length > 0 ? totalRating / allReviews.length : 0;
+      const totalRating = allReviews30Days?.reduce((sum, r) => sum + r.rating, 0) || 0;
+      const averageRating = allReviews30Days?.length > 0 ? totalRating / allReviews30Days.length : 0;
+
+      // Доля негативных за 7 дней
+      const negativeShare7Days = reviews7DaysCount > 0 
+        ? ((negative7DaysCount || 0) / reviews7DaysCount) * 100 
+        : 0;
 
       return {
         total7Days: reviews7DaysCount || 0,
         total30Days: reviews30DaysCount || 0,
         ratingDistribution,
         averageRating: Math.round(averageRating * 10) / 10,
+        negativeShare7Days: Math.round(negativeShare7Days * 10) / 10,
+        negativeCount7Days: negative7DaysCount || 0,
       } as ReviewMetrics;
     },
     enabled: !!marketplaces && marketplaces.length > 0,
@@ -435,22 +454,10 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-destructive">
-              {metrics
-                ? (
-                    ((metrics.ratingDistribution[0]?.count || 0) +
-                      (metrics.ratingDistribution[1]?.count || 0) +
-                      (metrics.ratingDistribution[2]?.count || 0)) /
-                    metrics.total30Days
-                  ).toFixed(1) + "%"
-                : "0%"}
+              {metrics?.negativeShare7Days.toFixed(1) || "0.0"}%
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {metrics
-                ? (metrics.ratingDistribution[0]?.count || 0) +
-                  (metrics.ratingDistribution[1]?.count || 0) +
-                  (metrics.ratingDistribution[2]?.count || 0)
-                : 0}{" "}
-              отзывов
+              {metrics?.negativeCount7Days || 0} из {metrics?.total7Days || 0} отзывов
             </p>
           </CardContent>
         </Card>
