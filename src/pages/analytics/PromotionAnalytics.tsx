@@ -111,7 +111,17 @@ const PromotionAnalytics = () => {
         throw error;
       }
       if (!performanceData || performanceData.length === 0) {
-        console.log("Нет данных в ozon_performance_daily для marketplace:", marketplace.id);
+        console.log("Нет данных в ozon_performance_daily для marketplace:", marketplace.id, "за период:", format(dateRange.start, "yyyy-MM-dd"), "-", format(dateRange.end, "yyyy-MM-dd"));
+        // Пробуем загрузить данные за больший период для проверки
+        const { data: checkData } = await supabase
+          .from("ozon_performance_daily")
+          .select("stat_date")
+          .eq("marketplace_id", marketplace.id)
+          .order("stat_date", { ascending: false })
+          .limit(5);
+        if (checkData && checkData.length > 0) {
+          console.log("Найдены данные в других периодах. Примеры дат:", checkData.map((d: any) => d.stat_date));
+        }
         return [];
       }
       console.log("Загружено записей:", performanceData.length);
