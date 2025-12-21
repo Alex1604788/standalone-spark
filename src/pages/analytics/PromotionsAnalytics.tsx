@@ -62,9 +62,10 @@ const PromotionsAnalytics = () => {
   const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
+  // Устанавливаем период по умолчанию: последние 90 дней
   const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>({
-    start: startOfMonth(subDays(new Date(), 30)),
-    end: endOfMonth(new Date()),
+    start: subDays(new Date(), 90),
+    end: new Date(),
   });
 
   // Получаем marketplace_id пользователя
