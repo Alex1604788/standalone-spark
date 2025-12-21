@@ -65,53 +65,55 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
   const [searchQuery, setSearchQuery] = useState("");
   const detailsBlockRef = useRef<HTMLDivElement>(null);
 
-  // Получаем marketplace_id пользователя
-  const { data: marketplace } = useQuery({
-    queryKey: ["user-marketplace"],
+  // Получаем все маркетплейсы пользователя (как в дашборде для согласованности данных)
+  const { data: marketplaces } = useQuery({
+    queryKey: ["user-marketplaces"],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
+      if (!user) return [];
 
       const { data, error } = await supabase
         .from("marketplaces")
         .select("id")
-        .eq("user_id", user.id)
-        .limit(1)
-        .single();
+        .eq("user_id", user.id);
 
       if (error) throw error;
-      return data;
+      return data || [];
     },
   });
 
   // Загружаем общие метрики
   const { data: metrics, isLoading: metricsLoading } = useQuery({
-    queryKey: ["reviews-metrics", marketplace?.id],
+    queryKey: ["reviews-metrics", marketplaces],
     queryFn: async () => {
-      if (!marketplace?.id) return null;
+      if (!marketplaces || marketplaces.length === 0) return null;
 
+      const marketplaceIds = marketplaces.map((m) => m.id);
       const now = new Date();
       const date7DaysAgo = subDays(now, 7);
       const date30DaysAgo = subDays(now, 30);
 
-      // Всего отзывов за 7 и 30 дней
-      const { data: reviews7Days } = await supabase
+      // Всего отзывов за 7 и 30 дней (используем count и фильтр deleted_at как в дашборде)
+      const { count: reviews7DaysCount } = await supabase
         .from("reviews")
-        .select("id, rating, products!inner(marketplace_id)", { count: "exact" })
-        .in("products.marketplace_id", [marketplace.id])
-        .gte("review_date", date7DaysAgo.toISOString());
+        .select("id, products!inner(marketplace_id)", { count: "exact", head: true })
+        .in("products.marketplace_id", marketplaceIds)
+        .gte("review_date", date7DaysAgo.toISOString())
+        .is("deleted_at", null);
 
-      const { data: reviews30Days } = await supabase
+      const { count: reviews30DaysCount } = await supabase
         .from("reviews")
-        .select("id, rating, products!inner(marketplace_id)", { count: "exact" })
-        .in("products.marketplace_id", [marketplace.id])
-        .gte("review_date", date30DaysAgo.toISOString());
+        .select("id, products!inner(marketplace_id)", { count: "exact", head: true })
+        .in("products.marketplace_id", marketplaceIds)
+        .gte("review_date", date30DaysAgo.toISOString())
+        .is("deleted_at", null);
 
-      // Распределение по рейтингам
+      // Распределение по рейтингам (с фильтром deleted_at)
       const { data: allReviews } = await supabase
         .from("reviews")
         .select("rating, products!inner(marketplace_id)")
-        .in("products.marketplace_id", [marketplace.id]);
+        .in("products.marketplace_id", marketplaceIds)
+        .is("deleted_at", null);
 
       const ratingDistribution = [1, 2, 3, 4, 5].map((rating) => ({
         rating,
@@ -122,26 +124,27 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
       const averageRating = allReviews?.length > 0 ? totalRating / allReviews.length : 0;
 
       return {
-        total7Days: reviews7Days?.length || 0,
-        total30Days: reviews30Days?.length || 0,
+        total7Days: reviews7DaysCount || 0,
+        total30Days: reviews30DaysCount || 0,
         ratingDistribution,
         averageRating: Math.round(averageRating * 10) / 10,
       } as ReviewMetrics;
     },
-    enabled: !!marketplace?.id,
+    enabled: !!marketplaces && marketplaces.length > 0,
   });
 
   // Загружаем сводку по товарам
   const { data: productSummaries, isLoading: summariesLoading } = useQuery({
-    queryKey: ["product-review-summaries", marketplace?.id],
+    queryKey: ["product-review-summaries", marketplaces],
     queryFn: async () => {
-      if (!marketplace?.id) return [];
+      if (!marketplaces || marketplaces.length === 0) return [];
 
+      const marketplaceIds = marketplaces.map((m) => m.id);
       const now = new Date();
       const weekAgo = subDays(now, 7);
       const fourWeeksAgo = subDays(now, 28);
 
-      // Получаем все отзывы с товарами
+      // Получаем все отзывы с товарами (с фильтром deleted_at как в дашборде)
       const { data: reviews } = await supabase
         .from("reviews")
         .select(`
@@ -151,7 +154,8 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
           review_date,
           products!inner(id, name, image_url, marketplace_id)
         `)
-        .in("products.marketplace_id", [marketplace.id]);
+        .in("products.marketplace_id", marketplaceIds)
+        .is("deleted_at", null);
 
       if (!reviews) return [];
 
@@ -224,7 +228,7 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
 
       return summaries;
     },
-    enabled: !!marketplace?.id,
+    enabled: !!marketplaces && marketplaces.length > 0,
   });
 
   // Фильтруем и сортируем сводку
@@ -255,6 +259,7 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
         .select("id, text, advantages, disadvantages, rating, author_name, review_date")
         .eq("product_id", selectedProductId)
         .lte("rating", 3)
+        .is("deleted_at", null)
         .order("review_date", { ascending: false })
         .limit(50);
 
