@@ -28,13 +28,19 @@ const ConnectOzonMode = lazy(() => import("./pages/ConnectOzonMode"));
 const ConnectOzonFallback = lazy(() => import("./pages/ConnectOzonFallback"));
 const ConnectOzonPairing = lazy(() => import("./pages/ConnectOzonPairing"));
 const OzonSettings = lazy(() => import("./pages/OzonSettings"));
-const OzonApiSettings = lazy(() => import("./pages/settings/OzonApiSettings").then(m => ({ default: m.OzonApiSettings }))); // ← ДОБАВЛЕНО
+const OzonApiSettings = lazy(() => import("./pages/settings/OzonApiSettings"));
 const DownloadExtension = lazy(() => import("./pages/DownloadExtension"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const ProductSettings = lazy(() => import("./pages/ProductSettings"));
 const ProductKnowledge = lazy(() => import("./pages/ProductKnowledge"));
 const Suppliers = lazy(() => import("./pages/Suppliers"));
 const AppLayout = lazy(() => import("./components/AppLayout"));
+const SalesAnalytics = lazy(() => import("./pages/SalesAnalytics"));
+const ReviewsQuestionsAnalytics = lazy(() => import("./pages/analytics/ReviewsQuestionsAnalytics"));
+const PricesAnalytics = lazy(() => import("./pages/analytics/PricesAnalytics"));
+const PromotionAnalytics = lazy(() => import("./pages/analytics/PromotionAnalytics"));
+const PromotionsAnalytics = lazy(() => import("./pages/analytics/PromotionsAnalytics"));
+const CompetitorsAnalytics = lazy(() => import("./pages/analytics/CompetitorsAnalytics"));
 
 const queryClient = new QueryClient();
 
@@ -78,10 +84,7 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/auth" element={<Auth />} />
-<<<<<<< HEAD
-            {/* Редирект с /app на первую аналитику */}
             <Route path="/app" element={<Navigate to="/app/analytics/reviews-questions" replace />} />
-            {/* Аналитика - специфичные роуты ПЕРЕД общим роутом /app/analytics */}
             <Route path="/app/analytics/reviews-questions" element={<ProtectedPage><ReviewsQuestionsAnalytics /></ProtectedPage>} />
             <Route path="/app/sales-analytics" element={<ProtectedPage><SalesAnalytics /></ProtectedPage>} />
             <Route path="/app/analytics/prices" element={<ProtectedPage><PricesAnalytics /></ProtectedPage>} />
@@ -89,7 +92,6 @@ const App = () => (
             <Route path="/app/analytics/promotions" element={<ProtectedPage><PromotionsAnalytics /></ProtectedPage>} />
             <Route path="/app/analytics/competitors" element={<ProtectedPage><CompetitorsAnalytics /></ProtectedPage>} />
             <Route path="/app/analytics" element={<ProtectedPage><Analytics /></ProtectedPage>} />
-            {/* Отзывы и Вопросы */}
             <Route path="/app/reviews/:status" element={<ProtectedPage><Reviews /></ProtectedPage>} />
             <Route path="/app/questions/:status" element={<ProtectedPage><Questions /></ProtectedPage>} />
             <Route path="/app/profile" element={<ProtectedPage><Profile /></ProtectedPage>} />
@@ -103,7 +105,7 @@ const App = () => (
             <Route path="/app/connect/ozon/fallback" element={<ProtectedPage><ConnectOzonFallback /></ProtectedPage>} />
             <Route path="/app/connect/ozon/pairing" element={<ProtectedPage><ConnectOzonPairing /></ProtectedPage>} />
             <Route path="/app/settings/ozon" element={<ProtectedPage><OzonSettings /></ProtectedPage>} />
-            <Route path="/app/settings/ozon-api" element={<ProtectedPage><OzonApiSettings /></ProtectedPage>} /> {/* ← ДОБАВЛЕНО */}
+            <Route path="/app/settings/ozon-api" element={<ProtectedPage><OzonApiSettings /></ProtectedPage>} />
             <Route path="/app/extension" element={<ProtectedPage><DownloadExtension /></ProtectedPage>} />
             <Route path="/app/notifications" element={<ProtectedPage><Notifications /></ProtectedPage>} />
             <Route path="/app/products/settings" element={<ProtectedPage><ProductSettings /></ProtectedPage>} />
