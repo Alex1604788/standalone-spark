@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BarChart3, MessageSquare, HelpCircle, LayoutDashboard } from "lucide-react";
+import { BarChart3, MessageSquare, HelpCircle, LayoutDashboard, Loader2 } from "lucide-react";
 import { AnalyticsDashboard } from "./AnalyticsDashboard";
 import { AnalyticsReviews } from "./AnalyticsReviews";
 import { AnalyticsQuestions } from "./AnalyticsQuestions";
@@ -57,25 +57,43 @@ const ReviewsQuestionsAnalytics = () => {
         </TabsList>
 
         <TabsContent value="dashboard" className="space-y-4">
-          <AnalyticsDashboard
-            onNavigateToReviews={handleNavigateToReviews}
-            onNavigateToQuestions={handleNavigateToQuestions}
-            onNavigateToDiagnostics={handleNavigateToDiagnostics}
-          />
+          <Suspense fallback={
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          }>
+            <AnalyticsDashboard
+              onNavigateToReviews={handleNavigateToReviews}
+              onNavigateToQuestions={handleNavigateToQuestions}
+              onNavigateToDiagnostics={handleNavigateToDiagnostics}
+            />
+          </Suspense>
         </TabsContent>
 
         <TabsContent value="reviews" className="space-y-4">
-          <AnalyticsReviews
-            initialFilter={reviewsFilter}
-            onNavigateToDiagnostics={handleNavigateToDiagnostics}
-          />
+          <Suspense fallback={
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          }>
+            <AnalyticsReviews
+              initialFilter={reviewsFilter}
+              onNavigateToDiagnostics={handleNavigateToDiagnostics}
+            />
+          </Suspense>
         </TabsContent>
 
         <TabsContent value="questions" className="space-y-4">
-          <AnalyticsQuestions
-            initialFilter={questionsFilter}
-            onNavigateToDiagnostics={handleNavigateToDiagnostics}
-          />
+          <Suspense fallback={
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          }>
+            <AnalyticsQuestions
+              initialFilter={questionsFilter}
+              onNavigateToDiagnostics={handleNavigateToDiagnostics}
+            />
+          </Suspense>
         </TabsContent>
       </Tabs>
     </div>
