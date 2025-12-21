@@ -100,6 +100,12 @@ export const AnalyticsDashboard = ({
       const now = new Date();
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+      
+      console.log("📅 Период для расчета:", {
+        now: now.toISOString(),
+        sevenDaysAgo: sevenDaysAgo.toISOString(),
+        fourteenDaysAgo: fourteenDaysAgo.toISOString()
+      });
 
       // 1. Неотвеченные отзывы и вопросы (через products join)
       const { count: unansweredReviews } = await supabase
@@ -115,40 +121,40 @@ export const AnalyticsDashboard = ({
         .eq("is_answered", false)
         .in("products.marketplace_id", marketplaceIds);
 
-      // 2. Всего за неделю
-      const { data: reviewsWeek } = await supabase
+      // 2. Всего за неделю (используем count для точности)
+      const { count: reviewsWeekCount } = await supabase
         .from("reviews")
-        .select("review_date, products!inner(marketplace_id)")
+        .select("id, products!inner(marketplace_id)", { count: "exact", head: true })
         .in("products.marketplace_id", marketplaceIds)
         .gte("review_date", sevenDaysAgo.toISOString())
         .is("deleted_at", null);
 
-      const { data: questionsWeek } = await supabase
+      const { count: questionsWeekCount } = await supabase
         .from("questions")
-        .select("question_date, products!inner(marketplace_id)")
+        .select("id, products!inner(marketplace_id)", { count: "exact", head: true })
         .in("products.marketplace_id", marketplaceIds)
         .gte("question_date", sevenDaysAgo.toISOString());
 
       // Предыдущая неделя для сравнения
-      const { data: reviewsPrevWeek } = await supabase
+      const { count: reviewsPrevWeekCount } = await supabase
         .from("reviews")
-        .select("review_date, products!inner(marketplace_id)")
+        .select("id, products!inner(marketplace_id)", { count: "exact", head: true })
         .in("products.marketplace_id", marketplaceIds)
         .gte("review_date", fourteenDaysAgo.toISOString())
         .lt("review_date", sevenDaysAgo.toISOString())
         .is("deleted_at", null);
 
-      const { data: questionsPrevWeek } = await supabase
+      const { count: questionsPrevWeekCount } = await supabase
         .from("questions")
-        .select("question_date, products!inner(marketplace_id)")
+        .select("id, products!inner(marketplace_id)", { count: "exact", head: true })
         .in("products.marketplace_id", marketplaceIds)
         .gte("question_date", fourteenDaysAgo.toISOString())
         .lt("question_date", sevenDaysAgo.toISOString());
 
-      const totalReviewsWeek = reviewsWeek?.length || 0;
-      const totalQuestionsWeek = questionsWeek?.length || 0;
-      const totalReviewsPrevWeek = reviewsPrevWeek?.length || 0;
-      const totalQuestionsPrevWeek = questionsPrevWeek?.length || 0;
+      const totalReviewsWeek = reviewsWeekCount || 0;
+      const totalQuestionsWeek = questionsWeekCount || 0;
+      const totalReviewsPrevWeek = reviewsPrevWeekCount || 0;
+      const totalQuestionsPrevWeek = questionsPrevWeekCount || 0;
 
       const reviewsWeekChange =
         totalReviewsPrevWeek > 0
@@ -228,18 +234,24 @@ export const AnalyticsDashboard = ({
       const avgResponseTimeReviews = countReviews > 0 ? totalResponseTimeReviews / countReviews : 0;
       const avgResponseTimeQuestions = countQuestions > 0 ? totalResponseTimeQuestions / countQuestions : 0;
 
-      // 4. Доля негативных отзывов (1-3⭐)
-      const { data: negativeReviews } = await supabase
+      // 4. Доля негативных отзывов (1-3⭐) - используем count для точности
+      const { count: negativeReviewsCount } = await supabase
         .from("reviews")
-        .select("id, products!inner(marketplace_id)")
+        .select("id, products!inner(marketplace_id)", { count: "exact", head: true })
         .in("products.marketplace_id", marketplaceIds)
         .lte("rating", 3)
         .gte("review_date", sevenDaysAgo.toISOString())
         .is("deleted_at", null);
 
-      const negativeReviewsCount = negativeReviews?.length || 0;
+      const negativeCount = negativeReviewsCount || 0;
       const negativeReviewsPercent =
-        totalReviewsWeek > 0 ? (negativeReviewsCount / totalReviewsWeek) * 100 : 0;
+        totalReviewsWeek > 0 ? (negativeCount / totalReviewsWeek) * 100 : 0;
+      
+      console.log("📊 Расчет доли негативных:", {
+        totalReviewsWeek,
+        negativeCount,
+        negativeReviewsPercent: negativeReviewsPercent.toFixed(2) + "%"
+      });
 
       setKpis({
         unansweredReviews: unansweredReviews || 0,
@@ -251,7 +263,7 @@ export const AnalyticsDashboard = ({
         avgResponseTimeReviews,
         avgResponseTimeQuestions,
         negativeReviewsPercent,
-        negativeReviewsCount,
+        negativeReviewsCount: negativeCount,
       });
 
       // 5. Аномальный рост негатива

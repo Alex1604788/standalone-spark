@@ -246,18 +246,6 @@ const AppLayout = ({ children }: AppLayoutProps) => {
             </CollapsibleTrigger>
             <CollapsibleContent className="ml-4 mt-1 space-y-1">
               <Link
-                to="/app/analytics"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
-                  location.pathname === "/app/analytics"
-                    ? "bg-primary text-primary-foreground shadow-medium"
-                    : "hover:bg-secondary text-foreground hover:shadow-soft"
-                }`}
-              >
-                <BarChart3 className="w-4 h-4" />
-                <span className="text-sm">Дашборд</span>
-              </Link>
-              <Link
                 to="/app/analytics/reviews-questions"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
