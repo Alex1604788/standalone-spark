@@ -443,7 +443,7 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
           <CardContent>
             <div className="text-2xl font-bold flex items-center gap-2">
               <Star className="h-5 w-5 fill-yellow-400 text-yellow-400" />
-              {metrics?.averageRating.toFixed(1) || "0.0"}
+              {(metrics?.averageRating ?? 0).toFixed(1)}
             </div>
           </CardContent>
         </Card>
@@ -454,7 +454,7 @@ export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-destructive">
-              {metrics?.negativeShare7Days.toFixed(1) || "0.0"}%
+              {(metrics?.negativeShare7Days ?? 0).toFixed(1)}%
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               {metrics?.negativeCount7Days || 0} из {metrics?.total7Days || 0} отзывов
