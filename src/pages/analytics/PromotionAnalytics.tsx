@@ -62,7 +62,10 @@ const PromotionAnalytics = () => {
     queryKey: ["user-marketplace"],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
+      if (!user) {
+        console.log("❌ Нет пользователя");
+        return null;
+      }
 
       const { data, error } = await supabase
         .from("marketplaces")
@@ -70,7 +73,12 @@ const PromotionAnalytics = () => {
         .eq("user_id", user.id)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error("❌ Ошибка получения marketplace:", error);
+        throw error;
+      }
+      
+      console.log("✅ Получен marketplace_id:", data?.id);
       return data;
     },
   });
@@ -79,8 +87,32 @@ const PromotionAnalytics = () => {
   const { data: campaignsData, isLoading } = useQuery({
     queryKey: ["promotions-campaigns", marketplace?.id, dateRange],
     queryFn: async () => {
-      if (!marketplace?.id) return [];
+      if (!marketplace?.id) {
+        console.log("❌ Нет marketplace.id");
+        return [];
+      }
 
+      console.log("🔍 Запрос данных для marketplace:", marketplace.id);
+      console.log("📅 Период:", format(dateRange.start, "yyyy-MM-dd"), "-", format(dateRange.end, "yyyy-MM-dd"));
+
+      // Сначала проверяем, есть ли вообще данные для этого marketplace
+      const { data: checkData, error: checkError } = await supabase
+        .from("ozon_performance_daily")
+        .select("marketplace_id, stat_date")
+        .eq("marketplace_id", marketplace.id)
+        .limit(1);
+      
+      console.log("🔍 Проверка наличия данных:", { checkData, checkError });
+
+      // Проверяем все marketplace_id в таблице для сравнения
+      const { data: allMarketplaces } = await supabase
+        .from("ozon_performance_daily")
+        .select("marketplace_id")
+        .limit(10);
+      console.log("🔍 Все marketplace_id в таблице (первые 10):", allMarketplaces?.map((m: any) => m.marketplace_id));
+      console.log("🔍 Ищем marketplace_id:", marketplace.id, "в списке:", allMarketplaces?.some((m: any) => m.marketplace_id === marketplace.id));
+
+      // Упрощаем запрос - убираем join с products, загрузим их отдельно если нужно
       const { data: performanceData, error } = await supabase
         .from("ozon_performance_daily")
         .select(`
@@ -98,8 +130,7 @@ const PromotionAnalytics = () => {
           cpc,
           conversion,
           drr,
-          stat_date,
-          products(id, name, image_url, marketplace_id)
+          stat_date
         `)
         .eq("marketplace_id", marketplace.id)
         .gte("stat_date", format(dateRange.start, "yyyy-MM-dd"))
@@ -107,36 +138,75 @@ const PromotionAnalytics = () => {
         .order("stat_date", { ascending: false });
 
       if (error) {
-        console.error("Ошибка загрузки данных продвижений:", error);
+        console.error("❌ Ошибка загрузки данных продвижений:", error);
         throw error;
       }
+      
+      console.log("✅ Загружено записей:", performanceData?.length || 0);
+      if (performanceData && performanceData.length > 0) {
+        console.log("📊 Пример первой записи:", performanceData[0]);
+        // Проверяем количество записей с NULL campaign_id
+        const nullCampaignCount = performanceData.filter((r: any) => !r.campaign_id || r.campaign_id === "").length;
+        const nullCampaignNameCount = performanceData.filter((r: any) => !r.campaign_name).length;
+        const nullSkuCount = performanceData.filter((r: any) => !r.sku || r.sku === "").length;
+        console.log("📊 Статистика NULL значений:", {
+          nullCampaignId: nullCampaignCount,
+          nullCampaignName: nullCampaignNameCount,
+          nullSku: nullSkuCount,
+          total: performanceData.length
+        });
+      }
+
       if (!performanceData || performanceData.length === 0) {
-        console.log("Нет данных в ozon_performance_daily для marketplace:", marketplace.id, "за период:", format(dateRange.start, "yyyy-MM-dd"), "-", format(dateRange.end, "yyyy-MM-dd"));
+        console.log("⚠️ Нет данных в ozon_performance_daily для marketplace:", marketplace.id, "за период:", format(dateRange.start, "yyyy-MM-dd"), "-", format(dateRange.end, "yyyy-MM-dd"));
         // Пробуем загрузить данные за больший период для проверки
         const { data: checkData } = await supabase
           .from("ozon_performance_daily")
-          .select("stat_date")
+          .select("stat_date, marketplace_id")
           .eq("marketplace_id", marketplace.id)
           .order("stat_date", { ascending: false })
           .limit(5);
         if (checkData && checkData.length > 0) {
-          console.log("Найдены данные в других периодах. Примеры дат:", checkData.map((d: any) => d.stat_date));
+          console.log("✅ Найдены данные в других периодах. Примеры дат:", checkData.map((d: any) => d.stat_date));
+        } else {
+          console.log("❌ Данных нет вообще для marketplace:", marketplace.id);
+          // Проверяем все marketplace_id в таблице
+          const { data: allMarketplaces } = await supabase
+            .from("ozon_performance_daily")
+            .select("marketplace_id")
+            .limit(10);
+          console.log("🔍 Примеры marketplace_id в таблице:", allMarketplaces?.map((m: any) => m.marketplace_id));
         }
         return [];
       }
-      console.log("Загружено записей:", performanceData.length);
 
       // Группируем по кампаниям
       const campaignMap = new Map<string, CampaignData>();
 
       performanceData.forEach((row: any) => {
-        const campaignId = row.campaign_id;
-        const sku = row.sku;
+        // Обрабатываем NULL значения: группируем записи без campaign_id в отдельную категорию
+        let campaignId: string;
+        if (!row.campaign_id || row.campaign_id === "") {
+          // Группируем все записи без campaign_id в одну категорию
+          campaignId = "__NO_CAMPAIGN__";
+        } else {
+          campaignId = String(row.campaign_id);
+        }
+
+        const sku = row.sku || `__NULL_SKU_${Math.random()}__`;
+
+        // Пропускаем только записи без sku (критичное поле для группировки)
+        if (!row.sku || row.sku === "") {
+          console.warn("⚠️ Пропущена запись без sku:", row);
+          return;
+        }
 
         if (!campaignMap.has(campaignId)) {
           campaignMap.set(campaignId, {
-            campaign_id: campaignId,
-            campaign_name: row.campaign_name || `Кампания ${campaignId}`,
+            campaign_id: campaignId === "__NO_CAMPAIGN__" ? null : campaignId,
+            campaign_name: campaignId === "__NO_CAMPAIGN__" 
+              ? "Без кампании" 
+              : (row.campaign_name || `Кампания ${campaignId}`),
             campaign_type: row.campaign_type,
             total_money_spent: 0,
             total_views: 0,
@@ -167,15 +237,18 @@ const PromotionAnalytics = () => {
           campaign.date_range.max = row.stat_date;
         }
 
-        // Группируем по товарам
+        // Группируем по товарам (пропускаем если sku NULL)
+        if (!row.sku) {
+          return;
+        }
+
         let product = campaign.products.find((p) => p.sku === sku);
         if (!product) {
-          const productData = Array.isArray(row.products) ? row.products[0] : row.products;
           product = {
             sku,
-            offer_id: row.offer_id,
-            product_name: productData?.name || null,
-            product_image: productData?.image_url || null,
+            offer_id: row.offer_id || null,
+            product_name: null, // Загрузим отдельно если нужно
+            product_image: null,
             total_money_spent: 0,
             total_views: 0,
             total_clicks: 0,
@@ -206,6 +279,29 @@ const PromotionAnalytics = () => {
         product.days_count++;
       });
 
+      // Загружаем информацию о продуктах по SKU
+      const allSkus = Array.from(new Set(Array.from(campaignMap.values()).flatMap(c => c.products.map(p => p.sku))));
+      if (allSkus.length > 0) {
+        const { data: productsData } = await supabase
+          .from("products")
+          .select("id, name, image_url, sku, marketplace_id")
+          .eq("marketplace_id", marketplace.id)
+          .in("sku", allSkus);
+        
+        if (productsData) {
+          const productsMap = new Map(productsData.map(p => [p.sku, p]));
+          campaignMap.forEach((campaign) => {
+            campaign.products.forEach((product) => {
+              const productInfo = productsMap.get(product.sku);
+              if (productInfo) {
+                product.product_name = productInfo.name;
+                product.product_image = productInfo.image_url;
+              }
+            });
+          });
+        }
+      }
+
       // Вычисляем средние значения и обновляем счетчики
       campaignMap.forEach((campaign) => {
         campaign.sku_count = campaign.products.length;
@@ -235,9 +331,21 @@ const PromotionAnalytics = () => {
         });
       });
 
-      return Array.from(campaignMap.values()).sort(
+      const campaigns = Array.from(campaignMap.values()).sort(
         (a, b) => b.total_money_spent - a.total_money_spent
       );
+
+      console.log("✅ Сгруппировано кампаний:", campaigns.length);
+      if (campaigns.length > 0) {
+        console.log("📊 Примеры кампаний:", campaigns.slice(0, 3).map(c => ({
+          id: c.campaign_id,
+          name: c.campaign_name,
+          products: c.products.length,
+          money: c.total_money_spent
+        })));
+      }
+
+      return campaigns;
     },
     enabled: !!marketplace?.id,
   });

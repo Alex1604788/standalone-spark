@@ -88,13 +88,14 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             {/* Редирект с /app на первую аналитику */}
             <Route path="/app" element={<Navigate to="/app/analytics/reviews-questions" replace />} />
-            {/* Аналитика */}
+            {/* Аналитика - специфичные роуты ПЕРЕД общим роутом /app/analytics */}
             <Route path="/app/analytics/reviews-questions" element={<ProtectedPage><ReviewsQuestionsAnalytics /></ProtectedPage>} />
             <Route path="/app/sales-analytics" element={<ProtectedPage><SalesAnalytics /></ProtectedPage>} />
             <Route path="/app/analytics/prices" element={<ProtectedPage><PricesAnalytics /></ProtectedPage>} />
             <Route path="/app/analytics/promotion" element={<ProtectedPage><PromotionAnalytics /></ProtectedPage>} />
             <Route path="/app/analytics/promotions" element={<ProtectedPage><PromotionsAnalytics /></ProtectedPage>} />
             <Route path="/app/analytics/competitors" element={<ProtectedPage><CompetitorsAnalytics /></ProtectedPage>} />
+            <Route path="/app/analytics" element={<ProtectedPage><Analytics /></ProtectedPage>} />
             {/* Отзывы и Вопросы */}
             <Route path="/app/reviews/:status" element={<ProtectedPage><Reviews /></ProtectedPage>} />
             <Route path="/app/questions/:status" element={<ProtectedPage><Questions /></ProtectedPage>} />
@@ -108,7 +109,6 @@ const App = () => (
             <Route path="/app/marketplaces" element={<ProtectedPage><Marketplaces /></ProtectedPage>} />
             <Route path="/app/profile" element={<ProtectedPage><Profile /></ProtectedPage>} />
             <Route path="/app/review-queue" element={<ProtectedPage><ReviewQueue /></ProtectedPage>} />
-            <Route path="/app/analytics" element={<ProtectedPage><Analytics /></ProtectedPage>} />
             <Route path="/app/templates" element={<ProtectedPage><Templates /></ProtectedPage>} />
             <Route path="/app/fallback" element={<ProtectedPage><FallbackMode /></ProtectedPage>} />
             <Route path="/app/connect" element={<ProtectedPage><ConnectMarketplace /></ProtectedPage>} />
