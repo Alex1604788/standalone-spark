@@ -174,8 +174,14 @@ const ImportData = () => {
     const offerIdCol = findColumn(["артикул"]);
     const skuCol = findColumn(["sku", "ску"]);
     const quantityCol = findColumn(["количество"]);
-    const amountBeforeCol = findColumn(["до вычета", "до комиссии", "продажа"]);
-    const totalCol = findColumn(["итого", "сумма"]);
+    const amountBeforeCol = findColumn(["до вычета", "до комиссии", "продажа", "возврат"]);
+    const totalCol = findColumn(["итого", "сумма", "руб"]);
+
+    // ДИАГНОСТИКА: логируем первую строку для отладки
+    if (!totalCol && Object.keys(row).length > 0) {
+      console.log("⚠️ Колонка 'Итого' не найдена! Доступные колонки:", Object.keys(row));
+      console.log("⚠️ Первая строка данных:", row);
+    }
     const dateCol = findColumn(["дата"]);
 
     if (!accrualTypeCol || !offerIdCol) {
