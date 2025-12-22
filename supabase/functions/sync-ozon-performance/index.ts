@@ -60,6 +60,7 @@ interface OzonPerformanceStats {
   views: number;
   clicks: number;
   orders: number;
+  orders_model?: number;  // Заказы модели - OZON возвращает отдельно от orders
   revenue?: number;
   add_to_cart?: number;
   avg_bill?: number;
@@ -229,14 +230,14 @@ async function downloadAndParseReport(
     // Разбираем по точке с запятой
     const columns = line.split(';').map(col => col.trim());
 
-    // ПРАВИЛЬНАЯ структура OZON CSV: [Дата, sku, Название товара, Цена, Показы, Клики, CTR, В корзину, Средняя стоимость клика, Расход, Заказы, Продажи, ...]
+    // ПРАВИЛЬНАЯ структура OZON CSV: [Дата, sku, Название товара, Цена, Показы, Клики, CTR, В корзину, Средняя стоимость клика, Расход, Заказы, Заказы модели, Продажи, ...]
     // ВАЖНО: Первый столбец - это ДАТА, не SKU!
-    if (columns.length < 12) {
+    if (columns.length < 13) {
       console.error(`Skipping malformed line (${columns.length} columns): ${line.substring(0, 100)}`);
       continue;
     }
 
-    const [dateStr, sku, productName, price, views, clicks, ctr, toCart, avgCpc, spent, orders, revenue, ...rest] = columns;
+    const [dateStr, sku, productName, price, views, clicks, ctr, toCart, avgCpc, spent, orders, ordersModel, revenue, ...rest] = columns;
 
     // Парсим числовые значения (заменяем запятые на точки и убираем пробелы)
     const parseNum = (str: string): number => {
@@ -266,6 +267,7 @@ async function downloadAndParseReport(
       views: parseInt(views),
       clicks: parseInt(clicks),
       orders: parseInt(orders),
+      orders_model: parseInt(ordersModel),  // Заказы модели - OZON складывает с orders в итоговой аналитике
       revenue: parseNum(revenue),
       add_to_cart: parseInt(toCart),  // Fixed: use parseInt for INTEGER column
       avg_bill: parseNum(avgCpc),
@@ -622,6 +624,7 @@ serve(async (req) => {
       views: stat.views || 0,
       clicks: stat.clicks || 0,
       orders: stat.orders || 0,
+      orders_model: stat.orders_model || 0,  // Заказы модели
       revenue: stat.revenue || null,
       add_to_cart: stat.add_to_cart || null,
       avg_bill: stat.avg_bill || null,
