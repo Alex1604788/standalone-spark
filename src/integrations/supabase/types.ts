@@ -44,6 +44,201 @@ export type Database = {
         }
         Relationships: []
       }
+      allocation_lines: {
+        Row: {
+          cluster_id: string
+          comment: string | null
+          created_at: string
+          id: string
+          is_novelty_allocation: boolean
+          marketplace_id: string
+          metadata: Json
+          offer_id: string
+          quantity: number
+          source: string
+          updated_at: string
+          version_id: string
+        }
+        Insert: {
+          cluster_id: string
+          comment?: string | null
+          created_at?: string
+          id?: string
+          is_novelty_allocation?: boolean
+          marketplace_id: string
+          metadata?: Json
+          offer_id: string
+          quantity?: number
+          source?: string
+          updated_at?: string
+          version_id: string
+        }
+        Update: {
+          cluster_id?: string
+          comment?: string | null
+          created_at?: string
+          id?: string
+          is_novelty_allocation?: boolean
+          marketplace_id?: string
+          metadata?: Json
+          offer_id?: string
+          quantity?: number
+          source?: string
+          updated_at?: string
+          version_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "allocation_lines_cluster_id_fkey"
+            columns: ["cluster_id"]
+            isOneToOne: false
+            referencedRelation: "clusters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_lines_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_lines_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "allocation_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      allocation_sessions: {
+        Row: {
+          comment: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          locked_at: string | null
+          locked_by: string | null
+          marketplace_id: string
+          metadata: Json
+          status: string
+          updated_at: string
+          working_date: string
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          locked_at?: string | null
+          locked_by?: string | null
+          marketplace_id: string
+          metadata?: Json
+          status?: string
+          updated_at?: string
+          working_date: string
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          locked_at?: string | null
+          locked_by?: string | null
+          marketplace_id?: string
+          metadata?: Json
+          status?: string
+          updated_at?: string
+          working_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "allocation_sessions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_sessions_locked_by_fkey"
+            columns: ["locked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_sessions_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      allocation_versions: {
+        Row: {
+          comment: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          marketplace_id: string
+          metadata: Json
+          session_id: string
+          status: string
+          updated_at: string
+          version_no: number
+          version_type: string
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          marketplace_id: string
+          metadata?: Json
+          session_id: string
+          status?: string
+          updated_at?: string
+          version_no: number
+          version_type?: string
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          marketplace_id?: string
+          metadata?: Json
+          session_id?: string
+          status?: string
+          updated_at?: string
+          version_no?: number
+          version_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "allocation_versions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_versions_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_versions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "allocation_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       analytics_metrics: {
         Row: {
           answered_questions: number | null
@@ -272,6 +467,90 @@ export type Database = {
             columns: ["marketplace_id"]
             isOneToOne: false
             referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      excess_shipments: {
+        Row: {
+          cluster_id: string
+          comment: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          import_batch_id: string | null
+          marketplace_id: string
+          offer_id: string
+          quantity: number
+          shipped_date: string
+          status: string
+          updated_at: string
+          warehouse_id: string | null
+        }
+        Insert: {
+          cluster_id: string
+          comment?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          import_batch_id?: string | null
+          marketplace_id: string
+          offer_id: string
+          quantity?: number
+          shipped_date: string
+          status?: string
+          updated_at?: string
+          warehouse_id?: string | null
+        }
+        Update: {
+          cluster_id?: string
+          comment?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          import_batch_id?: string | null
+          marketplace_id?: string
+          offer_id?: string
+          quantity?: number
+          shipped_date?: string
+          status?: string
+          updated_at?: string
+          warehouse_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "excess_shipments_cluster_id_fkey"
+            columns: ["cluster_id"]
+            isOneToOne: false
+            referencedRelation: "clusters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "excess_shipments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "excess_shipments_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_logs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "excess_shipments_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "excess_shipments_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "ozon_warehouses"
             referencedColumns: ["id"]
           },
         ]
@@ -949,6 +1228,73 @@ export type Database = {
             columns: ["marketplace_id"]
             isOneToOne: false
             referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ozon_stock_by_warehouse: {
+        Row: {
+          created_at: string
+          id: string
+          in_transit_qty: number
+          marketplace_id: string
+          offer_id: string
+          raw_payload: Json
+          reserved_qty: number
+          sku: string | null
+          snapshot_at: string
+          stock_qty: number
+          sync_id: string | null
+          warehouse_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          in_transit_qty?: number
+          marketplace_id: string
+          offer_id: string
+          raw_payload?: Json
+          reserved_qty?: number
+          sku?: string | null
+          snapshot_at?: string
+          stock_qty?: number
+          sync_id?: string | null
+          warehouse_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          in_transit_qty?: number
+          marketplace_id?: string
+          offer_id?: string
+          raw_payload?: Json
+          reserved_qty?: number
+          sku?: string | null
+          snapshot_at?: string
+          stock_qty?: number
+          sync_id?: string | null
+          warehouse_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ozon_stock_by_warehouse_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ozon_stock_by_warehouse_sync_id_fkey"
+            columns: ["sync_id"]
+            isOneToOne: false
+            referencedRelation: "ozon_sync_history"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ozon_stock_by_warehouse_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "ozon_warehouses"
             referencedColumns: ["id"]
           },
         ]
@@ -1898,6 +2244,110 @@ export type Database = {
           },
         ]
       }
+      shipment_calendar: {
+        Row: {
+          cluster_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          is_booked: boolean
+          marketplace_id: string
+          notes: string | null
+          ship_date: string
+          updated_at: string
+          warehouse_id: string | null
+        }
+        Insert: {
+          cluster_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_booked?: boolean
+          marketplace_id: string
+          notes?: string | null
+          ship_date: string
+          updated_at?: string
+          warehouse_id?: string | null
+        }
+        Update: {
+          cluster_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_booked?: boolean
+          marketplace_id?: string
+          notes?: string | null
+          ship_date?: string
+          updated_at?: string
+          warehouse_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shipment_calendar_cluster_id_fkey"
+            columns: ["cluster_id"]
+            isOneToOne: false
+            referencedRelation: "clusters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_calendar_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_calendar_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_calendar_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "ozon_warehouses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shipment_working_date: {
+        Row: {
+          marketplace_id: string
+          updated_at: string
+          updated_by: string | null
+          working_date: string
+        }
+        Insert: {
+          marketplace_id: string
+          updated_at?: string
+          updated_by?: string | null
+          working_date: string
+        }
+        Update: {
+          marketplace_id?: string
+          updated_at?: string
+          updated_by?: string | null
+          working_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shipment_working_date_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: true
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_working_date_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       storage_costs: {
         Row: {
           category: string | null
@@ -2096,6 +2546,64 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      warehouse_stock_current: {
+        Row: {
+          created_at: string
+          id: string
+          import_batch_id: string | null
+          marketplace_id: string
+          offer_id: string
+          stock_date: string
+          stock_qty: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          import_batch_id?: string | null
+          marketplace_id: string
+          offer_id: string
+          stock_date?: string
+          stock_qty?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          import_batch_id?: string | null
+          marketplace_id?: string
+          offer_id?: string
+          stock_date?: string
+          stock_qty?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "warehouse_stock_current_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_logs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "warehouse_stock_current_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "warehouse_stock_current_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
