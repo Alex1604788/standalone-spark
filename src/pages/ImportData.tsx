@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Upload, Database, AlertCircle } from "lucide-react";
+import { Upload, Database, AlertCircle, Download } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { FileUploader, type ImportType } from "@/components/import/FileUploader";
 import { ImportHistory } from "@/components/import/ImportHistory";
 import { useQuery } from "@tanstack/react-query";
+import * as XLSX from "xlsx";
 
 const ImportData = () => {
   const [importType, setImportType] = useState<ImportType>("accruals");
@@ -43,6 +44,63 @@ const ImportData = () => {
       return data;
     },
   });
+
+  // Скачать шаблон Excel
+  const handleDownloadTemplate = () => {
+    let templateData: any[];
+    let sheetName: string;
+    let fileName: string;
+
+    if (importType === "accruals") {
+      // Шаблон для начислений ОЗОН - точные названия колонок как в OZON экспорте
+      templateData = [
+        {
+          "Дата": "",
+          "Тип начисления": "",
+          "Артикул": "",
+          "SKU": "",
+          "Количество": "",
+          "За продажу до вычета комиссий": "",
+          "Итого, руб.": "",
+        }
+      ];
+      sheetName = "Начисления ОЗОН";
+      fileName = `template_accruals_${new Date().toISOString().split('T')[0]}.xlsx`;
+    } else if (importType === "storage_costs") {
+      // Шаблон для стоимости размещения
+      templateData = [
+        {
+          "Дата": "",
+          "Артикул": "",
+          "SKU": "",
+          "Стоимость размещения": "",
+          "Остаток": "",
+        }
+      ];
+      sheetName = "Стоимость размещения";
+      fileName = `template_storage_costs_${new Date().toISOString().split('T')[0]}.xlsx`;
+    } else {
+      toast({
+        title: "Ошибка",
+        description: "Неизвестный тип импорта",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Создаем Excel файл
+    const worksheet = XLSX.utils.json_to_sheet(templateData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+
+    // Скачиваем
+    XLSX.writeFile(workbook, fileName);
+
+    toast({
+      title: "Шаблон скачан",
+      description: `Файл ${fileName} готов к заполнению`,
+    });
+  };
 
   const handleFileSelect = (data: any[], name: string) => {
     setFileData(data);
@@ -162,6 +220,28 @@ const ImportData = () => {
     }
   };
 
+  // Парсинг числа с учетом форматирования OZON (пробелы, запятые, валюта)
+  const parseAmount = (value: any): number => {
+    if (!value) return 0;
+    if (typeof value === 'number') return value;
+
+    let str = String(value).trim();
+
+    // Убираем символы валюты
+    str = str.replace(/[₽$€]/g, '');
+
+    // Убираем пробелы (разделители тысяч)
+    str = str.replace(/\s/g, '');
+
+    // Заменяем запятую на точку (для русского формата)
+    str = str.replace(',', '.');
+
+    // Парсим
+    const num = parseFloat(str);
+
+    return isNaN(num) ? 0 : num;
+  };
+
   // Импорт начислений ОЗОН
   const importAccruals = async (row: any, marketplaceId: string, importBatchId: string) => {
     // Поиск колонок по частичному совпадению (Excel может добавлять пробелы)
@@ -170,19 +250,21 @@ const ImportData = () => {
       return keys.find(k => keywords.some(kw => k.toLowerCase().includes(kw.toLowerCase())));
     };
 
+    const dateCol = findColumn(["дата"]);
     const accrualTypeCol = findColumn(["тип начисления", "тип"]);
     const offerIdCol = findColumn(["артикул"]);
     const skuCol = findColumn(["sku", "ску"]);
     const quantityCol = findColumn(["количество"]);
-    const amountBeforeCol = findColumn(["до вычета", "до комиссии", "продажа", "возврат"]);
-    const totalCol = findColumn(["итого", "сумма", "руб"]);
+    // ВАЖНО: Точное совпадение с шаблоном OZON "За продажу до вычета комиссий"
+    const amountBeforeCol = findColumn(["за продажу до вычета комиссий", "до вычета", "до комиссии", "продажа", "возврат"]);
+    // ВАЖНО: Точное совпадение с шаблоном OZON "Итого, руб."
+    const totalCol = findColumn(["итого, руб", "итого руб", "итого", "сумма", "руб"]);
 
     // ДИАГНОСТИКА: логируем первую строку для отладки
     if (!totalCol && Object.keys(row).length > 0) {
       console.log("⚠️ Колонка 'Итого' не найдена! Доступные колонки:", Object.keys(row));
       console.log("⚠️ Первая строка данных:", row);
     }
-    const dateCol = findColumn(["дата"]);
 
     if (!accrualTypeCol || !offerIdCol) {
       throw new Error("Не найдены обязательные колонки: Тип начисления, Артикул");
@@ -194,9 +276,9 @@ const ImportData = () => {
       offer_id: String(row[offerIdCol]).trim(),
       sku: skuCol ? String(row[skuCol]).trim() : null,
       accrual_type: String(row[accrualTypeCol]).trim(),
-      quantity: quantityCol ? parseFloat(String(row[quantityCol]).replace(",", ".")) || 0 : 0,
-      amount_before_commission: amountBeforeCol ? parseFloat(String(row[amountBeforeCol]).replace(",", ".")) || 0 : 0,
-      total_amount: totalCol ? parseFloat(String(row[totalCol]).replace(",", ".")) || 0 : 0,
+      quantity: quantityCol ? parseAmount(row[quantityCol]) : 0,
+      amount_before_commission: amountBeforeCol ? parseAmount(row[amountBeforeCol]) : 0,
+      total_amount: totalCol ? parseAmount(row[totalCol]) : 0,
       import_batch_id: importBatchId,
     });
 
@@ -225,8 +307,8 @@ const ImportData = () => {
       cost_date: new Date(row[dateCol]).toISOString().split("T")[0],
       offer_id: String(row[offerIdCol]).trim(),
       sku: skuCol ? String(row[skuCol]).trim() : null,
-      storage_cost: costCol ? parseFloat(String(row[costCol]).replace(",", ".")) || 0 : 0,
-      stock_quantity: stockCol ? parseInt(String(row[stockCol]).replace(/[^\d]/g, "")) || 0 : 0,
+      storage_cost: costCol ? parseAmount(row[costCol]) : 0,
+      stock_quantity: stockCol ? parseAmount(row[stockCol]) : 0,
       import_batch_id: importBatchId,
     });
 
@@ -283,6 +365,21 @@ const ImportData = () => {
                   </SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Кнопка скачивания шаблона */}
+            <div className="pt-2">
+              <Button
+                variant="outline"
+                onClick={handleDownloadTemplate}
+                className="w-full"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Скачать шаблон: {importType === "accruals" ? "Начисления ОЗОН" : "Стоимость размещения"}
+              </Button>
+              <p className="text-xs text-muted-foreground mt-2">
+                💡 Скачайте шаблон, заполните данными из OZON, затем загрузите обратно
+              </p>
             </div>
 
             {/* Период данных (для некоторых типов) */}
