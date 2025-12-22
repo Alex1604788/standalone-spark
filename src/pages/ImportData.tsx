@@ -250,20 +250,29 @@ const ImportData = () => {
       return keys.find(k => keywords.some(kw => k.toLowerCase().includes(kw.toLowerCase())));
     };
 
-    const dateCol = findColumn(["дата"]);
-    const accrualTypeCol = findColumn(["тип начисления", "тип"]);
+    const dateCol = findColumn(["дата начисления", "дата"]);
+    const accrualTypeCol = findColumn(["тип начисления"]);
     const offerIdCol = findColumn(["артикул"]);
     const skuCol = findColumn(["sku", "ску"]);
     const quantityCol = findColumn(["количество"]);
-    // ВАЖНО: Точное совпадение с шаблоном OZON "За продажу до вычета комиссий"
-    const amountBeforeCol = findColumn(["за продажу до вычета комиссий", "до вычета", "до комиссии", "продажа", "возврат"]);
-    // ВАЖНО: Точное совпадение с шаблоном OZON "Итого, руб."
-    const totalCol = findColumn(["итого, руб", "итого руб", "итого", "сумма", "руб"]);
+    // Полное название из OZON экспорта: "За продажу или возврат до вычета комиссий и услуг"
+    const amountBeforeCol = findColumn(["за продажу или возврат", "за продажу", "до вычета комиссий"]);
+    // Название из OZON: "Итого, руб."
+    const totalCol = findColumn(["итого, руб", "итого руб"]);
 
-    // ДИАГНОСТИКА: логируем первую строку для отладки
-    if (!totalCol && Object.keys(row).length > 0) {
-      console.log("⚠️ Колонка 'Итого' не найдена! Доступные колонки:", Object.keys(row));
-      console.log("⚠️ Первая строка данных:", row);
+    // ДИАГНОСТИКА: логируем первые 3 строки для отладки
+    const rowIndex = Object.keys(row).indexOf(offerIdCol || '');
+    if (rowIndex < 3) {
+      console.log(`📊 СТРОКА ${rowIndex}:`, {
+        offer_id: row[offerIdCol!],
+        accrual_type: row[accrualTypeCol!],
+        quantity_raw: row[quantityCol!],
+        amount_before_raw: row[amountBeforeCol!],
+        total_raw: row[totalCol!],
+        quantity_parsed: quantityCol ? parseAmount(row[quantityCol]) : 0,
+        amount_before_parsed: amountBeforeCol ? parseAmount(row[amountBeforeCol]) : 0,
+        total_parsed: totalCol ? parseAmount(row[totalCol]) : 0,
+      });
     }
 
     if (!accrualTypeCol || !offerIdCol) {
