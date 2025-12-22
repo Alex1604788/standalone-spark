@@ -34,6 +34,7 @@ const Notifications = lazy(() => import("./pages/Notifications"));
 const ProductSettings = lazy(() => import("./pages/ProductSettings"));
 const ProductKnowledge = lazy(() => import("./pages/ProductKnowledge"));
 const Suppliers = lazy(() => import("./pages/Suppliers"));
+const ImportData = lazy(() => import("./pages/ImportData"));
 const AppLayout = lazy(() => import("./components/AppLayout"));
 const SalesAnalytics = lazy(() => import("./pages/SalesAnalytics"));
 const ReviewsQuestionsAnalytics = lazy(() => import("./pages/analytics/ReviewsQuestionsAnalytics"));
@@ -111,6 +112,7 @@ const App = () => (
             <Route path="/app/products/settings" element={<ProtectedPage><ProductSettings /></ProtectedPage>} />
             <Route path="/app/products/knowledge" element={<ProtectedPage><ProductKnowledge /></ProtectedPage>} />
             <Route path="/app/suppliers" element={<ProtectedPage><Suppliers /></ProtectedPage>} />
+            <Route path="/app/import-data" element={<ProtectedPage><ImportData /></ProtectedPage>} />
             <Route path="/app/marketplaces" element={<ProtectedPage><Marketplaces /></ProtectedPage>} />
             <Route path="*" element={<NotFound />} />
           </Routes>

@@ -127,6 +127,102 @@ export type Database = {
           },
         ]
       }
+      cluster_warehouses: {
+        Row: {
+          cluster_id: string
+          created_at: string
+          id: string
+          is_active: boolean
+          marketplace_id: string
+          updated_at: string
+          warehouse_id: string
+        }
+        Insert: {
+          cluster_id: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          marketplace_id: string
+          updated_at?: string
+          warehouse_id: string
+        }
+        Update: {
+          cluster_id?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          marketplace_id?: string
+          updated_at?: string
+          warehouse_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cluster_warehouses_cluster_id_fkey"
+            columns: ["cluster_id"]
+            isOneToOne: false
+            referencedRelation: "clusters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cluster_warehouses_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cluster_warehouses_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "ozon_warehouses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      clusters: {
+        Row: {
+          consumption_percent: number
+          created_at: string
+          id: string
+          is_active: boolean
+          marketplace_id: string
+          name: string
+          priority: number
+          short_name: string
+          updated_at: string
+        }
+        Insert: {
+          consumption_percent?: number
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          marketplace_id: string
+          name: string
+          priority?: number
+          short_name: string
+          updated_at?: string
+        }
+        Update: {
+          consumption_percent?: number
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          marketplace_id?: string
+          name?: string
+          priority?: number
+          short_name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clusters_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       consent_logs: {
         Row: {
           accepted_at: string | null
@@ -968,6 +1064,47 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "ozon_ui_connections_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ozon_warehouses: {
+        Row: {
+          city: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          marketplace_id: string
+          name: string | null
+          ozon_warehouse_id: string
+          updated_at: string
+        }
+        Insert: {
+          city?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          marketplace_id: string
+          name?: string | null
+          ozon_warehouse_id: string
+          updated_at?: string
+        }
+        Update: {
+          city?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          marketplace_id?: string
+          name?: string | null
+          ozon_warehouse_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ozon_warehouses_marketplace_id_fkey"
             columns: ["marketplace_id"]
             isOneToOne: false
             referencedRelation: "marketplaces"
