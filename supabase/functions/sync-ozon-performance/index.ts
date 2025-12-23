@@ -1,7 +1,7 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.5.2-single-chunk-only
- * Date: 2025-12-20
+ * Version: 2.6.0-orders-model-support
+ * Date: 2025-12-22
  *
  * Key features:
  * - ZIP archive extraction support (in-memory using JSZip)
@@ -434,8 +434,8 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.5.2-single-chunk-only",
-          build_date: "2025-12-20"
+          version: "2.6.0-orders-model-support",
+          build_date: "2025-12-22"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -678,8 +678,8 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.2.5-debug-csv-structure",
-        build_date: "2025-12-20",
+        version: "2.6.0-orders-model-support",
+        build_date: "2025-12-22",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -696,8 +696,8 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.2.3-deduplicate-cumulative-snapshots",
-        build_date: "2025-12-18",
+        version: "2.6.0-orders-model-support",
+        build_date: "2025-12-22",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
