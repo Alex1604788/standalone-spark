@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.6.0-orders-model-support
+ * Version: 2.6.1-fix-csv-column-order
  * Date: 2025-12-22
  *
  * Key features:
@@ -434,7 +434,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.6.0-orders-model-support",
+          version: "2.6.1-fix-csv-column-order",
           build_date: "2025-12-22"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -678,7 +678,7 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.6.0-orders-model-support",
+        version: "2.6.1-fix-csv-column-order",
         build_date: "2025-12-22",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -696,7 +696,7 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.6.0-orders-model-support",
+        version: "2.6.1-fix-csv-column-order",
         build_date: "2025-12-22",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
