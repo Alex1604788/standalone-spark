@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.6.1-fix-csv-column-order
+ * Version: 2.6.2-debug-csv-structure
  * Date: 2025-12-22
  *
  * Key features:
@@ -230,10 +230,16 @@ async function downloadAndParseReport(
     // Разбираем по точке с запятой
     const columns = line.split(';').map(col => col.trim());
 
+    // ДИАГНОСТИКА: логируем первую строку для каждой кампании
+    if (stats.length === 0) {
+      console.error(`🔍 Campaign "${campaignInfo.name}": CSV has ${columns.length} columns`);
+      console.error(`   Columns 11-14 (orders, revenue, orders_model, revenue_models):`, [columns[10], columns[11], columns[12], columns[13]]);
+    }
+
     // ПРАВИЛЬНАЯ структура OZON CSV: [Дата, sku, Название товара, Цена, Показы, Клики, CTR, В корзину, Средняя стоимость клика, Расход, Заказы, Продажи, Заказы модели, Продажи с заказов модели, ...]
     // ВАЖНО: Первый столбец - это ДАТА, не SKU!
     if (columns.length < 14) {
-      console.error(`Skipping malformed line (${columns.length} columns): ${line.substring(0, 100)}`);
+      console.error(`⚠️  Skipping line in "${campaignInfo.name}": only ${columns.length} columns (need 14+)`);
       continue;
     }
 
@@ -434,7 +440,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.6.1-fix-csv-column-order",
+          version: "2.6.2-debug-csv-structure",
           build_date: "2025-12-22"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -678,7 +684,7 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.6.1-fix-csv-column-order",
+        version: "2.6.2-debug-csv-structure",
         build_date: "2025-12-22",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -696,7 +702,7 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.6.1-fix-csv-column-order",
+        version: "2.6.2-debug-csv-structure",
         build_date: "2025-12-22",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
