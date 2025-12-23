@@ -111,6 +111,64 @@ export type Database = {
           },
         ]
       }
+      allocation_rules: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          marketplace_id: string
+          name: string
+          rules: Json
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          marketplace_id: string
+          name: string
+          rules?: Json
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          marketplace_id?: string
+          name?: string
+          rules?: Json
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "allocation_rules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_rules_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "allocation_rules_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       allocation_sessions: {
         Row: {
           comment: string | null
@@ -1098,6 +1156,102 @@ export type Database = {
           },
         ]
       }
+      ozon_avg_delivery_time: {
+        Row: {
+          attention_level: string | null
+          average_delivery_time: number | null
+          average_delivery_time_status: string | null
+          clusters_data: Json
+          created_at: string
+          delivery_cluster_id: number
+          exact_impact_share: string | null
+          id: string
+          impact_share: number | null
+          lost_profit: number | null
+          marketplace_id: string
+          offer_id: string | null
+          orders_fast_percent: number | null
+          orders_fast_value: number | null
+          orders_long_percent: number | null
+          orders_long_value: number | null
+          orders_medium_percent: number | null
+          orders_medium_value: number | null
+          orders_total: number | null
+          raw_payload: Json
+          recommended_supply: number | null
+          sku: string
+          snapshot_at: string
+          sync_id: string | null
+        }
+        Insert: {
+          attention_level?: string | null
+          average_delivery_time?: number | null
+          average_delivery_time_status?: string | null
+          clusters_data?: Json
+          created_at?: string
+          delivery_cluster_id: number
+          exact_impact_share?: string | null
+          id?: string
+          impact_share?: number | null
+          lost_profit?: number | null
+          marketplace_id: string
+          offer_id?: string | null
+          orders_fast_percent?: number | null
+          orders_fast_value?: number | null
+          orders_long_percent?: number | null
+          orders_long_value?: number | null
+          orders_medium_percent?: number | null
+          orders_medium_value?: number | null
+          orders_total?: number | null
+          raw_payload?: Json
+          recommended_supply?: number | null
+          sku: string
+          snapshot_at?: string
+          sync_id?: string | null
+        }
+        Update: {
+          attention_level?: string | null
+          average_delivery_time?: number | null
+          average_delivery_time_status?: string | null
+          clusters_data?: Json
+          created_at?: string
+          delivery_cluster_id?: number
+          exact_impact_share?: string | null
+          id?: string
+          impact_share?: number | null
+          lost_profit?: number | null
+          marketplace_id?: string
+          offer_id?: string | null
+          orders_fast_percent?: number | null
+          orders_fast_value?: number | null
+          orders_long_percent?: number | null
+          orders_long_value?: number | null
+          orders_medium_percent?: number | null
+          orders_medium_value?: number | null
+          orders_total?: number | null
+          raw_payload?: Json
+          recommended_supply?: number | null
+          sku?: string
+          snapshot_at?: string
+          sync_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ozon_avg_delivery_time_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ozon_avg_delivery_time_sync_id_fkey"
+            columns: ["sync_id"]
+            isOneToOne: false
+            referencedRelation: "ozon_sync_history"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ozon_credentials: {
         Row: {
           api_key: string
@@ -1158,6 +1312,7 @@ export type Database = {
           money_spent: number | null
           offer_id: string | null
           orders: number | null
+          orders_model: number | null
           revenue: number | null
           sku: string
           stat_date: string
@@ -1184,6 +1339,7 @@ export type Database = {
           money_spent?: number | null
           offer_id?: string | null
           orders?: number | null
+          orders_model?: number | null
           revenue?: number | null
           sku: string
           stat_date: string
@@ -1210,6 +1366,7 @@ export type Database = {
           money_spent?: number | null
           offer_id?: string | null
           orders?: number | null
+          orders_model?: number | null
           revenue?: number | null
           sku?: string
           stat_date?: string
@@ -1228,6 +1385,70 @@ export type Database = {
             columns: ["marketplace_id"]
             isOneToOne: false
             referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ozon_sales_by_warehouse_daily: {
+        Row: {
+          created_at: string
+          id: string
+          marketplace_id: string
+          offer_id: string
+          orders_qty: number
+          raw_payload: Json
+          revenue: number
+          sale_date: string
+          sku: string | null
+          sync_id: string | null
+          warehouse_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          marketplace_id: string
+          offer_id: string
+          orders_qty?: number
+          raw_payload?: Json
+          revenue?: number
+          sale_date: string
+          sku?: string | null
+          sync_id?: string | null
+          warehouse_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          marketplace_id?: string
+          offer_id?: string
+          orders_qty?: number
+          raw_payload?: Json
+          revenue?: number
+          sale_date?: string
+          sku?: string | null
+          sync_id?: string | null
+          warehouse_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ozon_sales_by_warehouse_daily_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ozon_sales_by_warehouse_daily_sync_id_fkey"
+            columns: ["sync_id"]
+            isOneToOne: false
+            referencedRelation: "ozon_sync_history"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ozon_sales_by_warehouse_daily_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "ozon_warehouses"
             referencedColumns: ["id"]
           },
         ]
