@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.6.2-debug-csv-structure
+ * Version: 2.6.3-header-based-parsing
  * Date: 2025-12-22
  *
  * Key features:
@@ -211,6 +211,44 @@ async function downloadAndParseReport(
   const headerLine = lines[1];
   console.error(`CSV headers: ${headerLine}`);
 
+  // Парсим заголовки для динамического определения позиций столбцов
+  const headers = headerLine.split(';').map(h => h.trim().toLowerCase());
+
+  // Создаем mapping колонок (обрабатываем вариации названий)
+  const findColumnIndex = (names: string[]): number => {
+    for (const name of names) {
+      const index = headers.findIndex(h => h.includes(name.toLowerCase()));
+      if (index !== -1) return index;
+    }
+    return -1;
+  };
+
+  // Ищем индексы столбцов по названиям
+  // ВАЖНО: Для "Расход" нужно найти первый столбец, который ТОЧНО равен "расход"
+  // (не "расход за минусом бонусов" в бонусных кампаниях)
+  const findExactColumn = (name: string): number => {
+    return headers.findIndex(h => h.trim() === name.toLowerCase());
+  };
+
+  const colIndexes = {
+    date: findColumnIndex(['день', 'дата']),
+    sku: findColumnIndex(['sku']),
+    productName: findColumnIndex(['название']),
+    price: findColumnIndex(['цена']),
+    views: findColumnIndex(['показы']),
+    clicks: findColumnIndex(['клики']),
+    ctr: findColumnIndex(['ctr']),
+    toCart: findColumnIndex(['в корзину', 'корзину']),
+    avgCpc: findColumnIndex(['cpc', 'средняя стоимость клика']),
+    spent: findExactColumn('расход'),  // Точное совпадение, чтобы не захватить "расход за минусом бонусов"
+    orders: findExactColumn('заказы'),  // Точное совпадение, чтобы не захватить "заказы модели"
+    revenue: findExactColumn('продажи'),  // Точное совпадение, чтобы не захватить "продажи с моделей"
+    ordersModel: findColumnIndex(['заказы модели', 'заказы мод']),
+    revenueFromModels: findColumnIndex(['продажи с моделей', 'продажи с зак']),
+  };
+
+  console.error(`📋 Column indexes for "${campaignInfo.name}":`, colIndexes);
+
   // Пропускаем заголовок (вторая строка) и начинаем с данных
   const dataLines = lines.slice(2);
 
@@ -233,17 +271,28 @@ async function downloadAndParseReport(
     // ДИАГНОСТИКА: логируем первую строку для каждой кампании
     if (stats.length === 0) {
       console.error(`🔍 Campaign "${campaignInfo.name}": CSV has ${columns.length} columns`);
-      console.error(`   Columns 11-14 (orders, revenue, orders_model, revenue_models):`, [columns[10], columns[11], columns[12], columns[13]]);
     }
 
-    // ПРАВИЛЬНАЯ структура OZON CSV: [Дата, sku, Название товара, Цена, Показы, Клики, CTR, В корзину, Средняя стоимость клика, Расход, Заказы, Продажи, Заказы модели, Продажи с заказов модели, ...]
-    // ВАЖНО: Первый столбец - это ДАТА, не SKU!
-    if (columns.length < 14) {
-      console.error(`⚠️  Skipping line in "${campaignInfo.name}": only ${columns.length} columns (need 14+)`);
+    // Проверяем наличие обязательных столбцов
+    if (colIndexes.date === -1 || colIndexes.sku === -1) {
+      console.error(`⚠️  Missing required columns (date or sku) in "${campaignInfo.name}"`);
       continue;
     }
 
-    const [dateStr, sku, productName, price, views, clicks, ctr, toCart, avgCpc, spent, orders, revenue, ordersModel, revenueFromModels, ...rest] = columns;
+    // Извлекаем значения по индексам
+    const getColumn = (index: number): string => index >= 0 && index < columns.length ? columns[index] : '';
+
+    const dateStr = getColumn(colIndexes.date);
+    const sku = getColumn(colIndexes.sku);
+    const views = getColumn(colIndexes.views);
+    const clicks = getColumn(colIndexes.clicks);
+    const toCart = getColumn(colIndexes.toCart);
+    const avgCpc = getColumn(colIndexes.avgCpc);
+    const spent = getColumn(colIndexes.spent);
+    const orders = getColumn(colIndexes.orders);
+    const revenue = getColumn(colIndexes.revenue);
+    const ordersModel = getColumn(colIndexes.ordersModel);
+    const revenueFromModels = getColumn(colIndexes.revenueFromModels);
 
     // Парсим числовые значения (заменяем запятые на точки и убираем пробелы)
     const parseNum = (str: string): number => {
@@ -440,7 +489,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.6.2-debug-csv-structure",
+          version: "2.6.3-header-based-parsing",
           build_date: "2025-12-22"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -684,7 +733,7 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.6.2-debug-csv-structure",
+        version: "2.6.3-header-based-parsing",
         build_date: "2025-12-22",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -702,7 +751,7 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.6.2-debug-csv-structure",
+        version: "2.6.3-header-based-parsing",
         build_date: "2025-12-22",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
