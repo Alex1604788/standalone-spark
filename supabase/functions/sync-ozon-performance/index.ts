@@ -230,14 +230,14 @@ async function downloadAndParseReport(
     // Разбираем по точке с запятой
     const columns = line.split(';').map(col => col.trim());
 
-    // ПРАВИЛЬНАЯ структура OZON CSV: [Дата, sku, Название товара, Цена, Показы, Клики, CTR, В корзину, Средняя стоимость клика, Расход, Заказы, Заказы модели, Продажи, ...]
+    // ПРАВИЛЬНАЯ структура OZON CSV: [Дата, sku, Название товара, Цена, Показы, Клики, CTR, В корзину, Средняя стоимость клика, Расход, Заказы, Продажи, Заказы модели, Продажи с заказов модели, ...]
     // ВАЖНО: Первый столбец - это ДАТА, не SKU!
-    if (columns.length < 13) {
+    if (columns.length < 14) {
       console.error(`Skipping malformed line (${columns.length} columns): ${line.substring(0, 100)}`);
       continue;
     }
 
-    const [dateStr, sku, productName, price, views, clicks, ctr, toCart, avgCpc, spent, orders, ordersModel, revenue, ...rest] = columns;
+    const [dateStr, sku, productName, price, views, clicks, ctr, toCart, avgCpc, spent, orders, revenue, ordersModel, revenueFromModels, ...rest] = columns;
 
     // Парсим числовые значения (заменяем запятые на точки и убираем пробелы)
     const parseNum = (str: string): number => {
