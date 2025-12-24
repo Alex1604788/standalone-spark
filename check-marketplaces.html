@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Проверка маркетплейсов</title>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        pre { background: #f5f5f5; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Проверка маркетплейсов в БД</h1>
+    <button onclick="check()">Показать все маркетплейсы</button>
+    <pre id="result"></pre>
+
+    <script type="module">
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+
+        const supabase = createClient(
+            'https://bkmicyguzlwampuindff.supabase.co',
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJrbWljeWd1emx3YW1wdWluZGZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTUwMjMsImV4cCI6MjA4MDI3MTAyM30.v8BlZ_k8DxdSmh5Ao1da7GHurSshE1cBsMxdfQCp9PQ'
+        );
+
+        window.check = async () => {
+            const result = document.getElementById('result');
+            result.textContent = 'Загрузка...';
+
+            try {
+                const { data, error } = await supabase
+                    .from('marketplaces')
+                    .select('*');
+
+                if (error) throw error;
+
+                result.textContent = 'Все маркетплейсы:\n\n' + JSON.stringify(data, null, 2);
+            } catch (err) {
+                result.textContent = 'ОШИБКА: ' + err.message;
+            }
+        };
+    </script>
+</body>
+</html>
