@@ -61,8 +61,8 @@
 
     <div class="section">
         <h2>2. Тест синхронизации</h2>
-        <p>Период: 17-18 декабря 2025 (тестовые данные для SKU 3107627916)</p>
-        <button onclick="testSync()">Запустить тест синхронизацию</button>
+        <p>Период: 18-19 декабря 2025 (тестовые данные для SKU 3107627916)</p>
+        <button onclick="testSync()">Запустить синхронизацию за 18-19.12</button>
         <div id="sync-log" class="log"></div>
     </div>
 
@@ -172,8 +172,8 @@
                 const { data, error } = await supabase.functions.invoke('sync-ozon-performance', {
                     body: {
                         marketplace_id: marketplaceId,
-                        start_date: '2025-12-17',
-                        end_date: '2025-12-18',
+                        start_date: '2025-12-18',
+                        end_date: '2025-12-19',
                     }
                 });
 
