@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test OZON Performance Sync</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .log {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+        .info {
+            color: blue;
+        }
+    </style>
+</head>
+<body>
+    <h1>OZON Performance API - Test Dashboard</h1>
+
+    <div class="section">
+        <h2>1. Проверка структуры БД</h2>
+        <button onclick="checkDatabase()">Проверить колонку orders_model</button>
+        <button onclick="checkView()">Проверить view promotion_costs_aggregated</button>
+        <div id="db-log" class="log"></div>
+    </div>
+
+    <div class="section">
+        <h2>2. Тест синхронизации</h2>
+        <p>Период: 17-18 декабря 2025 (тестовые данные для SKU 3107627916)</p>
+        <button onclick="testSync()">Запустить тест синхронизацию</button>
+        <div id="sync-log" class="log"></div>
+    </div>
+
+    <div class="section">
+        <h2>3. Проверка данных</h2>
+        <button onclick="checkData()">Проверить SKU 3107627916</button>
+        <div id="data-log" class="log"></div>
+    </div>
+
+    <script type="module">
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+
+        // ВАЖНО: Замените на ваши реальные данные из .env
+        const SUPABASE_URL = prompt('Введите SUPABASE_URL:') || '';
+        const SUPABASE_ANON_KEY = prompt('Введите SUPABASE_ANON_KEY:') || '';
+
+        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+            alert('Необходимо ввести SUPABASE_URL и SUPABASE_ANON_KEY');
+        }
+
+        const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // Логирование
+        function log(elementId, message, type = 'info') {
+            const el = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            el.innerHTML += `<div class="${type}">[${timestamp}] ${message}</div>`;
+            el.scrollTop = el.scrollHeight;
+        }
+
+        // Проверка БД
+        window.checkDatabase = async () => {
+            const logId = 'db-log';
+            log(logId, 'Проверка структуры таблицы ozon_performance_daily...', 'info');
+
+            try {
+                const { data, error } = await supabase
+                    .from('ozon_performance_daily')
+                    .select('*')
+                    .limit(1);
+
+                if (error) throw error;
+
+                const columns = data && data[0] ? Object.keys(data[0]) : [];
+                const hasOrdersModel = columns.includes('orders_model');
+
+                if (hasOrdersModel) {
+                    log(logId, '✅ Колонка orders_model существует!', 'success');
+                    log(logId, `Все колонки: ${columns.join(', ')}`, 'info');
+                } else {
+                    log(logId, '❌ Колонка orders_model НЕ найдена!', 'error');
+                    log(logId, `Доступные колонки: ${columns.join(', ')}`, 'error');
+                }
+            } catch (error) {
+                log(logId, `❌ Ошибка: ${error.message}`, 'error');
+            }
+        };
+
+        // Проверка view
+        window.checkView = async () => {
+            const logId = 'db-log';
+            log(logId, 'Проверка view promotion_costs_aggregated...', 'info');
+
+            try {
+                const { data, error } = await supabase
+                    .from('promotion_costs_aggregated')
+                    .select('*')
+                    .limit(1);
+
+                if (error) throw error;
+
+                const columns = data && data[0] ? Object.keys(data[0]) : [];
+                log(logId, '✅ View работает!', 'success');
+                log(logId, `Колонки view: ${columns.join(', ')}`, 'info');
+            } catch (error) {
+                log(logId, `❌ Ошибка: ${error.message}`, 'error');
+            }
+        };
+
+        // Тест синхронизации
+        window.testSync = async () => {
+            const logId = 'sync-log';
+            const btn = event.target;
+            btn.disabled = true;
+
+            log(logId, 'Запуск синхронизации OZON Performance API...', 'info');
+
+            // Сначала получаем marketplace_id для OZON
+            try {
+                const { data: marketplaces, error: mpError } = await supabase
+                    .from('marketplaces')
+                    .select('id, name, type')
+                    .eq('type', 'OZON')
+                    .limit(1);
+
+                if (mpError) throw mpError;
+                if (!marketplaces || marketplaces.length === 0) {
+                    throw new Error('OZON маркетплейс не найден в БД');
+                }
+
+                const marketplaceId = marketplaces[0].id;
+                log(logId, `Marketplace ID: ${marketplaceId}`, 'info');
+
+                // Запускаем синхронизацию
+                log(logId, 'Вызов Edge Function sync-ozon-performance...', 'info');
+
+                const { data, error } = await supabase.functions.invoke('sync-ozon-performance', {
+                    body: {
+                        marketplace_id: marketplaceId,
+                        start_date: '2025-12-17',
+                        end_date: '2025-12-18',
+                    }
+                });
+
+                if (error) throw error;
+
+                log(logId, '✅ Синхронизация завершена!', 'success');
+                log(logId, `Результат: ${JSON.stringify(data, null, 2)}`, 'success');
+
+                if (data.version) {
+                    log(logId, `📦 Версия Edge Function: ${data.version}`, 'info');
+                }
+
+            } catch (error) {
+                log(logId, `❌ Ошибка: ${error.message}`, 'error');
+                console.error(error);
+            } finally {
+                btn.disabled = false;
+            }
+        };
+
+        // Проверка данных
+        window.checkData = async () => {
+            const logId = 'data-log';
+            log(logId, 'Проверка данных для SKU 3107627916...', 'info');
+
+            try {
+                const { data, error } = await supabase
+                    .from('ozon_performance_daily')
+                    .select('*')
+                    .eq('sku', '3107627916')
+                    .gte('stat_date', '2025-12-17')
+                    .lte('stat_date', '2025-12-18')
+                    .order('stat_date', { ascending: true })
+                    .order('campaign_name', { ascending: true });
+
+                if (error) throw error;
+
+                if (!data || data.length === 0) {
+                    log(logId, '⚠️ Данные не найдены', 'error');
+                    return;
+                }
+
+                log(logId, `✅ Найдено ${data.length} записей`, 'success');
+
+                let totalOrders = 0;
+                let totalOrdersModel = 0;
+                let totalRevenue = 0;
+
+                data.forEach(row => {
+                    totalOrders += row.orders || 0;
+                    totalOrdersModel += row.orders_model || 0;
+                    totalRevenue += parseFloat(row.revenue) || 0;
+
+                    log(logId, `📊 ${row.stat_date} | ${row.campaign_name}`, 'info');
+                    log(logId, `   Заказы: ${row.orders}, Заказы модели: ${row.orders_model}, Выручка: ${row.revenue}₽`, 'info');
+                });
+
+                log(logId, '━━━━━━━━━━━━━━━━━━━━━━', 'info');
+                log(logId, `📈 ИТОГО:`, 'success');
+                log(logId, `   Заказы: ${totalOrders}`, 'success');
+                log(logId, `   Заказы модели: ${totalOrdersModel}`, 'success');
+                log(logId, `   ВСЕГО заказов: ${totalOrders + totalOrdersModel}`, 'success');
+                log(logId, `   Выручка: ${totalRevenue.toFixed(2)}₽`, 'success');
+                log(logId, '━━━━━━━━━━━━━━━━━━━━━━', 'info');
+
+                // Ожидаемые значения
+                log(logId, '🎯 Ожидаемые значения (из OZON):', 'info');
+                log(logId, '   Заказы + Заказы модели ≈ 79', 'info');
+                log(logId, '   Выручка ≈ 8850₽', 'info');
+
+                const ordersMatch = Math.abs((totalOrders + totalOrdersModel) - 79) <= 5;
+                const revenueMatch = Math.abs(totalRevenue - 8850) <= 100;
+
+                if (ordersMatch && revenueMatch) {
+                    log(logId, '✅ Данные соответствуют ожиданиям!', 'success');
+                } else {
+                    log(logId, '⚠️ Данные отличаются от ожидаемых', 'error');
+                }
+
+            } catch (error) {
+                log(logId, `❌ Ошибка: ${error.message}`, 'error');
+            }
+        };
+    </script>
+</body>
+</html>
