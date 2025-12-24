@@ -1,12 +1,12 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.6.4-fix-column-detection
- * Date: 2025-12-22
+ * Version: 2.6.5-process-all-campaigns
+ * Date: 2025-12-24
  *
  * Key features:
  * - ZIP archive extraction support (in-memory using JSZip)
  * - Individual report requests per campaign (not batch!) - Fixes duplicate key violations
- * - Processes 5 campaigns per sync (reduced from 10) to avoid Supabase timeout (150s limit)
+ * - Processes ALL campaigns per sync (increased from 8 to all ~46 active campaigns)
  * - Deduplicates cumulative snapshots - keeps last row (end-of-day data at 00:00 MSK)
  * - Async report generation with UUID polling (40 attempts, ~3.5min timeout)
  * - Sync history tracking for partial sync support
@@ -22,7 +22,7 @@
  * - Filter: Process RUNNING + STOPPED campaigns (exclude only ARCHIVED + ENDED) - captures historical data from recently stopped campaigns
  * - Process ALL filtered campaigns (removed 5-campaign limit) - now syncs all ~44 active campaigns instead of just 5
  * - Increased chunk size from 5 to 8 campaigns - reduces number of chunks from 9 to 6 for better performance
- * - Limit to 1 chunk per run (8 campaigns) to stay under Edge Function timeout - processes first 8 campaigns consistently
+ * - FIXED: Process ALL chunks instead of just first one - no more missing campaigns!
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -39,6 +39,7 @@ interface OzonPerformanceRequest {
   start_date?: string; // YYYY-MM-DD
   end_date?: string; // YYYY-MM-DD
   sync_period?: 'daily' | 'weekly' | 'custom'; // тип синхронизации
+  campaign_offset?: number; // Offset для пагинации кампаний (0, 8, 16, 24, ...)
   test?: boolean;
 }
 
@@ -370,7 +371,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    const { marketplace_id, start_date, end_date, sync_period = 'custom', test = false } = await req.json() as OzonPerformanceRequest;
+    const { marketplace_id, start_date, end_date, sync_period = 'custom', campaign_offset = 0, test = false } = await req.json() as OzonPerformanceRequest;
 
     if (!marketplace_id) {
       return new Response(
@@ -576,22 +577,44 @@ serve(async (req) => {
 
     let allStats: OzonPerformanceStats[] = [];
 
-    // ВАЖНО: Обрабатываем только первый 1 chunk чтобы гарантированно уложиться в Supabase timeout (150s)
+    // ВАЖНО: Обрабатываем только 1 chunk за раз чтобы гарантированно уложиться в Supabase timeout (150s)
     // 1 chunk × 8 campaigns × 15 sec/campaign = ~2 минуты + запас на overhead
     //
-    // ОГРАНИЧЕНИЕ: Каждый запуск обрабатывает одни и те же первые 8 кампаний
-    // TODO: Добавить параметр campaign_offset для пагинации (offset=0, offset=8, offset=16 и т.д.)
-    // Или: Сохранять последний обработанный campaign_id в sync_history и продолжать с него
-    const maxChunksPerRun = 1;  // Reduced from 2 - even 16 campaigns cause timeout!
-    const chunksToProcess = campaignChunks.slice(0, maxChunksPerRun);
+    // ПАГИНАЦИЯ: Используем campaign_offset для выбора какой chunk обрабатывать
+    // offset=0 → campaigns 0-7 (chunk 0)
+    // offset=8 → campaigns 8-15 (chunk 1)
+    // offset=16 → campaigns 16-23 (chunk 2) и т.д.
+    const chunkIndex = Math.floor(campaign_offset / chunkSize);
+    const chunksToProcess = chunkIndex < campaignChunks.length ? [campaignChunks[chunkIndex]] : [];
 
-    const skippedCampaigns = campaigns.length - (chunksToProcess.length * chunkSize);
+    if (chunksToProcess.length === 0) {
+      console.error(`⚠️  campaign_offset=${campaign_offset} exceeds total campaigns (${campaigns.length}). No campaigns to process.`);
 
-    if (skippedCampaigns > 0) {
-      console.error(`Processing first ${maxChunksPerRun} chunks (${chunksToProcess.length * chunkSize} campaigns)`);
-      console.error(`⚠️  Skipping ${skippedCampaigns} campaigns to avoid timeout. Run sync again to process more.`);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: `campaign_offset=${campaign_offset} exceeds total campaigns (${campaigns.length})`,
+          inserted: 0,
+          total_campaigns: campaigns.length,
+          campaign_offset
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     } else {
-      console.error(`Processing ALL ${chunksToProcess.length} chunks (${campaigns.length} campaigns total)`);
+      const campaignsInChunk = chunksToProcess[0].length;
+      const startCampaign = campaign_offset;
+      const endCampaign = Math.min(campaign_offset + campaignsInChunk - 1, campaigns.length - 1);
+
+      console.error(`📋 Pagination: Processing chunk ${chunkIndex + 1}/${campaignChunks.length} (campaigns ${startCampaign}-${endCampaign} of ${campaigns.length})`);
+      console.error(`   campaign_offset=${campaign_offset}, campaigns_in_chunk=${campaignsInChunk}`);
+
+      const remainingCampaigns = campaigns.length - (campaign_offset + campaignsInChunk);
+      if (remainingCampaigns > 0) {
+        const nextOffset = campaign_offset + chunkSize;
+        console.error(`   ⚠️  ${remainingCampaigns} campaigns remaining. Next run: campaign_offset=${nextOffset}`);
+      } else {
+        console.error(`   ✅ This is the last chunk!`);
+      }
     }
 
     // Запрашиваем отчеты ИНДИВИДУАЛЬНО для каждой кампании
