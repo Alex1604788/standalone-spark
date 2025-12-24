@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.6.5-auto-process-all-campaigns
+ * Version: 2.6.6-faster-timeout
  * Date: 2025-12-24
  *
  * Key features:
@@ -77,9 +77,9 @@ interface CampaignInfo {
 async function pollReportStatus(
   uuid: string,
   accessToken: string,
-  maxAttempts: number = 40,      // Increased from 10 to 40 for large reports (30+ campaigns)
-  initialDelay: number = 10000,  // Increased from 5s to 10s - OZON needs time to start processing
-  pollInterval: number = 5000    // Increased from 3s to 5s - total timeout ~3.5 minutes
+  maxAttempts: number = 15,      // Reduced from 40 to 15 - faster skip of stuck campaigns (~75sec timeout)
+  initialDelay: number = 10000,  // 10s initial delay - OZON needs time to start processing
+  pollInterval: number = 5000    // 5s between attempts - total timeout ~1.5 minutes per campaign
 ): Promise<{ success: boolean; link?: string; error?: string }> {
   // Начальная задержка
   await new Promise(resolve => setTimeout(resolve, initialDelay));
