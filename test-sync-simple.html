@@ -53,7 +53,7 @@
                 const { data: mp, error: mpError } = await supabase
                     .from('marketplaces')
                     .select('id, name')
-                    .eq('type', 'OZON')
+                    .eq('type', 'ozon')
                     .single();
 
                 if (mpError) throw new Error('Ошибка получения маркетплейса: ' + mpError.message);
