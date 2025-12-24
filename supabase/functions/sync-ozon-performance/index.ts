@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.6.6-faster-timeout
+ * Version: 2.6.7-sequential-processing
  * Date: 2025-12-24
  *
  * Key features:
@@ -675,6 +675,10 @@ serve(async (req) => {
           failedCampaigns.push({name: campaign.name, id: campaign.id, reason: `Parse error: ${err.message}`});
           // Продолжаем со следующей кампанией
         }
+
+        // ВАЖНО: Пауза между кампаниями чтобы не превысить лимит активных запросов OZON (максимум 1)
+        // Даем OZON API время закрыть предыдущий запрос перед началом нового
+        await new Promise(resolve => setTimeout(resolve, 3000));  // 3 секунды между кампаниями
       }
     }
 
@@ -787,7 +791,7 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.6.6-faster-timeout",
+        version: "2.6.7-sequential-processing",
         build_date: "2025-12-24",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
