@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.6.3-header-based-parsing
+ * Version: 2.6.4-fix-column-detection
  * Date: 2025-12-22
  *
  * Key features:
@@ -224,10 +224,19 @@ async function downloadAndParseReport(
   };
 
   // Ищем индексы столбцов по названиям
-  // ВАЖНО: Для "Расход" нужно найти первый столбец, который ТОЧНО равен "расход"
-  // (не "расход за минусом бонусов" в бонусных кампаниях)
-  const findExactColumn = (name: string): number => {
-    return headers.findIndex(h => h.trim() === name.toLowerCase());
+  // ВАЖНО: Нужно найти "Расход, ₽, с НДС" но не "Расход за минусом бонусов"
+  // Аналогично для "Заказы" и "Продажи" - не захватить "модели" версии
+  const findPrimaryColumn = (keyword: string, excludeWords: string[]): number => {
+    return headers.findIndex(h => {
+      const lower = h.toLowerCase();
+      // Должен содержать ключевое слово
+      if (!lower.includes(keyword.toLowerCase())) return false;
+      // Но НЕ должен содержать слова-исключения
+      for (const exclude of excludeWords) {
+        if (lower.includes(exclude.toLowerCase())) return false;
+      }
+      return true;
+    });
   };
 
   const colIndexes = {
@@ -240,9 +249,9 @@ async function downloadAndParseReport(
     ctr: findColumnIndex(['ctr']),
     toCart: findColumnIndex(['в корзину', 'корзину']),
     avgCpc: findColumnIndex(['cpc', 'средняя стоимость клика']),
-    spent: findExactColumn('расход'),  // Точное совпадение, чтобы не захватить "расход за минусом бонусов"
-    orders: findExactColumn('заказы'),  // Точное совпадение, чтобы не захватить "заказы модели"
-    revenue: findExactColumn('продажи'),  // Точное совпадение, чтобы не захватить "продажи с моделей"
+    spent: findPrimaryColumn('расход', ['за минусом', 'бонус']),  // "Расход, ₽, с НДС" но не "Расход за минусом бонусов"
+    orders: findPrimaryColumn('заказы', ['модел']),  // "Заказы" но не "Заказы модели"
+    revenue: findPrimaryColumn('продажи', ['модел', 'заказов модел']),  // "Продажи, ₽" но не "Продажи с заказов модели"
     ordersModel: findColumnIndex(['заказы модели', 'заказы мод']),
     revenueFromModels: findColumnIndex(['продажи с моделей', 'продажи с зак']),
   };
@@ -489,7 +498,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.6.3-header-based-parsing",
+          version: "2.6.4-fix-column-detection",
           build_date: "2025-12-22"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -733,7 +742,7 @@ serve(async (req) => {
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.6.3-header-based-parsing",
+        version: "2.6.4-fix-column-detection",
         build_date: "2025-12-22",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -751,7 +760,7 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.6.3-header-based-parsing",
+        version: "2.6.4-fix-column-detection",
         build_date: "2025-12-22",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
