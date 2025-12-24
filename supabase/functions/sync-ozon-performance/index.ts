@@ -607,6 +607,10 @@ serve(async (req) => {
     console.error(`   Campaigns ${startCampaign} to ${endCampaign} of ${campaigns.length} total`);
     console.error(`   Starting from chunk ${startChunkIndex + 1}/${campaignChunks.length}`);
 
+    // Отслеживание обработанных и пропущенных кампаний
+    const processedCampaigns: string[] = [];
+    const failedCampaigns: Array<{name: string, id: string, reason: string}> = [];
+
     // Запрашиваем отчеты ИНДИВИДУАЛЬНО для каждой кампании
     // Fix: OZON returns same report for all campaigns when requested in batch
     for (let i = 0; i < chunksToProcess.length; i++) {
@@ -636,6 +640,7 @@ serve(async (req) => {
         if (!reportRequest.ok) {
           const errorText = await reportRequest.text();
           console.error(`Failed to request report for campaign ${campaign.name}:`, errorText);
+          failedCampaigns.push({name: campaign.name, id: campaign.id, reason: `Failed to request report: ${errorText.substring(0, 100)}`});
           continue;  // Skip this campaign, continue with next one
         }
 
@@ -644,6 +649,7 @@ serve(async (req) => {
 
         if (!uuid) {
           console.error(`No UUID received for campaign ${campaign.name}:`, reportData);
+          failedCampaigns.push({name: campaign.name, id: campaign.id, reason: 'No UUID received from OZON API'});
           continue;  // Skip this campaign
         }
 
@@ -654,6 +660,7 @@ serve(async (req) => {
 
         if (!pollResult.success) {
           console.error(`Polling failed for campaign ${campaign.name}:`, pollResult.error);
+          failedCampaigns.push({name: campaign.name, id: campaign.id, reason: `Polling timeout: ${pollResult.error}`});
           continue;  // Skip this campaign
         }
 
@@ -662,8 +669,10 @@ serve(async (req) => {
           const campaignStats = await downloadAndParseReport(uuid, accessToken, campaign);
           console.error(`Campaign ${campaign.name} returned ${campaignStats.length} rows`);
           allStats = allStats.concat(campaignStats);
+          processedCampaigns.push(campaign.name);  // Успешно обработана
         } catch (err) {
           console.error(`Failed to parse report for campaign ${campaign.name}:`, err.message);
+          failedCampaigns.push({name: campaign.name, id: campaign.id, reason: `Parse error: ${err.message}`});
           // Продолжаем со следующей кампанией
         }
       }
@@ -727,6 +736,22 @@ serve(async (req) => {
 
     console.error(`Insert successful! Returned ${insertData?.length || 0} rows from database`);
 
+    // Статистика обработки кампаний
+    console.error(`\n📊 CAMPAIGN PROCESSING SUMMARY:`);
+    console.error(`   ✅ Successfully processed: ${processedCampaigns.length} campaigns`);
+    console.error(`   ❌ Failed/Skipped: ${failedCampaigns.length} campaigns`);
+
+    if (processedCampaigns.length > 0) {
+      console.error(`\n   Processed campaigns: ${processedCampaigns.join(', ')}`);
+    }
+
+    if (failedCampaigns.length > 0) {
+      console.error(`\n   ⚠️  FAILED CAMPAIGNS (need retry):`);
+      failedCampaigns.forEach(fc => {
+        console.error(`      - ${fc.name} (ID: ${fc.id}): ${fc.reason}`);
+      });
+    }
+
     // Обновляем историю
     if (syncId) {
       await supabaseClient
@@ -740,7 +765,9 @@ serve(async (req) => {
           metadata: {
             sync_period,
             total_campaigns: campaigns.length,
-            processed_campaigns: chunksToProcess.length * chunkSize,
+            processed_campaigns: processedCampaigns.length,
+            failed_campaigns: failedCampaigns.length,
+            failed_campaign_names: failedCampaigns.map(fc => fc.name),
           },
         })
         .eq("id", syncId);
@@ -749,14 +776,19 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        message: "Synchronization completed",
+        message: failedCampaigns.length > 0
+          ? `Synchronization completed with ${failedCampaigns.length} failed campaigns`
+          : "Synchronization completed successfully",
         period: { from: formatDate(periodStart), to: formatDate(periodEnd) },
-        campaigns: campaigns.length,
+        total_campaigns: campaigns.length,
+        processed_campaigns: processedCampaigns.length,
+        failed_campaigns: failedCampaigns.length,
+        failed_campaign_details: failedCampaigns,
         chunks_processed: chunksToProcess.length,
         inserted: records.length,
         sync_id: syncId,
-        version: "2.6.4-fix-column-detection",
-        build_date: "2025-12-22",
+        version: "2.6.6-faster-timeout",
+        build_date: "2025-12-24",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
