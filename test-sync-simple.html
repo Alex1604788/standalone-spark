@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Тест OZON Sync 18-19.12</title>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 800px; margin: 0 auto; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; margin: 10px 0; }
+        .log { background: #f5f5f5; padding: 10px; margin: 10px 0; min-height: 300px; max-height: 500px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>OZON Performance Sync - Тест 18-19.12.2025</h1>
+    <p><b>SKU для проверки:</b> 3107627916</p>
+    <p><b>Ожидается:</b> 10 заказов + 1 заказ модели = 11 всего</p>
+
+    <button onclick="runSync()" id="syncBtn">🚀 Запустить синхронизацию за 18-19.12</button>
+    <button onclick="checkData()" id="checkBtn">📊 Проверить данные в БД</button>
+    <button onclick="clearLog()">🗑️ Очистить лог</button>
+
+    <div class="log" id="log"></div>
+
+    <script type="module">
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+
+        const SUPABASE_URL = 'https://bkmicyguzlwampuindff.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJrbWljeWd1emx3YW1wdWluZGZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTUwMjMsImV4cCI6MjA4MDI3MTAyM30.v8BlZ_k8DxdSmh5Ao1da7GHurSshE1cBsMxdfQCp9PQ';
+
+        const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        function log(msg, type = '') {
+            const el = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            const className = type === 'success' ? 'success' : type === 'error' ? 'error' : '';
+            el.innerHTML += `<div class="${className}">[${time}] ${msg}</div>`;
+            el.scrollTop = el.scrollHeight;
+        }
+
+        window.clearLog = () => {
+            document.getElementById('log').innerHTML = '';
+        };
+
+        window.runSync = async () => {
+            const btn = document.getElementById('syncBtn');
+            btn.disabled = true;
+            log('🔄 Начинаем синхронизацию...');
+
+            try {
+                // Получаем marketplace_id
+                log('📥 Получаем ID маркетплейса OZON...');
+                const { data: mp, error: mpError } = await supabase
+                    .from('marketplaces')
+                    .select('id, name')
+                    .eq('type', 'OZON')
+                    .single();
+
+                if (mpError) throw new Error('Ошибка получения маркетплейса: ' + mpError.message);
+                if (!mp) throw new Error('OZON маркетплейс не найден в БД');
+
+                log(`✅ Маркетплейс найден: ${mp.name} (${mp.id})`, 'success');
+
+                // Запускаем синхронизацию
+                log('🚀 Запускаем Edge Function sync-ozon-performance...');
+                log('📅 Период: 2025-12-18 → 2025-12-19');
+
+                const { data, error } = await supabase.functions.invoke('sync-ozon-performance', {
+                    body: {
+                        marketplace_id: mp.id,
+                        start_date: '2025-12-18',
+                        end_date: '2025-12-19',
+                    }
+                });
+
+                if (error) throw new Error('Ошибка синхронизации: ' + error.message);
+
+                log('✅ Синхронизация завершена!', 'success');
+                log('📦 Результат: ' + JSON.stringify(data, null, 2), 'success');
+
+                if (data.version) {
+                    log(`📌 Версия Edge Function: ${data.version}`, 'success');
+                }
+
+                log('');
+                log('👉 Теперь нажми "Проверить данные в БД" чтобы увидеть результат');
+
+            } catch (err) {
+                log('❌ ОШИБКА: ' + err.message, 'error');
+                console.error(err);
+            } finally {
+                btn.disabled = false;
+            }
+        };
+
+        window.checkData = async () => {
+            const btn = document.getElementById('checkBtn');
+            btn.disabled = true;
+            log('');
+            log('🔍 Проверяем данные для SKU 3107627916...');
+
+            try {
+                const { data, error } = await supabase
+                    .from('ozon_performance_daily')
+                    .select('*')
+                    .eq('sku', '3107627916')
+                    .gte('stat_date', '2025-12-18')
+                    .lte('stat_date', '2025-12-19')
+                    .order('stat_date')
+                    .order('campaign_name');
+
+                if (error) throw new Error('Ошибка запроса: ' + error.message);
+
+                if (!data || data.length === 0) {
+                    log('⚠️ Данные НЕ НАЙДЕНЫ для периода 18-19.12!', 'error');
+                    log('Возможные причины:');
+                    log('  1. Синхронизация не выполнялась');
+                    log('  2. OZON не вернул данные за этот период');
+                    log('  3. SKU 3107627916 не был активен в эти дни');
+                    return;
+                }
+
+                log(`✅ Найдено ${data.length} записей`, 'success');
+                log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+                let totalOrders = 0;
+                let totalOrdersModel = 0;
+                let totalRevenue = 0;
+
+                data.forEach(row => {
+                    totalOrders += row.orders || 0;
+                    totalOrdersModel += row.orders_model || 0;
+                    totalRevenue += parseFloat(row.revenue || 0);
+
+                    log(`📅 ${row.stat_date} | ${row.campaign_name}`);
+                    log(`   Заказы: ${row.orders}, Заказы модели: ${row.orders_model}, Выручка: ${row.revenue}₽`);
+                    log(`   Импорт: ${row.imported_at}`);
+                    log('');
+                });
+
+                log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                log('📊 ИТОГО:', 'success');
+                log(`   Заказы: ${totalOrders}`, 'success');
+                log(`   Заказы модели: ${totalOrdersModel}`, 'success');
+                log(`   ВСЕГО заказов: ${totalOrders + totalOrdersModel}`, 'success');
+                log(`   Выручка: ${totalRevenue.toFixed(2)}₽`, 'success');
+                log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+                log('🎯 ОЖИДАЛОСЬ:', 'success');
+                log('   Заказы: 10');
+                log('   Заказы модели: 1');
+                log('   ВСЕГО: 11');
+                log('   Выручка: ~15948₽ (14750 + 1198)');
+                log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+                const ordersOk = totalOrders === 10;
+                const modelsOk = totalOrdersModel === 1;
+                const totalOk = (totalOrders + totalOrdersModel) === 11;
+
+                if (ordersOk && modelsOk && totalOk) {
+                    log('✅✅✅ ВСЕ ПРАВИЛЬНО! Данные совпадают с ожидаемыми!', 'success');
+                } else {
+                    log('⚠️ НЕСООТВЕТСТВИЕ!', 'error');
+                    if (!ordersOk) log(`  - Заказы: ожидалось 10, получено ${totalOrders}`, 'error');
+                    if (!modelsOk) log(`  - Заказы модели: ожидалось 1, получено ${totalOrdersModel}`, 'error');
+                    if (!totalOk) log(`  - ВСЕГО: ожидалось 11, получено ${totalOrders + totalOrdersModel}`, 'error');
+                }
+
+            } catch (err) {
+                log('❌ ОШИБКА: ' + err.message, 'error');
+                console.error(err);
+            } finally {
+                btn.disabled = false;
+            }
+        };
+
+        log('✅ Страница загружена и готова к работе!', 'success');
+        log('👉 Нажми "Запустить синхронизацию" для начала');
+        log('');
+    </script>
+</body>
+</html>
