@@ -204,7 +204,7 @@ const OzonApiSettings = () => {
     }
   };
 
-  const handleSyncData = async (days: number = 7) => {
+  const handleSyncData = async (syncType: 'week' | 'full') => {
     if (!selectedMarketplaceId || !credentials) {
       toast({
         title: "Ошибка",
@@ -215,26 +215,35 @@ const OzonApiSettings = () => {
     }
 
     setIsSyncing(true);
-    setSyncStatus("Синхронизация данных...");
+    const periodText = syncType === 'week' ? '7 дней' : '62 дней (2 месяца)';
+    setSyncStatus(`Синхронизация за ${periodText}...`);
 
     try {
-      const endDate = new Date();
-      const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
+      let body: any = {
+        marketplace_id: selectedMarketplaceId,
+      };
+
+      if (syncType === 'full') {
+        // Полная синхронизация за 62 дня
+        body.sync_period = 'weekly';
+      } else {
+        // Синхронизация за последнюю неделю (7 дней)
+        const endDate = new Date();
+        const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+        body.start_date = startDate.toISOString().split("T")[0];
+        body.end_date = endDate.toISOString().split("T")[0];
+      }
 
       const { data, error } = await supabase.functions.invoke("sync-ozon-performance", {
-        body: {
-          marketplace_id: selectedMarketplaceId,
-          start_date: startDate.toISOString().split("T")[0],
-          end_date: endDate.toISOString().split("T")[0],
-        },
+        body,
       });
 
       if (error) throw error;
 
-      setSyncStatus(`Синхронизировано ${data.inserted || 0} записей за период ${data.period?.from} - ${data.period?.to}`);
+      setSyncStatus(`Синхронизировано ${data.campaigns_processed || 0} кампаний, ${data.rows_collected || 0} записей`);
       toast({
         title: "Успешно",
-        description: `Синхронизировано ${data.inserted || 0} записей`,
+        description: `Синхронизировано ${data.campaigns_processed || 0} кампаний за ${periodText}`,
       });
     } catch (error: any) {
       setSyncStatus("Ошибка синхронизации");
@@ -452,21 +461,21 @@ const OzonApiSettings = () => {
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">Выберите период для синхронизации:</p>
               <div className="flex gap-3 flex-wrap">
-                <Button onClick={() => handleSyncData(7)} disabled={isSyncing} variant="outline">
+                <Button onClick={() => handleSyncData('week')} disabled={isSyncing} variant="outline">
                   {isSyncing ? (
                     <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
                     <RefreshCw className="w-4 h-4 mr-2" />
                   )}
-                  За 7 дней
+                  За 7 дней (неделя)
                 </Button>
-                <Button onClick={() => handleSyncData(62)} disabled={isSyncing} variant="outline">
+                <Button onClick={() => handleSyncData('full')} disabled={isSyncing} variant="outline">
                   {isSyncing ? (
                     <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
                     <RefreshCw className="w-4 h-4 mr-2" />
                   )}
-                  За 62 дня
+                  За 62 дня (2 месяца)
                 </Button>
               </div>
             </div>

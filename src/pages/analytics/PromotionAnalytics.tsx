@@ -18,10 +18,13 @@ interface CampaignData {
   total_money_spent: number;
   total_views: number;
   total_clicks: number;
+  total_add_to_cart: number;
+  total_favorites: number;
   total_orders: number;
   total_revenue: number;
   avg_ctr: number;
   avg_cpc: number;
+  avg_add_to_cart_conversion: number;
   avg_conversion: number;
   avg_drr: number;
   date_range: { min: string; max: string };
@@ -37,10 +40,13 @@ interface ProductData {
   total_money_spent: number;
   total_views: number;
   total_clicks: number;
+  total_add_to_cart: number;
+  total_favorites: number;
   total_orders: number;
   total_revenue: number;
   avg_ctr: number;
   avg_cpc: number;
+  avg_add_to_cart_conversion: number;
   avg_conversion: number;
   avg_drr: number;
   date_range: { min: string; max: string };
@@ -124,6 +130,9 @@ const PromotionAnalytics = () => {
           money_spent,
           views,
           clicks,
+          add_to_cart,
+          add_to_cart_conversion,
+          favorites,
           orders,
           orders_model,
           revenue,
@@ -205,17 +214,20 @@ const PromotionAnalytics = () => {
         if (!campaignMap.has(campaignId)) {
           campaignMap.set(campaignId, {
             campaign_id: campaignId === "__NO_CAMPAIGN__" ? null : campaignId,
-            campaign_name: campaignId === "__NO_CAMPAIGN__" 
-              ? "Без кампании" 
+            campaign_name: campaignId === "__NO_CAMPAIGN__"
+              ? "Без кампании"
               : (row.campaign_name || `Кампания ${campaignId}`),
             campaign_type: row.campaign_type,
             total_money_spent: 0,
             total_views: 0,
             total_clicks: 0,
+            total_add_to_cart: 0,
+            total_favorites: 0,
             total_orders: 0,
             total_revenue: 0,
             avg_ctr: 0,
             avg_cpc: 0,
+            avg_add_to_cart_conversion: 0,
             avg_conversion: 0,
             avg_drr: 0,
             date_range: { min: row.stat_date, max: row.stat_date },
@@ -228,6 +240,8 @@ const PromotionAnalytics = () => {
         campaign.total_money_spent += Number(row.money_spent || 0);
         campaign.total_views += Number(row.views || 0);
         campaign.total_clicks += Number(row.clicks || 0);
+        campaign.total_add_to_cart += Number(row.add_to_cart || 0);
+        campaign.total_favorites += Number(row.favorites || 0);
         campaign.total_orders += Number(row.orders || 0) + Number(row.orders_model || 0);
         campaign.total_revenue += Number(row.revenue || 0);
 
@@ -253,10 +267,13 @@ const PromotionAnalytics = () => {
             total_money_spent: 0,
             total_views: 0,
             total_clicks: 0,
+            total_add_to_cart: 0,
+            total_favorites: 0,
             total_orders: 0,
             total_revenue: 0,
             avg_ctr: 0,
             avg_cpc: 0,
+            avg_add_to_cart_conversion: 0,
             avg_conversion: 0,
             avg_drr: 0,
             date_range: { min: row.stat_date, max: row.stat_date },
@@ -268,6 +285,8 @@ const PromotionAnalytics = () => {
         product.total_money_spent += Number(row.money_spent || 0);
         product.total_views += Number(row.views || 0);
         product.total_clicks += Number(row.clicks || 0);
+        product.total_add_to_cart += Number(row.add_to_cart || 0);
+        product.total_favorites += Number(row.favorites || 0);
         product.total_orders += Number(row.orders || 0) + Number(row.orders_model || 0);
         product.total_revenue += Number(row.revenue || 0);
 
@@ -312,6 +331,7 @@ const PromotionAnalytics = () => {
         }
         if (campaign.total_clicks > 0) {
           campaign.avg_cpc = campaign.total_money_spent / campaign.total_clicks;
+          campaign.avg_add_to_cart_conversion = (campaign.total_add_to_cart / campaign.total_clicks) * 100;
           campaign.avg_conversion = (campaign.total_orders / campaign.total_clicks) * 100;
         }
         if (campaign.total_revenue > 0) {
@@ -324,6 +344,7 @@ const PromotionAnalytics = () => {
           }
           if (product.total_clicks > 0) {
             product.avg_cpc = product.total_money_spent / product.total_clicks;
+            product.avg_add_to_cart_conversion = (product.total_add_to_cart / product.total_clicks) * 100;
             product.avg_conversion = (product.total_orders / product.total_clicks) * 100;
           }
           if (product.total_revenue > 0) {
@@ -553,10 +574,13 @@ const PromotionAnalytics = () => {
                         <TableHead className="text-center">Расходы</TableHead>
                         <TableHead className="text-center">Показы</TableHead>
                         <TableHead className="text-center">Клики</TableHead>
+                        <TableHead className="text-center">В корзину</TableHead>
+                        <TableHead className="text-center">Избранное</TableHead>
                         <TableHead className="text-center">Заказы</TableHead>
                         <TableHead className="text-center">Выручка</TableHead>
                         <TableHead className="text-center">CTR</TableHead>
                         <TableHead className="text-center">CPC</TableHead>
+                        <TableHead className="text-center">Конв.→🛒</TableHead>
                         <TableHead className="text-center">Конверсия</TableHead>
                         <TableHead className="text-center">ДРР</TableHead>
                       </TableRow>
@@ -613,6 +637,12 @@ const PromotionAnalytics = () => {
                                 {campaign.total_clicks.toLocaleString("ru-RU")}
                               </TableCell>
                               <TableCell className="text-center">
+                                {campaign.total_add_to_cart.toLocaleString("ru-RU")}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {campaign.total_favorites.toLocaleString("ru-RU")}
+                              </TableCell>
+                              <TableCell className="text-center">
                                 {campaign.total_orders.toLocaleString("ru-RU")}
                               </TableCell>
                               <TableCell className="text-center">
@@ -623,6 +653,9 @@ const PromotionAnalytics = () => {
                               </TableCell>
                               <TableCell className="text-center">
                                 {formatCurrency(campaign.avg_cpc)}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {formatPercent(campaign.avg_add_to_cart_conversion)}
                               </TableCell>
                               <TableCell className="text-center">
                                 {formatPercent(campaign.avg_conversion)}
@@ -708,6 +741,12 @@ const PromotionAnalytics = () => {
                                         {product.total_clicks.toLocaleString("ru-RU")}
                                       </TableCell>
                                       <TableCell className="text-center text-sm">
+                                        {product.total_add_to_cart.toLocaleString("ru-RU")}
+                                      </TableCell>
+                                      <TableCell className="text-center text-sm">
+                                        {product.total_favorites.toLocaleString("ru-RU")}
+                                      </TableCell>
+                                      <TableCell className="text-center text-sm">
                                         {product.total_orders.toLocaleString("ru-RU")}
                                       </TableCell>
                                       <TableCell className="text-center text-sm">
@@ -720,6 +759,9 @@ const PromotionAnalytics = () => {
                                         {formatCurrency(product.avg_cpc)}
                                       </TableCell>
                                       <TableCell className="text-center text-sm">
+                                        {formatPercent(product.avg_add_to_cart_conversion)}
+                                      </TableCell>
+                                      <TableCell className="text-center text-sm">
                                         {formatPercent(product.avg_conversion)}
                                       </TableCell>
                                       <TableCell className="text-center text-sm">
@@ -728,7 +770,7 @@ const PromotionAnalytics = () => {
                                     </TableRow>
                                     {isProductExpanded && (
                                       <TableRow key={`${productKey}-details`} className="bg-muted/10">
-                                        <TableCell colSpan={13} className="p-4">
+                                        <TableCell colSpan={16} className="p-4">
                                           <div className="space-y-2 text-sm">
                                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                               <div>
