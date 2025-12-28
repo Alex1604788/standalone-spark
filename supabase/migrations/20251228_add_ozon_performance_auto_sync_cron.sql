@@ -17,7 +17,7 @@ END $$;
 SELECT cron.schedule(
   'ozon-performance-daily-sync',
   '0 3 * * *', -- Каждый день в 03:00 UTC
-  $$
+  $BODY$
   DO $$
   DECLARE
     marketplace_record RECORD;
@@ -56,14 +56,14 @@ SELECT cron.schedule(
       PERFORM pg_sleep(2);
     END LOOP;
   END $$;
-  $$
+  $BODY$
 );
 
 -- Еженедельная полная синхронизация за 62 дня (каждое воскресенье в 04:00 UTC)
 SELECT cron.schedule(
   'ozon-performance-weekly-sync',
   '0 4 * * 0', -- Каждое воскресенье в 04:00 UTC
-  $$
+  $BODY$
   DO $$
   DECLARE
     marketplace_record RECORD;
@@ -95,5 +95,5 @@ SELECT cron.schedule(
       PERFORM pg_sleep(2);
     END LOOP;
   END $$;
-  $$
+  $BODY$
 );
