@@ -452,6 +452,14 @@ export const OzonApiSettings = () => {
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">Выберите период для синхронизации:</p>
               <div className="flex gap-3 flex-wrap">
+                <Button onClick={() => handleSyncData(1)} disabled={isSyncing} variant="outline">
+                  {isSyncing ? (
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                  )}
+                  За 1 день (тест)
+                </Button>
                 <Button onClick={() => handleSyncData(7)} disabled={isSyncing} variant="outline">
                   {isSyncing ? (
                     <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
