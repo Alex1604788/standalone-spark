@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.6.8-incremental-save
+ * Version: 2.6.9-batched-upsert
  * Date: 2025-12-28
  *
  * Key features:
@@ -9,6 +9,7 @@
  * - AUTOMATIC: Processes ALL campaigns automatically (all ~46 active campaigns in one run)
  * - campaign_offset parameter optional - only needed to continue from specific position
  * - INCREMENTAL SAVE: Each campaign's data is saved IMMEDIATELY after processing (survives Edge Function timeout)
+ * - BATCHED UPSERT: Large campaigns (>50 records) split into batches to prevent PostgreSQL statement timeout
  * - Deduplicates cumulative snapshots - keeps last row (end-of-day data at 00:00 MSK)
  * - Async report generation with UUID polling (40 attempts, ~3.5min timeout)
  * - Sync history tracking for partial sync support
@@ -697,15 +698,44 @@ serve(async (req) => {
             }));
 
             // Сохраняем в базу немедленно
-            const { error: saveError } = await supabaseClient
-              .from("ozon_performance_daily")
-              .upsert(campaignRecords, { onConflict: "marketplace_id,stat_date,sku,campaign_id" });
+            // Для больших кампаний (>50 records) разбиваем на батчи чтобы избежать statement timeout
+            const BATCH_SIZE = 50;
+            let savedSuccessfully = true;
 
-            if (saveError) {
-              console.error(`Failed to save data for campaign ${campaign.name}:`, saveError.message);
-              failedCampaigns.push({name: campaign.name, id: campaign.id, reason: `Save error: ${saveError.message}`});
+            if (campaignRecords.length > BATCH_SIZE) {
+              console.error(`Large campaign (${campaignRecords.length} records) - using batch insert`);
+              for (let i = 0; i < campaignRecords.length; i += BATCH_SIZE) {
+                const batch = campaignRecords.slice(i, i + BATCH_SIZE);
+                const { error: batchError } = await supabaseClient
+                  .from("ozon_performance_daily")
+                  .upsert(batch, { onConflict: "marketplace_id,stat_date,sku,campaign_id" });
+
+                if (batchError) {
+                  console.error(`Batch ${i}-${i+batch.length} failed:`, batchError.message);
+                  savedSuccessfully = false;
+                  failedCampaigns.push({name: campaign.name, id: campaign.id, reason: `Batch save error: ${batchError.message}`});
+                  break;
+                }
+              }
+              if (savedSuccessfully) {
+                console.error(`✅ Saved ${campaignRecords.length} records for campaign ${campaign.name} (batched)`);
+              }
             } else {
-              console.error(`✅ Saved ${campaignRecords.length} records for campaign ${campaign.name}`);
+              // Обычная вставка для небольших кампаний
+              const { error: saveError } = await supabaseClient
+                .from("ozon_performance_daily")
+                .upsert(campaignRecords, { onConflict: "marketplace_id,stat_date,sku,campaign_id" });
+
+              if (saveError) {
+                console.error(`Failed to save data for campaign ${campaign.name}:`, saveError.message);
+                failedCampaigns.push({name: campaign.name, id: campaign.id, reason: `Save error: ${saveError.message}`});
+                savedSuccessfully = false;
+              } else {
+                console.error(`✅ Saved ${campaignRecords.length} records for campaign ${campaign.name}`);
+              }
+            }
+
+            if (savedSuccessfully) {
               allStats = allStats.concat(campaignStats);  // Для финальной статистики
               processedCampaigns.push(campaign.name);  // Успешно обработана И сохранена
             }
@@ -781,7 +811,7 @@ serve(async (req) => {
         rows_collected: allStats.length,  // Общее количество обработанных строк
         note: "Data is saved incrementally after each campaign (survives Edge Function timeout)",
         sync_id: syncId,
-        version: "2.6.8-incremental-save",
+        version: "2.6.9-batched-upsert",
         build_date: "2025-12-28",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -799,7 +829,7 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.6.8-incremental-save",
+        version: "2.6.9-batched-upsert",
         build_date: "2025-12-28",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
