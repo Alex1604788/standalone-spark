@@ -1,14 +1,14 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.0.0-final
- * Date: 2025-12-14
+ * Version: 2.0.1
+ * Date: 2025-12-28
  *
  * Key features:
  * - Sequential processing (1 chunk = 10 campaigns max) - OZON API limit!
  * - Async report generation with UUID polling
  * - Sync history tracking for partial sync support
  * - All OZON endpoints use redirect: "follow" for 307 redirects
- * - Optimized polling: initial 5s + max 10 attempts × 3s = 35s total
+ * - Optimized polling: initial 3s + max 12 attempts × 2.5s = 33s total (fits in 40s Edge Function timeout)
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -331,8 +331,8 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.0.0-final",
-          build_date: "2025-12-14"
+          version: "2.0.1",
+          build_date: "2025-12-28"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -509,8 +509,8 @@ serve(async (req) => {
       const uuid = reportUUIDs[i];
       console.error(`Polling report ${i + 1}/${reportUUIDs.length}: ${uuid}`);
 
-      // Polling с параметрами: 5s initial, 3s interval, 10 attempts
-      const pollResult = await pollReportStatus(uuid, accessToken, 10, 5000, 3000);
+      // Polling с параметрами: 3s initial, 2.5s interval, 12 attempts = ~33s total
+      const pollResult = await pollReportStatus(uuid, accessToken, 12, 3000, 2500);
 
       if (!pollResult.success) {
         console.error(`Polling failed for UUID ${uuid}:`, pollResult.error);
