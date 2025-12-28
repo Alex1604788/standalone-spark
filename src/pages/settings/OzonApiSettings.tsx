@@ -451,30 +451,38 @@ const OzonApiSettings = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {syncStatus && (
-              <Alert className={isSyncing ? "border-blue-500 bg-blue-50 dark:bg-blue-950" : ""}>
-                {isSyncing ? (
-                  <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
-                ) : (
-                  <AlertCircle className="h-4 w-4" />
-                )}
-                <AlertDescription>
-                  {isSyncing && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">Синхронизация в процессе...</span>
+            {/* Постоянный индикатор прогресса */}
+            {isSyncing && (
+              <Card className="border-blue-500 bg-blue-50 dark:bg-blue-950">
+                <CardContent className="pt-6">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <RefreshCw className="h-5 w-5 animate-spin text-blue-600" />
+                      <div className="flex-1">
+                        <p className="font-medium text-blue-900 dark:text-blue-100">
+                          Синхронизация выполняется
+                        </p>
+                        <p className="text-sm text-blue-700 dark:text-blue-300">
+                          {syncStatus || 'Загрузка данных из OZON...'}
+                        </p>
                       </div>
-                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                        <div className="bg-blue-600 h-2 rounded-full animate-pulse" style={{ width: '50%' }}></div>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-2">{syncStatus}</p>
-                      <p className="text-xs text-muted-foreground">
-                        ⏳ Это может занять 5-10 минут. Не закрывайте страницу.
-                      </p>
                     </div>
-                  )}
-                  {!isSyncing && syncStatus}
-                </AlertDescription>
+                    <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-2.5">
+                      <div className="bg-blue-600 h-2.5 rounded-full animate-pulse transition-all" style={{ width: '100%' }}></div>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-300">
+                      <AlertCircle className="h-4 w-4" />
+                      <span>Пожалуйста, дождитесь завершения. Это может занять 5-10 минут.</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {syncStatus && !isSyncing && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{syncStatus}</AlertDescription>
               </Alert>
             )}
 
