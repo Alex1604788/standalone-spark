@@ -6,12 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ChevronLeft, ChevronRight, Loader2, RefreshCw, Sparkles, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, RefreshCw, Sparkles, Search, Send, Clock } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ReviewsTable } from "@/components/reviews/ReviewsTable";
 import { ReviewWithDetails, getProductName, getProductArticle } from "@/lib/reviewHelpers";
 import { getReviewSegment, getReviewStatusBadge } from "@/lib/reviewStatusHelpers";
+import { HelpIcon } from "@/components/HelpIcon";
 
 interface Question {
   id: string;
@@ -48,6 +51,7 @@ const Reviews = () => {
   const [replyText, setReplyText] = useState("");
   const [replyTone, setReplyTone] = useState("friendly");
   const [responseLength, setResponseLength] = useState<"short" | "normal">("short");
+  const [replyMethod, setReplyMethod] = useState<"template" | "ai">("template");
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isTableLoading, setIsTableLoading] = useState(false);
@@ -55,6 +59,11 @@ const Reviews = () => {
   const [scheduleMode, setScheduleMode] = useState<"now" | "later">("now");
   const [scheduledDateTime, setScheduledDateTime] = useState("");
   const [existingDraftId, setExistingDraftId] = useState<string | null>(null);
+  
+  // ✅ Статус процесса автоматической отправки
+  const [scheduledCount, setScheduledCount] = useState(0);
+  const [publishingCount, setPublishingCount] = useState(0);
+  const [lastGenerationTime, setLastGenerationTime] = useState<Date | null>(null);
 
   const { toast } = useToast();
 
@@ -63,32 +72,13 @@ const Reviews = () => {
     setSelectedReviewsIds([]);
   }, [searchQuery, ratingFilter, statusFilter, pageSize]);
 
-  // Автоматическая генерация черновиков в режиме полуавтомат
+  // Автоматическая генерация черновиков в режиме полуавтомат/автомат
   const triggerAutoGenerate = async () => {
+    setIsGenerating(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Проверяем настройки, если нет - создаём с semi_auto по умолчанию
-      let { data: userSettings } = await supabase
-        .from("user_settings")
-        .select("semi_auto_mode, auto_reply_enabled")
-        .eq("user_id", user.id)
-        .single();
-
-      // Если настроек нет - создаём с semi_auto_mode = true
-      if (!userSettings) {
-        const { data: newSettings } = await supabase
-          .from("user_settings")
-          .insert({ user_id: user.id, semi_auto_mode: true, auto_reply_enabled: false })
-          .select("semi_auto_mode, auto_reply_enabled")
-          .single();
-        userSettings = newSettings;
-      }
-
-      // Если не включён полуавтомат и не автомат - пропускаем
-      if (!userSettings?.semi_auto_mode && !userSettings?.auto_reply_enabled) {
-        console.log("[Reviews] Neither semi-auto nor auto mode enabled");
+      if (!user) {
+        setIsGenerating(false);
         return;
       }
 
@@ -99,16 +89,25 @@ const Reviews = () => {
         .eq("user_id", user.id);
 
       if (!marketplaces?.length) {
-        console.log("[Reviews] No marketplaces found");
+        toast({
+          title: "Ошибка",
+          description: "Не найдено маркетплейсов",
+          variant: "destructive",
+        });
+        setIsGenerating(false);
         return;
       }
 
       console.log("[Reviews] Triggering auto-generate drafts for", marketplaces.length, "marketplaces");
       
       toast({
-        title: "Генерация черновиков...",
-        description: "Автоматически создаём ответы на неотвеченные отзывы",
+        title: "Запуск генерации...",
+        description: "Создаём ответы на неотвеченные отзывы согласно настройкам",
       });
+
+      let totalGenerated = 0;
+      let totalScheduled = 0;
+      let totalDrafted = 0;
 
       // Запускаем генерацию для каждого маркетплейса
       for (const mp of marketplaces) {
@@ -124,38 +123,119 @@ const Reviews = () => {
 
         if (error) {
           console.error("[Reviews] Auto-generate error:", error);
-          toast({
-            title: "Ошибка генерации",
-            description: error.message,
-            variant: "destructive"
-          });
         } else {
           console.log("[Reviews] Auto-generate result:", data);
-          if (data?.drafts_created > 0) {
-            toast({
-              title: "Черновики созданы",
-              description: `Сгенерировано ${data.drafts_created} ответов`,
-            });
-          }
+          const reviewsData = data?.reviews || {};
+          totalGenerated += (reviewsData.drafts_created || 0) + (reviewsData.scheduled || 0);
+          totalScheduled += reviewsData.scheduled || 0;
+          totalDrafted += reviewsData.drafts_created || 0;
         }
       }
       
       // Обновляем список после генерации
       fetchReviews();
+      window.dispatchEvent(new Event("reviews-updated"));
+      
+      // ✅ Обновляем статус процесса
+      if (totalScheduled > 0) {
+        setLastGenerationTime(new Date());
+      }
+      await updatePublishingStatus();
+
+      // Показываем результат
+      const messages = [];
+      if (totalScheduled > 0) messages.push(`${totalScheduled} отправлено в очередь`);
+      if (totalDrafted > 0) messages.push(`${totalDrafted} создано черновиков`);
+      
+      toast({
+        title: totalGenerated > 0 ? "Генерация завершена" : "Нет новых отзывов",
+        description: totalGenerated > 0 
+          ? messages.join(", ") 
+          : "Все отзывы уже обработаны или нет неотвеченных отзывов",
+      });
     } catch (e) {
       console.error("[Reviews] Auto-generate error:", e);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось запустить генерацию",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGenerating(false);
     }
+  };
+
+  // ✅ Функция для обновления статуса процесса отправки
+  const updatePublishingStatus = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data: marketplaces } = await supabase
+      .from("marketplaces")
+      .select("id")
+      .eq("user_id", user.id);
+
+    if (!marketplaces || marketplaces.length === 0) return;
+    const marketplaceIds = marketplaces.map((m) => m.id);
+
+    // Подсчитываем scheduled ответы
+    const { count: scheduled } = await supabase
+      .from("replies")
+      .select("*", { count: "exact", head: true })
+      .in("marketplace_id", marketplaceIds)
+      .eq("status", "scheduled")
+      .is("deleted_at", null);
+
+    // Подсчитываем publishing ответы
+    const { count: publishing } = await supabase
+      .from("replies")
+      .select("*", { count: "exact", head: true })
+      .in("marketplace_id", marketplaceIds)
+      .eq("status", "publishing")
+      .is("deleted_at", null);
+
+    setScheduledCount(scheduled || 0);
+    setPublishingCount(publishing || 0);
   };
 
   useEffect(() => {
     fetchReviews();
     fetchQuestions();
+    updatePublishingStatus();
     
-    // Автогенерация при первой загрузке страницы с неотвеченными
-    if (statusFilter === "unanswered" && page === 1) {
-      triggerAutoGenerate();
-    }
+    // ✅ Генерация теперь работает в фоновом режиме через cron job
+    // Автогенерация при открытии страницы отключена
+    // Пользователь может запустить генерацию вручную через кнопку "Автогенерация ответов"
   }, [page, pageSize, ratingFilter, statusFilter]);
+
+  // ✅ Отдельный useEffect для real-time подписки и периодического обновления статуса
+  useEffect(() => {
+    updatePublishingStatus();
+    
+    // ✅ Real-time подписка на изменения в replies для отслеживания статуса отправки
+    const repliesChannel = supabase
+      .channel("replies-status-updates")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "replies",
+        },
+        () => {
+          updatePublishingStatus();
+        }
+      )
+      .subscribe();
+
+    // Обновляем статус каждые 10 секунд
+    const interval = setInterval(updatePublishingStatus, 10000);
+
+    return () => {
+      supabase.removeChannel(repliesChannel);
+      clearInterval(interval);
+    };
+  }, []); // Пустой массив зависимостей - запускается только при монтировании
 
   // При открытии отзыва загрузить существующий черновик
   useEffect(() => {
@@ -206,6 +286,8 @@ const Reviews = () => {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
+      // ✅ Используем inner join для products (как было), но считаем по reviews напрямую
+      // Это исправит несоответствие счетчиков
       let query = supabase
         .from("reviews")
         .select(
@@ -423,22 +505,63 @@ const Reviews = () => {
           } else {
             // Нет черновика - генерируем и сразу отправляем
             const marketplaceId = marketplaceByReviewId[reviewId];
+            
+            // Получаем данные отзыва для определения рейтинга
+            const { data: reviewData } = await supabase
+              .from("reviews")
+              .select("rating")
+              .eq("id", reviewId)
+              .single();
 
-            const { data: aiData, error: aiError } = await supabase.functions.invoke("generate-reply", {
-              body: { reviewId, tone: replyTone, response_length: responseLength },
-            });
+            let replyContent: string;
+            let replyMode = "semi_auto";
 
-            if (aiError || !aiData?.reply) {
-              console.error(`❌ AI error для ${reviewId}:`, aiError);
-              errorCount++;
-              continue;
+            if (replyMethod === "template") {
+              // Используем шаблон
+              const { data: templates, error: templateError } = await supabase
+                .from("reply_templates")
+                .select("id, content, use_count")
+                .eq("user_id", user.id)
+                .or(`rating.eq.${reviewData?.rating || 5},rating.is.null`)
+                .limit(100);
+
+              if (templateError || !templates || templates.length === 0) {
+                console.error(`❌ Нет шаблонов для рейтинга ${reviewData?.rating}:`, templateError);
+                errorCount++;
+                continue;
+              }
+
+              // Выбираем случайный шаблон
+              const randomTemplate = templates[Math.floor(Math.random() * templates.length)];
+              replyContent = randomTemplate.content;
+
+              // Увеличиваем счётчик использования
+              await supabase
+                .from("reply_templates")
+                .update({ use_count: (randomTemplate.use_count || 0) + 1 })
+                .eq("id", randomTemplate.id);
+
+              console.log(`✅ Использован шаблон для ${reviewId}`);
+            } else {
+              // Генерируем через ИИ
+              const { data: aiData, error: aiError } = await supabase.functions.invoke("generate-reply", {
+                body: { reviewId, tone: replyTone, response_length: responseLength },
+              });
+
+              if (aiError || !aiData?.reply) {
+                console.error(`❌ AI error для ${reviewId}:`, aiError);
+                errorCount++;
+                continue;
+              }
+
+              replyContent = aiData.reply;
             }
 
             const { error: saveError } = await supabase.from("replies").insert({
               review_id: reviewId,
-              content: aiData.reply,
+              content: replyContent,
               tone: replyTone,
-              mode: "semi_auto",
+              mode: replyMode,
               status: "scheduled",
               scheduled_at: new Date().toISOString(),
               user_id: user.id,
@@ -449,7 +572,7 @@ const Reviews = () => {
               console.error(`❌ Ошибка сохранения для ${reviewId}:`, saveError);
               errorCount++;
             } else {
-              console.log(`✅ Сгенерирован и отправлен ответ для ${reviewId}`);
+              console.log(`✅ ${replyMethod === "template" ? "Шаблон" : "ИИ-ответ"} отправлен для ${reviewId}`);
               successCount++;
             }
           }
@@ -593,20 +716,69 @@ const Reviews = () => {
   return (
     <div className="min-h-screen bg-gray-50/50 pb-20">
       <div className="container mx-auto p-6 space-y-6">
-        <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold text-gray-900">Отзывы и вопросы</h1>
-          <Button
-            variant="outline"
-            onClick={() => {
-              fetchReviews();
-              fetchQuestions();
-            }}
-            disabled={isTableLoading}
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${isTableLoading ? "animate-spin" : ""}`} />
-            Обновить
-          </Button>
+        <div className="flex flex-col gap-3">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-bold text-gray-900">Отзывы и вопросы</h1>
+              <HelpIcon content="Раздел для управления отзывами и вопросами покупателей.\n\nСтатусы отзывов:\n• Не отвечено - новые отзывы без ответов\n• Ожидают публикации - ответы созданы и отправляются\n• Архив - отзывы с опубликованными ответами\n\nВы можете:\n• Выбрать несколько отзывов и отправить ответы массово\n• Открыть отзыв и ответить вручную\n• Использовать ИИ для генерации ответа\n• Запустить автоматическую генерацию ответов" />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={triggerAutoGenerate}
+                disabled={isGenerating}
+              >
+                <Sparkles className={`w-4 h-4 mr-2 ${isGenerating ? "animate-spin" : ""}`} />
+                {isGenerating ? "Генерация..." : "Автогенерация ответов"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  fetchReviews();
+                  fetchQuestions();
+                  updatePublishingStatus();
+                }}
+                disabled={isTableLoading}
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${isTableLoading ? "animate-spin" : ""}`} />
+                Обновить
+              </Button>
+            </div>
+          </div>
         </div>
+        
+        {/* ✅ Статус-бар процесса автоматической отправки */}
+        {(scheduledCount > 0 || publishingCount > 0 || lastGenerationTime) && (
+          <Alert className="bg-blue-50 border-blue-200">
+            <AlertDescription className="flex items-center gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-blue-600" />
+                <span className="font-medium text-blue-900">Автоматическая отправка:</span>
+              </div>
+              {scheduledCount > 0 && (
+                <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-white">
+                  <span className="flex items-center gap-1">
+                    <Send className="w-3 h-3" />
+                    {scheduledCount} в очереди
+                  </span>
+                </div>
+              )}
+              {publishingCount > 0 && (
+                <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-white">
+                  <span className="flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    {publishingCount} отправляется
+                  </span>
+                </div>
+              )}
+              {lastGenerationTime && (
+                <span className="text-blue-700 text-xs ml-auto">
+                  Последняя генерация: {lastGenerationTime.toLocaleTimeString('ru-RU')}
+                </span>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
 
         <Tabs defaultValue="reviews" className="space-y-6">
           <TabsList className="bg-white border">
@@ -630,6 +802,7 @@ const Reviews = () => {
 
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Оценка:</span>
+                  <HelpIcon content="Фильтр по рейтингу отзывов (1-5 звёзд). Выберите конкретный рейтинг или 'Все' для отображения всех отзывов." />
                   <Select value={ratingFilter} onValueChange={setRatingFilter}>
                     <SelectTrigger className="w-[130px] h-9">
                       <SelectValue placeholder="Все" />
@@ -731,18 +904,37 @@ const Reviews = () => {
         </Tabs>
 
         {selectedReviewsIds.length > 0 && (
-          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-zinc-900 text-white shadow-xl rounded-full px-6 py-3 flex items-center gap-6 z-50">
+          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-zinc-900 text-white shadow-xl rounded-full px-6 py-3 flex items-center gap-4 z-50">
             <span className="font-medium whitespace-nowrap">Выбрано: {selectedReviewsIds.length}</span>
 
-            <Select value={responseLength} onValueChange={(v: "short" | "normal") => setResponseLength(v)}>
-              <SelectTrigger className="w-[140px] h-8 bg-white text-black">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="short">Краткий</SelectItem>
-                <SelectItem value="normal">Обычный</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-2">
+              <Select value={replyMethod} onValueChange={(v: "template" | "ai") => setReplyMethod(v)}>
+                <SelectTrigger className="w-[180px] h-8 bg-white text-black">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="template">Отправить шаблон</SelectItem>
+                  <SelectItem value="ai">Отправить ответ ИИ</SelectItem>
+                </SelectContent>
+              </Select>
+              <HelpIcon content={replyMethod === "template" 
+                ? "Отзывы будут заполнены случайными шаблонами из вашей базы шаблонов и отправлены.\n\nШаблоны выбираются случайно для каждого рейтинга отзыва."
+                : "Ответы будут сгенерированы через ИИ и отправлены.\n\nДлина ответа:\n• Краткий - до 200 символов\n• Обычный - до 400 символов"} />
+            </div>
+
+            {replyMethod === "ai" && (
+              <div className="flex items-center gap-2">
+                <Select value={responseLength} onValueChange={(v: "short" | "normal") => setResponseLength(v)}>
+                  <SelectTrigger className="w-[140px] h-8 bg-white text-black">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="short">Краткий</SelectItem>
+                    <SelectItem value="normal">Обычный</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <Button
               size="sm"

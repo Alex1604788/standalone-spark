@@ -62,8 +62,10 @@ CREATE INDEX idx_perf_date ON public.ozon_performance_daily(marketplace_id, stat
 CREATE INDEX idx_perf_sku ON public.ozon_performance_daily(marketplace_id, sku);
 CREATE INDEX idx_perf_offer ON public.ozon_performance_daily(marketplace_id, offer_id) WHERE offer_id IS NOT NULL;
 CREATE INDEX idx_perf_campaign ON public.ozon_performance_daily(marketplace_id, campaign_id);
-CREATE INDEX idx_perf_date_range ON public.ozon_performance_daily(marketplace_id, stat_date)
-  WHERE stat_date >= CURRENT_DATE - INTERVAL '90 days';  -- Для быстрых запросов за последние 3 месяца
+-- Partial index removed - CURRENT_DATE is not IMMUTABLE
+-- For fast queries on recent data, regular index on stat_date DESC is sufficient
+-- CREATE INDEX idx_perf_date_range ON public.ozon_performance_daily(marketplace_id, stat_date)
+--   WHERE stat_date >= CURRENT_DATE - INTERVAL '90 days';
 
 -- RLS Policies
 CREATE POLICY "Users can view performance data from own marketplaces"

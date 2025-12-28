@@ -468,13 +468,13 @@ export const OzonApiSettings = () => {
                   )}
                   За 30 дней
                 </Button>
-                <Button onClick={() => handleSyncData(90)} disabled={isSyncing} variant="outline">
+                <Button onClick={() => handleSyncData(60)} disabled={isSyncing} variant="outline">
                   {isSyncing ? (
                     <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
                     <RefreshCw className="w-4 h-4 mr-2" />
                   )}
-                  За 90 дней
+                  За 60 дней
                 </Button>
               </div>
             </div>
@@ -484,7 +484,7 @@ export const OzonApiSettings = () => {
               <AlertDescription>
                 <strong>Обратите внимание:</strong> Синхронизация может занять несколько минут в зависимости от объема
                 данных. OZON предоставляет данные с группировкой по дням, что позволяет точно рассчитать затраты на
-                продвижение для каждого SKU.
+                продвижение для каждого SKU. Максимальный период для одного запроса — 62 дня (ограничение OZON API).
               </AlertDescription>
             </Alert>
           </CardContent>

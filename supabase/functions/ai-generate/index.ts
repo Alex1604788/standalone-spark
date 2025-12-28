@@ -15,7 +15,10 @@ interface GenerateRequest {
   advantages?: string;
   disadvantages?: string;
   regenerate?: boolean;
-  response_length?: "short" | "normal"; // 🆕 Длина ответа
+  response_length?: "short" | "normal";
+  product_id?: string;
+  offer_id?: string;
+  marketplace_id?: string;
 }
 
 serve(async (req) => {
@@ -36,12 +39,27 @@ serve(async (req) => {
       advantages,
       disadvantages,
       regenerate,
-      response_length = "normal", // По умолчанию обычный
+      response_length = "normal",
     } = body;
+
+    // Get product info to fetch knowledge
+    let offerId: string | null = null;
+    let marketplaceId: string | null = null;
+
+    const table = type === "review" ? "reviews" : "questions";
+    const { data: itemData } = await supabase
+      .from(table)
+      .select("*, products(id, offer_id, marketplace_id)")
+      .eq("id", item_id)
+      .single();
+
+    if (itemData?.products) {
+      offerId = itemData.products.offer_id;
+      marketplaceId = type === "review" ? itemData.marketplace_id : itemData.marketplace_id;
+    }
 
     // Check regeneration rate limit (30 seconds)
     if (regenerate) {
-      const table = type === "review" ? "reviews" : "questions";
       const { data: item } = await supabase.from(table).select("last_generated_at").eq("id", item_id).single();
 
       if (item?.last_generated_at) {
@@ -56,7 +74,6 @@ serve(async (req) => {
       }
     }
 
-    // 🎯 Определяем параметры длины ответа
     const lengthConfig = {
       short: {
         maxWords: 50,
@@ -72,7 +89,31 @@ serve(async (req) => {
 
     const config = lengthConfig[response_length];
 
-    // Build AI prompt based on type
+    // 🆕 Получаем базу знаний для этого товара
+    let knowledgeContext = "";
+    if (offerId && marketplaceId) {
+      console.log(`Fetching knowledge for offer_id: ${offerId}, marketplace_id: ${marketplaceId}`);
+      
+      const { data: knowledge, error: knowledgeError } = await supabase
+        .rpc("get_knowledge_for_product_with_fallback", {
+          p_marketplace_id: marketplaceId,
+          p_offer_id: offerId,
+          p_limit: 5,
+        });
+
+      if (knowledgeError) {
+        console.error("Error fetching knowledge:", knowledgeError);
+      } else if (knowledge && knowledge.length > 0) {
+        console.log(`Found ${knowledge.length} knowledge entries`);
+        knowledgeContext = "\n\n📚 БАЗА ЗНАНИЙ О ТОВАРЕ (используй эту информацию для ответа):\n";
+        knowledge.forEach((k: any, i: number) => {
+          knowledgeContext += `\n${i + 1}. ${k.title}:\n${k.content}\n`;
+        });
+      } else {
+        console.log("No knowledge found for this product");
+      }
+    }
+
     let systemPrompt = "";
     let userPrompt = "";
 
@@ -99,9 +140,7 @@ serve(async (req) => {
 Оценка: ${rating || "не указана"}/5
 Текст отзыва: "${text}"
 ${advantages ? `Достоинства: "${advantages}"` : ""}
-${disadvantages ? `Недостатки: "${disadvantages}"` : ""}
-
-Напиши только текст ответа, без заголовков и форматирования.`;
+${disadvantages ? `Недостатки: "${disadvantages}"` : ""}`;
     } else {
       systemPrompt = `Ты — профессиональный менеджер по работе с клиентами маркетплейса Ozon.
 
@@ -122,12 +161,19 @@ ${disadvantages ? `Недостатки: "${disadvantages}"` : ""}
       userPrompt = `Напиши ответ на вопрос покупателя.
 
 Товар: ${product_name || "не указан"}
-Вопрос: "${text}"
-
-Напиши только текст ответа, без заголовков и форматирования.`;
+Вопрос: "${text}"`;
     }
 
-    // Call AI via Lovable Gateway
+    // Добавляем базу знаний в системный промпт
+    if (knowledgeContext) {
+      systemPrompt += `\n\nВАЖНО: При формировании ответа ОБЯЗАТЕЛЬНО используй информацию из базы знаний о товаре, если она релевантна вопросу или отзыву.${knowledgeContext}`;
+    }
+
+    userPrompt += "\n\nНапиши только текст ответа, без заголовков и форматирования.";
+
+    console.log("System prompt length:", systemPrompt.length);
+    console.log("User prompt length:", userPrompt.length);
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY not configured");
@@ -171,7 +217,6 @@ ${disadvantages ? `Недостатки: "${disadvantages}"` : ""}
       throw new Error("No content generated");
     }
 
-    // 🧹 Дополнительная очистка на случай, если ИИ всё равно добавил форматирование
     generatedText = generatedText
       .trim()
       .replace(/^\*\*Ответ:\*\*\s*/i, "")
@@ -184,7 +229,6 @@ ${disadvantages ? `Недостатки: "${disadvantages}"` : ""}
 
     // Save history if regenerating
     if (regenerate) {
-      const table = type === "review" ? "reviews" : "questions";
       const { data: oldItem } = await supabase.from(table).select("suggested_reply").eq("id", item_id).single();
 
       if (oldItem?.suggested_reply) {
@@ -198,8 +242,6 @@ ${disadvantages ? `Недостатки: "${disadvantages}"` : ""}
       }
     }
 
-    // Update the item with generated reply
-    const table = type === "review" ? "reviews" : "questions";
     const { error: updateError } = await supabase
       .from(table)
       .update({

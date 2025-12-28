@@ -19,6 +19,14 @@ import {
   Package,
   Brain,
   Truck,
+  TrendingUp,
+  Upload,
+  FileText,
+  DollarSign,
+  Megaphone,
+  Tag,
+  Users,
+  Settings as SettingsIcon,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -36,6 +44,8 @@ const AppLayout = ({ children }: AppLayoutProps) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [reviewsOpen, setReviewsOpen] = useState(true);
   const [questionsOpen, setQuestionsOpen] = useState(true);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Счётчики
   const [unansweredReviewsCount, setUnansweredReviewsCount] = useState(0);
@@ -52,8 +62,39 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     };
 
     window.addEventListener("reviews-updated", handler);
+
+    // ✅ Real-time подписка на изменения в таблице reviews для обновления счетчиков
+    const reviewsChannel = supabase
+      .channel("reviews-count-updates")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "reviews",
+        },
+        () => {
+          // Обновляем счетчики при любом изменении в reviews
+          fetchCounts();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "replies",
+        },
+        () => {
+          // Обновляем счетчики при изменении replies (триггер обновит segment)
+          fetchCounts();
+        }
+      )
+      .subscribe();
+
     return () => {
       window.removeEventListener("reviews-updated", handler);
+      supabase.removeChannel(reviewsChannel);
     };
   }, []);
 
@@ -75,24 +116,24 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     // Счётчик "Не отвечено" (segment = 'unanswered')
     const { count: unansweredCount } = await supabase
       .from("reviews")
-      .select("*, products!inner(marketplace_id)", { count: "exact", head: true })
-      .in("products.marketplace_id", marketplaceIds)
+      .select("*", { count: "exact", head: true })
+      .in("marketplace_id", marketplaceIds)
       .eq("segment", "unanswered")
       .is("deleted_at", null);
 
     // Счётчик "Ожидают публикации" (segment = 'pending')
     const { count: pendingCount } = await supabase
       .from("reviews")
-      .select("*, products!inner(marketplace_id)", { count: "exact", head: true })
-      .in("products.marketplace_id", marketplaceIds)
+      .select("*", { count: "exact", head: true })
+      .in("marketplace_id", marketplaceIds)
       .eq("segment", "pending")
       .is("deleted_at", null);
 
     // Счётчик "Архив" (segment = 'archived')
     const { count: archivedCount } = await supabase
       .from("reviews")
-      .select("*, products!inner(marketplace_id)", { count: "exact", head: true })
-      .in("products.marketplace_id", marketplaceIds)
+      .select("*", { count: "exact", head: true })
+      .in("marketplace_id", marketplaceIds)
       .eq("segment", "archived")
       .is("deleted_at", null);
 
@@ -117,16 +158,13 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     setArchivedQuestionsCount(archivedQuestions || 0);
   };
 
+  // Основные пункты меню (без аналитики и настроек - они в Collapsible)
   const navItems = [
-    { path: "/app", label: "Дашборд", icon: LayoutDashboard },
-    { path: "/app/marketplaces", label: "Маркетплейсы", icon: ShoppingBag },
-    { path: "/app/products/settings", label: "Настройка товаров", icon: Package },
-    { path: "/app/products/knowledge", label: "База знаний", icon: Brain },
-    { path: "/app/suppliers", label: "Поставщики", icon: Truck },
-    { path: "/app/analytics", label: "Аналитика", icon: BarChart3 },
-    { path: "/app/settings", label: "Настройки", icon: User },
+    // Аналитика будет в Collapsible ниже
+    // Настройки будут в Collapsible ниже
     { path: "/app/notifications", label: "Уведомления", icon: Bell },
     { path: "/app/profile", label: "Профиль", icon: User },
+    { path: "/app/import-data", label: "Импорт данных", icon: Upload },
     { path: "/app/extension", label: "Скачать плагин", icon: Download },
   ];
 
@@ -148,15 +186,44 @@ const AppLayout = ({ children }: AppLayoutProps) => {
   };
 
   const getCurrentPageTitle = () => {
+    // Проверяем основные пункты меню
     const item = navItems.find((item) => item.path === location.pathname);
-    return item?.label || "Дашборд";
+    if (item) return item.label;
+
+    // Проверяем аналитику
+    const analyticsTitles: Record<string, string> = {
+      "/app/analytics/reviews-questions": "Аналитика Отзывов и Вопросов",
+      "/app/sales-analytics": "Аналитика Продаж",
+      "/app/analytics/prices": "Аналитика цен",
+      "/app/analytics/promotion": "Аналитика Продвижения",
+      "/app/analytics/promotions": "Аналитика Акций",
+      "/app/analytics/competitors": "Аналитика Конкурентов",
+    };
+    if (analyticsTitles[location.pathname]) return analyticsTitles[location.pathname];
+
+    // Проверяем настройки
+    const settingsTitles: Record<string, string> = {
+      "/app/settings": "Настройки Отзывов и Вопросов",
+      "/app/marketplaces": "Настройка Маркетплейсов",
+      "/app/suppliers": "Настройка Поставщиков",
+      "/app/products/settings": "Настройка Товаров",
+      "/app/settings/competitors": "Настройка Конкурентов",
+      "/app/settings/ozon-api": "Настройка API OZON Продвижения",
+    };
+    if (settingsTitles[location.pathname]) return settingsTitles[location.pathname];
+
+    // Проверяем отзывы и вопросы
+    if (location.pathname.startsWith("/app/reviews")) return "Отзывы";
+    if (location.pathname.startsWith("/app/questions")) return "Вопросы";
+
+    return "Аналитика";
   };
 
   const NavContent = () => (
     <div className="flex flex-col h-full bg-card">
       {/* Logo */}
       <div className="p-6 border-b border-border">
-        <Link to="/app" onClick={() => setIsMobileMenuOpen(false)}>
+        <Link to="/app/analytics/reviews-questions" onClick={() => setIsMobileMenuOpen(false)}>
           <h2 className="text-2xl font-bold gradient-primary bg-clip-text text-transparent">Автоответ</h2>
         </Link>
       </div>
@@ -164,30 +231,88 @@ const AppLayout = ({ children }: AppLayoutProps) => {
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         <TooltipProvider>
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.path;
-            return (
-              <Tooltip key={item.path}>
-                <TooltipTrigger asChild>
-                  <Link
-                    to={item.path}
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
-                      isActive
-                        ? "bg-primary text-primary-foreground shadow-medium"
-                        : "hover:bg-secondary text-foreground hover:shadow-soft"
-                    }`}
-                  >
-                    <item.icon className="w-5 h-5 flex-shrink-0" />
-                    <span className="font-medium">{item.label}</span>
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  <p>{item.label}</p>
-                </TooltipContent>
-              </Tooltip>
-            );
-          })}
+          {/* Аналитика раздел */}
+          <Collapsible open={analyticsOpen} onOpenChange={setAnalyticsOpen}>
+            <CollapsibleTrigger className="flex items-center gap-3 px-4 py-3 w-full rounded-lg hover:bg-secondary transition-all duration-200">
+              <BarChart3 className="w-5 h-5 flex-shrink-0" />
+              <span className="font-medium flex-1 text-left">Аналитика</span>
+              {analyticsOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            </CollapsibleTrigger>
+            <CollapsibleContent className="ml-4 mt-1 space-y-1">
+              <Link
+                to="/app/analytics/reviews-questions"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/analytics/reviews-questions"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span className="text-sm">Отзывы и Вопросы</span>
+              </Link>
+              <Link
+                to="/app/sales-analytics"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/sales-analytics"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <TrendingUp className="w-4 h-4" />
+                <span className="text-sm">Продаж</span>
+              </Link>
+              <Link
+                to="/app/analytics/prices"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/analytics/prices"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <DollarSign className="w-4 h-4" />
+                <span className="text-sm">Цен</span>
+              </Link>
+              <Link
+                to="/app/analytics/promotion"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/analytics/promotion"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <Megaphone className="w-4 h-4" />
+                <span className="text-sm">Продвижения</span>
+              </Link>
+              <Link
+                to="/app/analytics/promotions"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/analytics/promotions"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <Tag className="w-4 h-4" />
+                <span className="text-sm">Акций</span>
+              </Link>
+              <Link
+                to="/app/analytics/competitors"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/analytics/competitors"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span className="text-sm">Конкурентов</span>
+              </Link>
+            </CollapsibleContent>
+          </Collapsible>
 
           {/* Отзывы раздел */}
           <Collapsible open={reviewsOpen} onOpenChange={setReviewsOpen}>
@@ -280,6 +405,115 @@ const AppLayout = ({ children }: AppLayoutProps) => {
               </Link>
             </CollapsibleContent>
           </Collapsible>
+
+          {/* Настройки раздел */}
+          <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
+            <CollapsibleTrigger className="flex items-center gap-3 px-4 py-3 w-full rounded-lg hover:bg-secondary transition-all duration-200">
+              <SettingsIcon className="w-5 h-5 flex-shrink-0" />
+              <span className="font-medium flex-1 text-left">Настройки</span>
+              {settingsOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            </CollapsibleTrigger>
+            <CollapsibleContent className="ml-4 mt-1 space-y-1">
+              <Link
+                to="/app/marketplaces"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/marketplaces"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span className="text-sm">Маркетплейсов</span>
+              </Link>
+              <Link
+                to="/app/settings"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/settings"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span className="text-sm">Отзывов и Вопросов</span>
+              </Link>
+              <Link
+                to="/app/suppliers"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/suppliers"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <Truck className="w-4 h-4" />
+                <span className="text-sm">Поставщиков</span>
+              </Link>
+              <Link
+                to="/app/products/settings"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/products/settings"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <Package className="w-4 h-4" />
+                <span className="text-sm">Товаров</span>
+              </Link>
+              <Link
+                to="/app/settings/competitors"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/settings/competitors"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span className="text-sm">Конкурентов</span>
+              </Link>
+              <Link
+                to="/app/settings/ozon-api"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/settings/ozon-api"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <Megaphone className="w-4 h-4" />
+                <span className="text-sm">API OZON Продвижения</span>
+              </Link>
+            </CollapsibleContent>
+          </Collapsible>
+
+          {/* Основные пункты меню */}
+          {navItems.map((item) => {
+            const isActive = location.pathname === item.path;
+            return (
+              <Tooltip key={item.path}>
+                <TooltipTrigger asChild>
+                  <Link
+                    to={item.path}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
+                      isActive
+                        ? "bg-primary text-primary-foreground shadow-medium"
+                        : "hover:bg-secondary text-foreground hover:shadow-soft"
+                    }`}
+                  >
+                    <item.icon className="w-5 h-5 flex-shrink-0" />
+                    <span className="font-medium">{item.label}</span>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>{item.label}</p>
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
         </TooltipProvider>
       </nav>
 

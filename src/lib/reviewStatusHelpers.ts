@@ -17,16 +17,23 @@ export type ReviewWithReplies = ReviewWithDetails;
 export function getReviewSegment(item: ReviewWithDetails): ReviewSegment {
   const replies = item.replies || [];
 
+  // ✅ КРИТИЧНО: Если отзыв уже отвечен в Ozon, он всегда в Архиве
+  // независимо от статуса replies (даже если есть failed/retried)
+  if (item.is_answered) {
+    return "archived";
+  }
+
   // Проверяем наличие опубликованного ответа (безопасное сравнение)
   const hasPublished = replies.some((r) => String(r.status) === "published");
 
-  // АРХИВ: есть опубликованный ответ ИЛИ is_answered = true
-  if (hasPublished || item.is_answered) {
+  // АРХИВ: есть опубликованный ответ
+  if (hasPublished) {
     return "archived";
   }
 
   // Проверяем наличие ответов в очереди (подтверждённых пользователем)
   // ВАЖНО: "drafted" НЕ включаем - черновики остаются в "Не отвечено"
+  // ВАЖНО: failed/retried попадают в pending ТОЛЬКО если is_answered = false
   const hasPending = replies.some(
     (r) => 
       String(r.status) === "scheduled" || 
