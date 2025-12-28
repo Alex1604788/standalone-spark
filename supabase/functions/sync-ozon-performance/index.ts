@@ -193,6 +193,19 @@ serve(async (req) => {
       );
     }
 
+    // Тестовый режим - возвращаем версию без проверки credentials
+    if (test) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: "Connection test mode",
+          version: "2.7.1-fix-62-day-period",
+          note: "This is test mode. Real credentials check skipped."
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Определяем период синхронизации
     let periodStart: Date;
     let periodEnd: Date = new Date();
@@ -307,19 +320,6 @@ serve(async (req) => {
         .update({ access_token: accessToken, token_expires_at: expiresAt })
         .eq("marketplace_id", marketplace_id)
         .eq("api_type", "performance");
-    }
-
-    if (test) {
-      // Тестовый режим - просто проверяем подключение
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: "Connection successful",
-          token_obtained: true,
-          version: "2.7.1-fix-62-day-period"
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
     }
 
     // 4. Получаем список кампаний
