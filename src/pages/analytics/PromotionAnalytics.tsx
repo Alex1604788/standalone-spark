@@ -125,6 +125,7 @@ const PromotionAnalytics = () => {
           views,
           clicks,
           orders,
+          orders_model,
           revenue,
           ctr,
           cpc,
@@ -227,7 +228,7 @@ const PromotionAnalytics = () => {
         campaign.total_money_spent += Number(row.money_spent || 0);
         campaign.total_views += Number(row.views || 0);
         campaign.total_clicks += Number(row.clicks || 0);
-        campaign.total_orders += Number(row.orders || 0);
+        campaign.total_orders += Number(row.orders || 0) + Number(row.orders_model || 0);
         campaign.total_revenue += Number(row.revenue || 0);
 
         if (row.stat_date < campaign.date_range.min) {
@@ -267,7 +268,7 @@ const PromotionAnalytics = () => {
         product.total_money_spent += Number(row.money_spent || 0);
         product.total_views += Number(row.views || 0);
         product.total_clicks += Number(row.clicks || 0);
-        product.total_orders += Number(row.orders || 0);
+        product.total_orders += Number(row.orders || 0) + Number(row.orders_model || 0);
         product.total_revenue += Number(row.revenue || 0);
 
         if (row.stat_date < product.date_range.min) {
