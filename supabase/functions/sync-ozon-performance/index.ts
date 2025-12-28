@@ -1,13 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// VERSION: 2.8.1-increase-delay-to-10s
-// - Increased delay between chunks: 5s → 10s (OZON needs more time to accept requests)
-// - Fixed OZON rate limit error: chunks now processed SEQUENTIALLY (not parallel)
-// - Added real-time progress updates to database (metadata.current_step)
+// VERSION: 2.9.0-immediate-polling
+// - CRITICAL FIX: Poll each chunk IMMEDIATELY after request (not collect all UUIDs first)
+// - This prevents "rate limit exceeded" error - OZON sees completed request before next one
+// - OLD (broken): request all → collect UUIDs → then poll all
+// - NEW (working): request → poll → download → next chunk
 // - Fixed weekly sync period: 30 days → 62 days
-// - Fixed custom sync default period: 7 days → 62 days
-const VERSION = "2.8.1-increase-delay-to-10s";
+// - Added real-time progress updates to database
+const VERSION = "2.9.0-immediate-polling";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -415,7 +416,8 @@ serve(async (req) => {
       console.error(`WARNING: Too many campaigns (${campaignIds.length}). Processing only first ${maxChunks * chunkSize} campaigns.`);
     }
 
-    // Шаг 1: Запрашиваем отчеты для всех chunks (получаем UUIDs)
+    // Обрабатываем каждый chunk полностью: запрос → СРАЗУ polling → СРАЗУ download
+    // Ключевое отличие: НЕ собираем все UUIDs сначала, а обрабатываем каждый chunk до конца
     for (let i = 0; i < chunksToProcess.length; i++) {
       const chunk = chunksToProcess[i];
       console.error(`Requesting report for chunk ${i + 1}/${chunksToProcess.length} with ${chunk.length} campaigns`);
@@ -496,33 +498,24 @@ serve(async (req) => {
       console.error(`Chunk ${i + 1} UUID: ${uuid}`);
       reportUUIDs.push(uuid);
 
-      // Обновляем прогресс в БД для UI
+      // СРАЗУ делаем polling этого отчета (ключевое отличие от старой версии!)
+      console.error(`IMMEDIATELY polling report ${i + 1}/${chunksToProcess.length}: ${uuid}`);
+
+      // Обновляем прогресс
       if (syncId) {
         await supabaseClient
           .from("ozon_sync_history")
           .update({
             metadata: {
               sync_period,
-              current_step: `Requesting reports: ${i + 1}/${chunksToProcess.length}`,
+              current_step: `Chunk ${i + 1}/${chunksToProcess.length}: polling report`,
               report_uuids: reportUUIDs,
               total_campaigns: campaignIds.length,
-              processed_campaigns: chunksToProcess.length * chunkSize,
+              rows_collected: allStats.length,
             }
           })
           .eq("id", syncId);
       }
-
-      // Задержка между запросами чтобы не превысить лимит OZON API (максимум 1 активный запрос)
-      if (i < chunksToProcess.length - 1) {
-        console.error(`Waiting 10 seconds before next chunk request to avoid OZON rate limit...`);
-        await new Promise(resolve => setTimeout(resolve, 10000));
-      }
-    }
-
-    // Шаг 2: Polling и скачивание отчетов
-    for (let i = 0; i < reportUUIDs.length; i++) {
-      const uuid = reportUUIDs[i];
-      console.error(`Polling report ${i + 1}/${reportUUIDs.length}: ${uuid}`);
 
       // Polling с параметрами: 5s initial, 3s interval, 10 attempts
       const pollResult = await pollReportStatus(uuid, accessToken, 10, 5000, 3000);
@@ -547,31 +540,31 @@ serve(async (req) => {
             error: "Report polling failed",
             details: pollResult.error,
             uuid,
-            report: i + 1,
-            total_reports: reportUUIDs.length
+            chunk: i + 1,
+            total_chunks: chunksToProcess.length
           }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      // Скачиваем и парсим отчет
+      // СРАЗУ скачиваем отчет (сразу после polling, не ждем другие chunks!)
+      console.error(`IMMEDIATELY downloading report ${i + 1}/${chunksToProcess.length}`);
       try {
         const chunkStats = await downloadAndParseReport(uuid, accessToken);
-        console.error(`Report ${i + 1} returned ${chunkStats.length} rows`);
+        console.error(`✓ Chunk ${i + 1}/${chunksToProcess.length} completed: ${chunkStats.length} rows`);
         allStats = allStats.concat(chunkStats);
 
-        // Обновляем прогресс в БД для UI
+        // Обновляем прогресс
         if (syncId) {
           await supabaseClient
             .from("ozon_sync_history")
             .update({
               metadata: {
                 sync_period,
-                current_step: `Downloading reports: ${i + 1}/${reportUUIDs.length}`,
+                current_step: `Completed chunk ${i + 1}/${chunksToProcess.length}: ${allStats.length} total rows`,
                 rows_collected: allStats.length,
                 report_uuids: reportUUIDs,
                 total_campaigns: campaignIds.length,
-                processed_campaigns: chunksToProcess.length * chunkSize,
               }
             })
             .eq("id", syncId);
