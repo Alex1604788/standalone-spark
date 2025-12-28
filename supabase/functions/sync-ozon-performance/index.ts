@@ -1,11 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// VERSION: 2.7.1-fix-62-day-period
+// VERSION: 2.8.0-sequential-chunks-with-progress
+// - Fixed OZON rate limit error: chunks now processed SEQUENTIALLY (not parallel)
+// - Added 5 second delay between chunk requests
+// - Added real-time progress updates to database (metadata.current_step)
 // - Fixed weekly sync period: 30 days → 62 days
 // - Fixed custom sync default period: 7 days → 62 days
-// - Added version field to all responses
-const VERSION = "2.7.1-fix-62-day-period";
+const VERSION = "2.8.0-sequential-chunks-with-progress";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
