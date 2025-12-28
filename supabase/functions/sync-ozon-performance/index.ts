@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.6.9-batched-upsert
+ * Version: 2.7.0-extended-period
  * Date: 2025-12-28
  *
  * Key features:
@@ -10,6 +10,7 @@
  * - campaign_offset parameter optional - only needed to continue from specific position
  * - INCREMENTAL SAVE: Each campaign's data is saved IMMEDIATELY after processing (survives Edge Function timeout)
  * - BATCHED UPSERT: Large campaigns (>50 records) split into batches to prevent PostgreSQL statement timeout
+ * - EXTENDED PERIOD: Default sync period is 62 days (2 months) for complete analytics
  * - Deduplicates cumulative snapshots - keeps last row (end-of-day data at 00:00 MSK)
  * - Async report generation with UUID polling (40 attempts, ~3.5min timeout)
  * - Sync history tracking for partial sync support
@@ -391,13 +392,13 @@ serve(async (req) => {
       periodStart = new Date(periodEnd.getTime() - 3 * 24 * 60 * 60 * 1000);
       triggerType = 'cron_daily';
     } else if (sync_period === 'weekly') {
-      // Последние 30 дней
-      periodStart = new Date(periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000);
+      // Последние 62 дня (2 месяца) для полной аналитики
+      periodStart = new Date(periodEnd.getTime() - 62 * 24 * 60 * 60 * 1000);
       triggerType = 'cron_weekly';
     } else {
-      // Кастомный период
+      // Кастомный период (по умолчанию 62 дня если не указано)
       periodEnd = end_date ? new Date(end_date) : periodEnd;
-      periodStart = start_date ? new Date(start_date) : new Date(periodEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
+      periodStart = start_date ? new Date(start_date) : new Date(periodEnd.getTime() - 62 * 24 * 60 * 60 * 1000);
       triggerType = 'manual';
     }
 
@@ -811,7 +812,7 @@ serve(async (req) => {
         rows_collected: allStats.length,  // Общее количество обработанных строк
         note: "Data is saved incrementally after each campaign (survives Edge Function timeout)",
         sync_id: syncId,
-        version: "2.6.9-batched-upsert",
+        version: "2.7.0-extended-period",
         build_date: "2025-12-28",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -829,7 +830,7 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.6.9-batched-upsert",
+        version: "2.7.0-extended-period",
         build_date: "2025-12-28",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
