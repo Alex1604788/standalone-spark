@@ -501,8 +501,8 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.6.4-fix-column-detection",
-          build_date: "2025-12-22"
+          version: "2.7.0-extended-period",
+          build_date: "2025-12-28"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
