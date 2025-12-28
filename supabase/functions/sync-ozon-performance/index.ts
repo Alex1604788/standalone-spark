@@ -203,13 +203,13 @@ serve(async (req) => {
       periodStart = new Date(periodEnd.getTime() - 3 * 24 * 60 * 60 * 1000);
       triggerType = 'cron_daily';
     } else if (sync_period === 'weekly') {
-      // Последние 30 дней
-      periodStart = new Date(periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000);
+      // Последние 62 дня (2 месяца)
+      periodStart = new Date(periodEnd.getTime() - 62 * 24 * 60 * 60 * 1000);
       triggerType = 'cron_weekly';
     } else {
       // Кастомный период
       periodEnd = end_date ? new Date(end_date) : periodEnd;
-      periodStart = start_date ? new Date(start_date) : new Date(periodEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
+      periodStart = start_date ? new Date(start_date) : new Date(periodEnd.getTime() - 62 * 24 * 60 * 60 * 1000);
       triggerType = 'manual';
     }
 
