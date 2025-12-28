@@ -56,6 +56,45 @@ const OzonApiSettings = () => {
     }
   }, [selectedMarketplaceId]);
 
+  // Автоматический polling статуса синхронизации каждые 3 секунды
+  useEffect(() => {
+    if (!selectedMarketplaceId) return;
+
+    const checkSyncStatus = async () => {
+      const { data, error } = await supabase
+        .from("ozon_sync_history")
+        .select("*")
+        .eq("marketplace_id", selectedMarketplaceId)
+        .eq("trigger_type", "manual")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!error && data) {
+        if (data.status === "running") {
+          setIsSyncing(true);
+          const metadata = data.metadata as any;
+          setSyncStatus(metadata?.current_step || "Синхронизация в процессе...");
+        } else if (data.status === "completed" || data.status === "failed" || data.status === "timeout") {
+          setIsSyncing(false);
+          if (data.status === "completed") {
+            setSyncStatus(`Завершено: ${data.rows_inserted || 0} записей`);
+          } else {
+            setSyncStatus(`Статус: ${data.status}`);
+          }
+        }
+      }
+    };
+
+    // Проверяем сразу
+    checkSyncStatus();
+
+    // Запускаем polling каждые 3 секунды
+    const interval = setInterval(checkSyncStatus, 3000);
+
+    return () => clearInterval(interval);
+  }, [selectedMarketplaceId]);
+
   const loadMarketplaces = async () => {
     const { data, error } = await supabase
       .from("marketplaces")
@@ -240,20 +279,19 @@ const OzonApiSettings = () => {
 
       if (error) throw error;
 
-      setSyncStatus(`Синхронизировано ${data.campaigns_processed || 0} кампаний, ${data.rows_collected || 0} записей`);
+      // Не сбрасываем isSyncing здесь - пусть polling обнаружит завершение
       toast({
-        title: "Успешно",
-        description: `Синхронизировано ${data.campaigns_processed || 0} кампаний за ${periodText}`,
+        title: "Синхронизация запущена",
+        description: `Синхронизация за ${periodText} выполняется. Следите за прогрессом на экране.`,
       });
     } catch (error: any) {
+      setIsSyncing(false);
       setSyncStatus("Ошибка синхронизации");
       toast({
         title: "Ошибка",
         description: error.message || "Не удалось синхронизировать данные",
         variant: "destructive",
       });
-    } finally {
-      setIsSyncing(false);
     }
   };
 
