@@ -493,6 +493,28 @@ serve(async (req) => {
 
       console.error(`Chunk ${i + 1} UUID: ${uuid}`);
       reportUUIDs.push(uuid);
+
+      // Обновляем прогресс в БД для UI
+      if (syncId) {
+        await supabaseClient
+          .from("ozon_sync_history")
+          .update({
+            metadata: {
+              sync_period,
+              current_step: `Requesting reports: ${i + 1}/${chunksToProcess.length}`,
+              report_uuids: reportUUIDs,
+              total_campaigns: campaignIds.length,
+              processed_campaigns: chunksToProcess.length * chunkSize,
+            }
+          })
+          .eq("id", syncId);
+      }
+
+      // Задержка между запросами чтобы не превысить лимит OZON API (максимум 1 активный запрос)
+      if (i < chunksToProcess.length - 1) {
+        console.error(`Waiting 5 seconds before next chunk request to avoid OZON rate limit...`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
     }
 
     // Шаг 2: Polling и скачивание отчетов
@@ -535,6 +557,23 @@ serve(async (req) => {
         const chunkStats = await downloadAndParseReport(uuid, accessToken);
         console.error(`Report ${i + 1} returned ${chunkStats.length} rows`);
         allStats = allStats.concat(chunkStats);
+
+        // Обновляем прогресс в БД для UI
+        if (syncId) {
+          await supabaseClient
+            .from("ozon_sync_history")
+            .update({
+              metadata: {
+                sync_period,
+                current_step: `Downloading reports: ${i + 1}/${reportUUIDs.length}`,
+                rows_collected: allStats.length,
+                report_uuids: reportUUIDs,
+                total_campaigns: campaignIds.length,
+                processed_campaigns: chunksToProcess.length * chunkSize,
+              }
+            })
+            .eq("id", syncId);
+        }
       } catch (err) {
         const errMsg = (err as Error).message || "Unknown error";
         console.error(`Failed to download/parse report ${uuid}:`, errMsg);
