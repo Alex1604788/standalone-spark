@@ -452,9 +452,29 @@ const OzonApiSettings = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             {syncStatus && (
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{syncStatus}</AlertDescription>
+              <Alert className={isSyncing ? "border-blue-500 bg-blue-50 dark:bg-blue-950" : ""}>
+                {isSyncing ? (
+                  <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
+                ) : (
+                  <AlertCircle className="h-4 w-4" />
+                )}
+                <AlertDescription>
+                  {isSyncing && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">Синхронизация в процессе...</span>
+                      </div>
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                        <div className="bg-blue-600 h-2 rounded-full animate-pulse" style={{ width: '50%' }}></div>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-2">{syncStatus}</p>
+                      <p className="text-xs text-muted-foreground">
+                        ⏳ Это может занять 5-10 минут. Не закрывайте страницу.
+                      </p>
+                    </div>
+                  )}
+                  {!isSyncing && syncStatus}
+                </AlertDescription>
               </Alert>
             )}
 
@@ -463,19 +483,29 @@ const OzonApiSettings = () => {
               <div className="flex gap-3 flex-wrap">
                 <Button onClick={() => handleSyncData('week')} disabled={isSyncing} variant="outline">
                   {isSyncing ? (
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Синхронизация...
+                    </>
                   ) : (
-                    <RefreshCw className="w-4 h-4 mr-2" />
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      За 7 дней (неделя)
+                    </>
                   )}
-                  За 7 дней (неделя)
                 </Button>
                 <Button onClick={() => handleSyncData('full')} disabled={isSyncing} variant="outline">
                   {isSyncing ? (
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Синхронизация...
+                    </>
                   ) : (
-                    <RefreshCw className="w-4 h-4 mr-2" />
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      За 62 дня (2 месяца)
+                    </>
                   )}
-                  За 62 дня (2 месяца)
                 </Button>
               </div>
             </div>
