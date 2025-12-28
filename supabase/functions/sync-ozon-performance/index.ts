@@ -1,13 +1,14 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.6.7-sequential-processing
- * Date: 2025-12-24
+ * Version: 2.6.8-incremental-save
+ * Date: 2025-12-28
  *
  * Key features:
  * - ZIP archive extraction support (in-memory using JSZip)
  * - Individual report requests per campaign (not batch!) - Fixes duplicate key violations
  * - AUTOMATIC: Processes ALL campaigns automatically (all ~46 active campaigns in one run)
  * - campaign_offset parameter optional - only needed to continue from specific position
+ * - INCREMENTAL SAVE: Each campaign's data is saved IMMEDIATELY after processing (survives Edge Function timeout)
  * - Deduplicates cumulative snapshots - keeps last row (end-of-day data at 00:00 MSK)
  * - Async report generation with UUID polling (40 attempts, ~3.5min timeout)
  * - Sync history tracking for partial sync support
@@ -668,8 +669,50 @@ serve(async (req) => {
         try {
           const campaignStats = await downloadAndParseReport(uuid, accessToken, campaign);
           console.error(`Campaign ${campaign.name} returned ${campaignStats.length} rows`);
-          allStats = allStats.concat(campaignStats);
-          processedCampaigns.push(campaign.name);  // Успешно обработана
+
+          // INCREMENTAL SAVE: Сохраняем данные ЭТОЙ кампании сразу (не ждем обработки всех кампаний)
+          // Это позволяет сохранить хотя бы часть данных если Edge Function получит timeout
+          if (campaignStats.length > 0) {
+            // Дедуплицируем данные этой кампании (убираем кумулятивные снимки, оставляем последний)
+            const dedupedCampaignStats = deduplicateStats(campaignStats);
+            console.error(`After deduplication: ${dedupedCampaignStats.length} unique rows for ${campaign.name}`);
+
+            // Преобразуем в формат для вставки
+            const campaignRecords = dedupedCampaignStats.map((stat) => ({
+              marketplace_id,
+              stat_date: stat.date,
+              sku: stat.sku,
+              offer_id: stat.offer_id || null,
+              campaign_id: stat.campaign_id,
+              campaign_name: stat.campaign_name || null,
+              campaign_type: stat.campaign_type || null,
+              money_spent: stat.money_spent || 0,
+              views: stat.views || 0,
+              clicks: stat.clicks || 0,
+              orders: stat.orders || 0,
+              orders_model: stat.orders_model || 0,
+              revenue: stat.revenue || null,
+              add_to_cart: stat.add_to_cart || null,
+              avg_bill: stat.avg_bill || null,
+            }));
+
+            // Сохраняем в базу немедленно
+            const { error: saveError } = await supabaseClient
+              .from("ozon_performance_daily")
+              .upsert(campaignRecords, { onConflict: "marketplace_id,stat_date,sku,campaign_id" });
+
+            if (saveError) {
+              console.error(`Failed to save data for campaign ${campaign.name}:`, saveError.message);
+              failedCampaigns.push({name: campaign.name, id: campaign.id, reason: `Save error: ${saveError.message}`});
+            } else {
+              console.error(`✅ Saved ${campaignRecords.length} records for campaign ${campaign.name}`);
+              allStats = allStats.concat(campaignStats);  // Для финальной статистики
+              processedCampaigns.push(campaign.name);  // Успешно обработана И сохранена
+            }
+          } else {
+            console.error(`⚠️  Campaign ${campaign.name} returned no data - skipping`);
+            processedCampaigns.push(campaign.name);  // Технически обработана, просто нет данных
+          }
         } catch (err) {
           console.error(`Failed to parse report for campaign ${campaign.name}:`, err.message);
           failedCampaigns.push({name: campaign.name, id: campaign.id, reason: `Parse error: ${err.message}`});
@@ -682,63 +725,9 @@ serve(async (req) => {
       }
     }
 
-    console.error(`Collected total ${allStats.length} stat rows`);
-
-    // Дедупликация: убираем дубликаты, оставляя последнюю строку для каждого (date, sku, campaign_id)
-    // OZON возвращает кумулятивные снимки в течение дня - берём финальные данные на 00:00 МСК
-    const deduplicatedStats = deduplicateStats(allStats);
-    console.error(`After deduplication: ${deduplicatedStats.length} unique rows (removed ${allStats.length - deduplicatedStats.length} duplicates)`);
-
-    if (deduplicatedStats.length === 0) {
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: "No data for the specified period",
-          inserted: 0,
-          period: { from: formatDate(periodStart), to: formatDate(periodEnd) }
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Сохраняем дедуплицированные данные в базу
-    const records = deduplicatedStats.map((stat) => ({
-      marketplace_id,
-      stat_date: stat.date,
-      sku: stat.sku,
-      offer_id: stat.offer_id || null,
-      campaign_id: stat.campaign_id,
-      campaign_name: stat.campaign_name || null,
-      campaign_type: stat.campaign_type || null,
-      money_spent: stat.money_spent || 0,
-      views: stat.views || 0,
-      clicks: stat.clicks || 0,
-      orders: stat.orders || 0,
-      orders_model: stat.orders_model || 0,  // Заказы модели
-      revenue: stat.revenue || null,
-      add_to_cart: stat.add_to_cart || null,
-      avg_bill: stat.avg_bill || null,
-    }));
-
-    // Debug: показываем что вставляем
-    console.error(`Inserting ${records.length} records for marketplace_id: ${marketplace_id}`);
-    console.error(`First record sample:`, JSON.stringify(records[0], null, 2));
-    console.error(`Date range in records: ${records[0]?.stat_date} to ${records[records.length - 1]?.stat_date}`);
-
-    const { data: insertData, error: insertError } = await supabaseClient
-      .from("ozon_performance_daily")
-      .upsert(records, { onConflict: "marketplace_id,stat_date,sku,campaign_id" })
-      .select();
-
-    if (insertError) {
-      console.error("Insert error:", insertError);
-      return new Response(
-        JSON.stringify({ error: "Failed to save data", details: insertError.message }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    console.error(`Insert successful! Returned ${insertData?.length || 0} rows from database`);
+    // NOTE: С версии 2.6.8 данные сохраняются ИНКРЕМЕНТАЛЬНО после каждой кампании
+    // Финальный upsert больше не нужен - все данные уже в базе
+    console.error(`\n📦 TOTAL DATA COLLECTED: ${allStats.length} stat rows from ${processedCampaigns.length} campaigns`);
 
     // Статистика обработки кампаний
     console.error(`\n📊 CAMPAIGN PROCESSING SUMMARY:`);
@@ -765,7 +754,7 @@ serve(async (req) => {
           completed_at: new Date().toISOString(),
           campaigns_count: campaigns.length,
           chunks_count: chunksToProcess.length,
-          rows_inserted: records.length,
+          rows_inserted: allStats.length,  // Общее количество строк (до дедупликации на уровне кампаний)
           metadata: {
             sync_period,
             total_campaigns: campaigns.length,
@@ -781,18 +770,19 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         message: failedCampaigns.length > 0
-          ? `Synchronization completed with ${failedCampaigns.length} failed campaigns`
-          : "Synchronization completed successfully",
+          ? `Synchronization completed with ${failedCampaigns.length} failed campaigns. Data saved incrementally.`
+          : "Synchronization completed successfully. All data saved.",
         period: { from: formatDate(periodStart), to: formatDate(periodEnd) },
         total_campaigns: campaigns.length,
         processed_campaigns: processedCampaigns.length,
         failed_campaigns: failedCampaigns.length,
         failed_campaign_details: failedCampaigns,
         chunks_processed: chunksToProcess.length,
-        inserted: records.length,
+        rows_collected: allStats.length,  // Общее количество обработанных строк
+        note: "Data is saved incrementally after each campaign (survives Edge Function timeout)",
         sync_id: syncId,
-        version: "2.6.7-sequential-processing",
-        build_date: "2025-12-24",
+        version: "2.6.8-incremental-save",
+        build_date: "2025-12-28",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -809,8 +799,8 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.6.4-fix-column-detection",
-        build_date: "2025-12-22",
+        version: "2.6.8-incremental-save",
+        build_date: "2025-12-28",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
