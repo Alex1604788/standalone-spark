@@ -1,13 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// VERSION: 2.8.0-sequential-chunks-with-progress
+// VERSION: 2.8.1-increase-delay-to-10s
+// - Increased delay between chunks: 5s → 10s (OZON needs more time to accept requests)
 // - Fixed OZON rate limit error: chunks now processed SEQUENTIALLY (not parallel)
-// - Added 5 second delay between chunk requests
 // - Added real-time progress updates to database (metadata.current_step)
 // - Fixed weekly sync period: 30 days → 62 days
 // - Fixed custom sync default period: 7 days → 62 days
-const VERSION = "2.8.0-sequential-chunks-with-progress";
+const VERSION = "2.8.1-increase-delay-to-10s";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -514,8 +514,8 @@ serve(async (req) => {
 
       // Задержка между запросами чтобы не превысить лимит OZON API (максимум 1 активный запрос)
       if (i < chunksToProcess.length - 1) {
-        console.error(`Waiting 5 seconds before next chunk request to avoid OZON rate limit...`);
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        console.error(`Waiting 10 seconds before next chunk request to avoid OZON rate limit...`);
+        await new Promise(resolve => setTimeout(resolve, 10000));
       }
     }
 
