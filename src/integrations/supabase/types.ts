@@ -1687,6 +1687,7 @@ export type Database = {
           is_complete: boolean | null
           large_box_quantity: number | null
           marketplace_id: string
+          min_ship_qty: number | null
           missing_fields: string[] | null
           offer_id: string
           packaging_notes: string | null
@@ -1694,7 +1695,9 @@ export type Database = {
           product_type: string | null
           purchase_price: number | null
           purchase_price_updated_at: string | null
+          rounding_enabled: boolean
           small_box_quantity: number | null
+          storage_zone: string | null
           supplier_id: string | null
           updated_at: string
         }
@@ -1705,6 +1708,7 @@ export type Database = {
           is_complete?: boolean | null
           large_box_quantity?: number | null
           marketplace_id: string
+          min_ship_qty?: number | null
           missing_fields?: string[] | null
           offer_id: string
           packaging_notes?: string | null
@@ -1712,7 +1716,9 @@ export type Database = {
           product_type?: string | null
           purchase_price?: number | null
           purchase_price_updated_at?: string | null
+          rounding_enabled?: boolean
           small_box_quantity?: number | null
+          storage_zone?: string | null
           supplier_id?: string | null
           updated_at?: string
         }
@@ -1723,6 +1729,7 @@ export type Database = {
           is_complete?: boolean | null
           large_box_quantity?: number | null
           marketplace_id?: string
+          min_ship_qty?: number | null
           missing_fields?: string[] | null
           offer_id?: string
           packaging_notes?: string | null
@@ -1730,7 +1737,9 @@ export type Database = {
           product_type?: string | null
           purchase_price?: number | null
           purchase_price_updated_at?: string | null
+          rounding_enabled?: boolean
           small_box_quantity?: number | null
+          storage_zone?: string | null
           supplier_id?: string | null
           updated_at?: string
         }
@@ -2533,6 +2542,181 @@ export type Database = {
           },
         ]
       }
+      shipment_order_items: {
+        Row: {
+          category: string | null
+          created_at: string
+          id: string
+          large_box_quantity: number | null
+          marketplace_id: string
+          metadata: Json
+          offer_id: string
+          order_id: string
+          product_name: string | null
+          quantity: number
+          rounding_enabled: boolean
+          sku: string | null
+          small_box_quantity: number | null
+          storage_zone: string | null
+          supplier_name: string | null
+          total_volume_liters: number | null
+          total_weight_kg: number | null
+          unit_price: number | null
+          unit_volume_liters: number | null
+          unit_weight_kg: number | null
+          updated_at: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          id?: string
+          large_box_quantity?: number | null
+          marketplace_id: string
+          metadata?: Json
+          offer_id: string
+          order_id: string
+          product_name?: string | null
+          quantity?: number
+          rounding_enabled?: boolean
+          sku?: string | null
+          small_box_quantity?: number | null
+          storage_zone?: string | null
+          supplier_name?: string | null
+          total_volume_liters?: number | null
+          total_weight_kg?: number | null
+          unit_price?: number | null
+          unit_volume_liters?: number | null
+          unit_weight_kg?: number | null
+          updated_at?: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          id?: string
+          large_box_quantity?: number | null
+          marketplace_id?: string
+          metadata?: Json
+          offer_id?: string
+          order_id?: string
+          product_name?: string | null
+          quantity?: number
+          rounding_enabled?: boolean
+          sku?: string | null
+          small_box_quantity?: number | null
+          storage_zone?: string | null
+          supplier_name?: string | null
+          total_volume_liters?: number | null
+          total_weight_kg?: number | null
+          unit_price?: number | null
+          unit_volume_liters?: number | null
+          unit_weight_kg?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shipment_order_items_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pick_list_view"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "shipment_order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "shipment_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shipment_orders: {
+        Row: {
+          cluster_id: string
+          comment: string | null
+          created_at: string
+          created_by: string | null
+          export_file_name: string | null
+          id: string
+          marketplace_id: string
+          metadata: Json
+          session_id: string
+          status: string
+          updated_at: string
+          version_id: string
+        }
+        Insert: {
+          cluster_id: string
+          comment?: string | null
+          created_at?: string
+          created_by?: string | null
+          export_file_name?: string | null
+          id?: string
+          marketplace_id: string
+          metadata?: Json
+          session_id: string
+          status?: string
+          updated_at?: string
+          version_id: string
+        }
+        Update: {
+          cluster_id?: string
+          comment?: string | null
+          created_at?: string
+          created_by?: string | null
+          export_file_name?: string | null
+          id?: string
+          marketplace_id?: string
+          metadata?: Json
+          session_id?: string
+          status?: string
+          updated_at?: string
+          version_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shipment_orders_cluster_id_fkey"
+            columns: ["cluster_id"]
+            isOneToOne: false
+            referencedRelation: "clusters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_orders_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_orders_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_orders_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "allocation_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_orders_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "allocation_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shipment_working_date: {
         Row: {
           marketplace_id: string
@@ -2828,6 +3012,63 @@ export type Database = {
       }
     }
     Views: {
+      pick_list_view: {
+        Row: {
+          category: string | null
+          cluster_id: string | null
+          cluster_name: string | null
+          cluster_short_name: string | null
+          large_box_quantity: number | null
+          marketplace_id: string | null
+          offer_id: string | null
+          order_created_at: string | null
+          order_id: string | null
+          order_status: string | null
+          product_name: string | null
+          qty: number | null
+          rounding_enabled: boolean | null
+          session_id: string | null
+          sku: string | null
+          small_box_quantity: number | null
+          storage_zone: string | null
+          supplier_name: string | null
+          total_volume_liters: number | null
+          total_weight_kg: number | null
+          unit_volume_liters: number | null
+          unit_weight_kg: number | null
+          version_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shipment_orders_cluster_id_fkey"
+            columns: ["cluster_id"]
+            isOneToOne: false
+            referencedRelation: "clusters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_orders_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_orders_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "allocation_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_orders_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "allocation_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_current_volume: {
         Row: {
           data_source: string | null
@@ -2995,6 +3236,10 @@ export type Database = {
       }
     }
     Functions: {
+      build_pick_list_pivot_sql: {
+        Args: { p_marketplace_id: string; p_version_id: string }
+        Returns: string
+      }
       calculate_boxes_needed: {
         Args: {
           p_marketplace_id: string
