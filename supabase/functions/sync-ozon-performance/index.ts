@@ -312,7 +312,12 @@ serve(async (req) => {
     if (test) {
       // Тестовый режим - просто проверяем подключение
       return new Response(
-        JSON.stringify({ success: true, message: "Connection successful", token_obtained: true }),
+        JSON.stringify({
+          success: true,
+          message: "Connection successful",
+          token_obtained: true,
+          version: "2.7.1-fix-62-day-period"
+        }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -614,6 +619,7 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         message: "Synchronization completed",
+        version: "2.7.1-fix-62-day-period",
         period: { from: formatDate(periodStart), to: formatDate(periodEnd) },
         campaigns: campaignIds.length,
         chunks_processed: chunksToProcess.length,
