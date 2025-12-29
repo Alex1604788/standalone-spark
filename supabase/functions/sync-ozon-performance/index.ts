@@ -1,14 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// VERSION: 2.9.0-immediate-polling
-// - CRITICAL FIX: Poll each chunk IMMEDIATELY after request (not collect all UUIDs first)
-// - This prevents "rate limit exceeded" error - OZON sees completed request before next one
-// - OLD (broken): request all → collect UUIDs → then poll all
-// - NEW (working): request → poll → download → next chunk
-// - Fixed weekly sync period: 30 days → 62 days
-// - Added real-time progress updates to database
-const VERSION = "2.9.0-immediate-polling";
+// VERSION: 2.9.1-debug-csv-parsing
+// - Added debug logging to understand CSV format from OZON
+// - Will show: number of columns, first 5 columns, line samples
+// - Previous: 2.9.0 fixed immediate polling
+const VERSION = "2.9.1-debug-csv-parsing";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -132,6 +129,17 @@ async function downloadAndParseReport(
     // Простой CSV парсер для OZON отчетов (разделитель - точка с запятой)
     const lines = csvText.split('\n').filter(line => line.trim());
 
+    console.error(`CSV has ${lines.length} lines`);
+    if (lines.length > 0) {
+      console.error(`First line (header/comment): ${lines[0].substring(0, 200)}`);
+    }
+    if (lines.length > 1) {
+      console.error(`Second line (header): ${lines[1].substring(0, 200)}`);
+    }
+    if (lines.length > 2) {
+      console.error(`Third line (first data): ${lines[2].substring(0, 200)}`);
+    }
+
     if (lines.length < 3) {
       console.error("CSV is too short, no data rows");
       return [];
@@ -151,9 +159,11 @@ async function downloadAndParseReport(
       // Разбираем по точке с запятой
       const columns = line.split(';').map(col => col.trim());
 
+      console.error(`CSV line has ${columns.length} columns. First 5: ${columns.slice(0, 5).join(' | ')}`);
+
       // Ожидаемая структура: [sku, name, price, views, clicks, ctr, to_cart, avg_cpc, avg_cpm, spent, orders, revenue, model_orders, model_revenue, drr, date]
       if (columns.length < 11) {
-        console.error(`Skipping malformed line: ${line}`);
+        console.error(`Skipping malformed line (expected >= 11 columns, got ${columns.length}): ${line.substring(0, 100)}`);
         continue;
       }
 
