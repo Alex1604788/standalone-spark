@@ -1,11 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// VERSION: 2.9.2-auto-detect-delimiter
-// - Auto-detect CSV delimiter (tab, semicolon, comma)
-// - Counts each delimiter type and uses the most common one
-// - Should fix "got 3 columns" error
-const VERSION = "2.9.2-auto-detect-delimiter";
+// VERSION: 2.9.3-increase-polling-timeout
+// - Increased polling: 10→40 attempts, 5s→10s initial, 3s→5s interval
+// - Total timeout: ~3.5 minutes (was 35 seconds)
+// - OZON needs more time for 62-day reports with 10 campaigns
+const VERSION = "2.9.3-increase-polling-timeout";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -550,8 +550,9 @@ serve(async (req) => {
           .eq("id", syncId);
       }
 
-      // Polling с параметрами: 5s initial, 3s interval, 10 attempts
-      const pollResult = await pollReportStatus(uuid, accessToken, 10, 5000, 3000);
+      // Polling с параметрами: 10s initial, 5s interval, 40 attempts (62 дня = много данных!)
+      // Это дает OZON до 3.5 минут на генерацию отчета
+      const pollResult = await pollReportStatus(uuid, accessToken, 40, 10000, 5000);
 
       if (!pollResult.success) {
         console.error(`Polling failed for UUID ${uuid}:`, pollResult.error);
