@@ -1,11 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// VERSION: 2.9.1-debug-csv-parsing
-// - Added debug logging to understand CSV format from OZON
-// - Will show: number of columns, first 5 columns, line samples
-// - Previous: 2.9.0 fixed immediate polling
-const VERSION = "2.9.1-debug-csv-parsing";
+// VERSION: 2.9.2-auto-detect-delimiter
+// - Auto-detect CSV delimiter (tab, semicolon, comma)
+// - Counts each delimiter type and uses the most common one
+// - Should fix "got 3 columns" error
+const VERSION = "2.9.2-auto-detect-delimiter";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -126,7 +126,30 @@ async function downloadAndParseReport(
     const csvText = await reportResponse.text();
     console.error(`CSV report size: ${csvText.length} bytes`);
 
-    // Простой CSV парсер для OZON отчетов (разделитель - точка с запятой)
+    // Определяем разделитель - пробуем табуляцию, точку с запятой, запятую
+    const firstLine = csvText.split('\n')[0] || '';
+    const tabCount = (firstLine.match(/\t/g) || []).length;
+    const semicolonCount = (firstLine.match(/;/g) || []).length;
+    const commaCount = (firstLine.match(/,/g) || []).length;
+
+    console.error(`First line delimiter counts: tabs=${tabCount}, semicolons=${semicolonCount}, commas=${commaCount}`);
+
+    // Выбираем разделитель с максимальным количеством
+    let delimiter = ';';
+    let maxCount = semicolonCount;
+
+    if (tabCount > maxCount) {
+      delimiter = '\t';
+      maxCount = tabCount;
+    }
+    if (commaCount > maxCount) {
+      delimiter = ',';
+      maxCount = commaCount;
+    }
+
+    console.error(`Using delimiter: ${delimiter === '\t' ? 'TAB' : delimiter} (count: ${maxCount})`);
+
+    // Простой CSV парсер для OZON отчетов
     const lines = csvText.split('\n').filter(line => line.trim());
 
     console.error(`CSV has ${lines.length} lines`);
@@ -156,8 +179,8 @@ async function downloadAndParseReport(
         continue;
       }
 
-      // Разбираем по точке с запятой
-      const columns = line.split(';').map(col => col.trim());
+      // Разбираем по выбранному разделителю
+      const columns = line.split(delimiter).map(col => col.trim());
 
       console.error(`CSV line has ${columns.length} columns. First 5: ${columns.slice(0, 5).join(' | ')}`);
 
