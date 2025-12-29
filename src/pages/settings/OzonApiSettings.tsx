@@ -56,6 +56,46 @@ export const OzonApiSettings = () => {
     }
   }, [selectedMarketplaceId]);
 
+  // Автоматический polling статуса синхронизации каждые 3 секунды
+  // Показывает прогресс даже если пользователь не нажимал кнопки (автосинк, CRON)
+  useEffect(() => {
+    if (!selectedMarketplaceId) return;
+
+    const checkSyncStatus = async () => {
+      const { data, error } = await supabase
+        .from("ozon_sync_history")
+        .select("*")
+        .eq("marketplace_id", selectedMarketplaceId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!error && data) {
+        if (data.status === "in_progress") {
+          setIsSyncing(true);
+          const metadata = data.metadata as any;
+          const step = metadata?.current_step || "Синхронизация в процессе...";
+          const rowsCollected = metadata?.rows_collected || 0;
+          setSyncStatus(`${step} (собрано ${rowsCollected} записей)`);
+        } else if (data.status === "completed") {
+          setIsSyncing(false);
+          setSyncStatus(`Завершено: ${data.rows_inserted || 0} записей за период ${data.period_from} - ${data.period_to}`);
+        } else if (data.status === "failed" || data.status === "timeout") {
+          setIsSyncing(false);
+          setSyncStatus(`Ошибка: ${data.error_message || data.status}`);
+        }
+      }
+    };
+
+    // Проверяем сразу при загрузке
+    checkSyncStatus();
+
+    // Запускаем polling каждые 3 секунды
+    const interval = setInterval(checkSyncStatus, 3000);
+
+    return () => clearInterval(interval);
+  }, [selectedMarketplaceId]);
+
   const loadMarketplaces = async () => {
     const { data, error } = await supabase
       .from("marketplaces")
@@ -215,36 +255,44 @@ export const OzonApiSettings = () => {
     }
 
     setIsSyncing(true);
-    setSyncStatus("Синхронизация данных...");
+    const periodText = days === 7 ? '7 дней' : '62 дней (2 месяца)';
+    setSyncStatus(`Запуск синхронизации за ${periodText}...`);
 
     try {
-      const endDate = new Date();
-      const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
+      let body: any = {
+        marketplace_id: selectedMarketplaceId,
+      };
+
+      if (days === 62) {
+        // Полная синхронизация за 62 дня - используем sync_period='weekly'
+        body.sync_period = 'weekly';
+      } else {
+        // Синхронизация за 7 дней - используем кастомный период
+        const endDate = new Date();
+        const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
+        body.start_date = startDate.toISOString().split("T")[0];
+        body.end_date = endDate.toISOString().split("T")[0];
+      }
 
       const { data, error } = await supabase.functions.invoke("sync-ozon-performance", {
-        body: {
-          marketplace_id: selectedMarketplaceId,
-          start_date: startDate.toISOString().split("T")[0],
-          end_date: endDate.toISOString().split("T")[0],
-        },
+        body,
       });
 
       if (error) throw error;
 
-      setSyncStatus(`Синхронизировано ${data.inserted || 0} записей за период ${data.period?.from} - ${data.period?.to}`);
+      // НЕ сбрасываем isSyncing здесь - пусть polling обнаружит завершение
       toast({
-        title: "Успешно",
-        description: `Синхронизировано ${data.inserted || 0} записей`,
+        title: "Синхронизация запущена",
+        description: `Синхронизация за ${periodText} выполняется. Следите за прогрессом на экране.`,
       });
     } catch (error: any) {
-      setSyncStatus("Ошибка синхронизации");
+      setIsSyncing(false);
+      setSyncStatus("Ошибка запуска синхронизации");
       toast({
         title: "Ошибка",
-        description: error.message || "Не удалось синхронизировать данные",
+        description: error.message || "Не удалось запустить синхронизацию",
         variant: "destructive",
       });
-    } finally {
-      setIsSyncing(false);
     }
   };
 
@@ -442,9 +490,37 @@ export const OzonApiSettings = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {syncStatus && (
+            {/* Постоянная карточка прогресса - видна ВСЕГДА когда идет синхронизация */}
+            {isSyncing && (
+              <Card className="border-blue-500 bg-blue-50 dark:bg-blue-950">
+                <CardContent className="pt-6">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <RefreshCw className="h-5 w-5 animate-spin text-blue-600" />
+                      <div className="flex-1">
+                        <p className="font-medium text-blue-900 dark:text-blue-100">
+                          Синхронизация выполняется
+                        </p>
+                        <p className="text-sm text-blue-700 dark:text-blue-300">
+                          {syncStatus || 'Загрузка данных из OZON...'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-2.5">
+                      <div className="bg-blue-600 h-2.5 rounded-full animate-pulse" style={{ width: '100%' }}></div>
+                    </div>
+                    <p className="text-xs text-blue-600 dark:text-blue-400">
+                      Синхронизация может занять 5-10 минут для большого объема данных. Не закрывайте страницу.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Статус последней синхронизации (когда НЕ идет) */}
+            {!isSyncing && syncStatus && (
               <Alert>
-                <AlertCircle className="h-4 w-4" />
+                <CheckCircle2 className="h-4 w-4" />
                 <AlertDescription>{syncStatus}</AlertDescription>
               </Alert>
             )}
