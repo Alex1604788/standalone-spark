@@ -47,3 +47,6 @@ verify_jwt = false
 
 [functions.auto-generate-drafts-cron]
 verify_jwt = false
+
+[functions.sync-ozon-performance]
+verify_jwt = false
