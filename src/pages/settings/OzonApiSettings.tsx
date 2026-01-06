@@ -398,10 +398,10 @@ export const OzonApiSettings = () => {
 
               {/* Auto Sync */}
               <div className="flex items-center justify-between space-x-2 border rounded-lg p-4">
-                <div className="space-y-0.5">
+                <div className="space-y-0.5 flex-1">
                   <Label htmlFor="auto_sync">Автоматическая синхронизация</Label>
                   <p className="text-sm text-muted-foreground">
-                    Включить автоматическое получение данных по расписанию
+                    Синхронизация за последние 7 дней, выполняется раз в сутки в 02:00 UTC
                   </p>
                 </div>
                 <Switch
@@ -411,26 +411,6 @@ export const OzonApiSettings = () => {
                   disabled={isLoading}
                 />
               </div>
-
-              {/* Sync Frequency */}
-              {formData.auto_sync_enabled && (
-                <div className="space-y-2">
-                  <Label>Частота синхронизации</Label>
-                  <Select
-                    value={formData.sync_frequency}
-                    onValueChange={(value) => setFormData({ ...formData, sync_frequency: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="hourly">Каждый час</SelectItem>
-                      <SelectItem value="daily">Ежедневно</SelectItem>
-                      <SelectItem value="weekly">Еженедельно</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
 
               {/* Status */}
               {credentials && (
