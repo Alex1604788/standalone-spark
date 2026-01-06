@@ -79,6 +79,34 @@ interface CampaignInfo {
   state: string; // CAMPAIGN_STATE_RUNNING, CAMPAIGN_STATE_STOPPED, CAMPAIGN_STATE_ARCHIVED, CAMPAIGN_STATE_ENDED
 }
 
+// Вспомогательная функция для retry HTTP запросов с exponential backoff
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries: number = 3,
+  initialDelay: number = 1000
+): Promise<Response> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      return response; // Success!
+    } catch (error: any) {
+      lastError = error;
+      console.error(`Fetch attempt ${attempt}/${maxRetries} failed:`, error.message);
+
+      if (attempt < maxRetries) {
+        const delay = initialDelay * Math.pow(2, attempt - 1); // Exponential backoff
+        console.error(`Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  throw new Error(`Failed after ${maxRetries} retries: ${lastError?.message}`);
+}
+
 // Вспомогательная функция для polling статуса отчета
 async function pollReportStatus(
   uuid: string,
@@ -646,21 +674,28 @@ serve(async (req) => {
       for (const campaign of chunk) {
         console.error(`Requesting individual report for campaign: ${campaign.name} (ID: ${campaign.id})`);
 
-        const reportRequest = await fetch("https://api-performance.ozon.ru:443/api/client/statistics", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({
-            campaigns: [campaign.id],  // Single campaign only! Not array of all campaigns
-            from: periodStart.toISOString(),
-            to: periodEnd.toISOString(),
-            groupBy: "DATE",
-          }),
-          redirect: "follow",
-        });
+        let reportRequest: Response;
+        try {
+          reportRequest = await fetchWithRetry("https://api-performance.ozon.ru:443/api/client/statistics", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Accept": "application/json",
+              "Authorization": `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+              campaigns: [campaign.id],  // Single campaign only! Not array of all campaigns
+              from: periodStart.toISOString(),
+              to: periodEnd.toISOString(),
+              groupBy: "DATE",
+            }),
+            redirect: "follow",
+          }, 3, 2000); // 3 retries, 2s initial delay
+        } catch (error: any) {
+          console.error(`Failed to request report for campaign ${campaign.name} after retries:`, error.message);
+          failedCampaigns.push({name: campaign.name, id: campaign.id, reason: `Connection error: ${error.message}`});
+          continue;  // Skip this campaign, continue with next one
+        }
 
         if (!reportRequest.ok) {
           const errorText = await reportRequest.text();
