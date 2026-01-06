@@ -1,30 +1,33 @@
 /**
  * OZON Performance API Sync Function
- * Version: 2.7.0-extended-period
- * Date: 2025-12-28
+ * Version: 3.0.0-auto-continue
+ * Date: 2026-01-06
  *
  * Key features:
+ * - AUTO-CONTINUE CHAIN: Full sync (62 days) processes ALL campaigns via self-invoking chain
+ * - FULL SYNC: Processes 24 campaigns per invocation, then auto-calls next batch
+ * - DAILY SYNC: Auto-sync every 24 hours for last 7 days (all campaigns, faster period)
  * - ZIP archive extraction support (in-memory using JSZip)
  * - Individual report requests per campaign (not batch!) - Fixes duplicate key violations
- * - AUTOMATIC: Processes ALL campaigns automatically (all ~46 active campaigns in one run)
- * - campaign_offset parameter optional - only needed to continue from specific position
  * - INCREMENTAL SAVE: Each campaign's data is saved IMMEDIATELY after processing (survives Edge Function timeout)
  * - BATCHED UPSERT: Large campaigns (>50 records) split into batches to prevent PostgreSQL statement timeout
- * - EXTENDED PERIOD: Default sync period is 62 days (2 months) for complete analytics
  * - Deduplicates cumulative snapshots - keeps last row (end-of-day data at 00:00 MSK)
- * - Async report generation with UUID polling (40 attempts, ~3.5min timeout)
+ * - Async report generation with UUID polling (15 attempts, ~75sec timeout per campaign)
  * - Sync history tracking for partial sync support
  * - All OZON endpoints use redirect: "follow" for 307 redirects
  * - Proper campaign_id extraction from reports
  * - Fixed: add_to_cart now uses parseInt for INTEGER column compatibility
- * - Fixed: Increased polling timeout for large reports (30+ campaigns)
  * - Fixed: Request individual reports per campaign to avoid OZON returning same data for all
  * - Fixed: Use UUID instead of pollResult.link to avoid double URL construction
  * - Fixed: Deduplicate rows within CSV - OZON returns cumulative snapshots, we keep the last one
  * - Fixed: CSV column mapping - first column is DATE, not SKU! Updated destructuring to match actual OZON CSV structure
  * - Filter: Process RUNNING + STOPPED campaigns (exclude only ARCHIVED + ENDED) - captures historical data from recently stopped campaigns
  * - Chunk size: 8 campaigns per chunk for optimal performance
- * - FIXED: Automatic processing of ALL chunks - no manual offset management needed!
+ *
+ * Sync modes:
+ * - 'full': 62 days, max 24 campaigns per call, auto-continues until all done
+ * - 'daily': 7 days, all campaigns (faster due to shorter period)
+ * - 'custom': manual period via start_date/end_date
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -386,20 +389,29 @@ serve(async (req) => {
     let periodStart: Date;
     let periodEnd: Date = new Date();
     let triggerType: string = 'manual';
+    let maxCampaignsPerRun: number | null = null; // null = без ограничений
 
     if (sync_period === 'daily') {
-      // Последние 3 дня
-      periodStart = new Date(periodEnd.getTime() - 3 * 24 * 60 * 60 * 1000);
+      // Ежедневная синхронизация: последние 7 дней, все кампании
+      periodStart = new Date(periodEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
       triggerType = 'cron_daily';
+      maxCampaignsPerRun = null; // Обрабатываем все кампании (короткий период = быстрее)
+    } else if (sync_period === 'full') {
+      // Полная синхронизация: 62 дня, с auto-continue chain
+      periodStart = new Date(periodEnd.getTime() - 62 * 24 * 60 * 60 * 1000);
+      triggerType = 'manual_full';
+      maxCampaignsPerRun = 24; // Ограничиваем до 24 кампаний (3 чанка × 8), затем auto-continue
     } else if (sync_period === 'weekly') {
-      // Последние 62 дня (2 месяца) для полной аналитики
+      // Legacy: weekly sync (deprecated, используйте 'full' вместо этого)
       periodStart = new Date(periodEnd.getTime() - 62 * 24 * 60 * 60 * 1000);
       triggerType = 'cron_weekly';
+      maxCampaignsPerRun = null;
     } else {
       // Кастомный период (по умолчанию 62 дня если не указано)
       periodEnd = end_date ? new Date(end_date) : periodEnd;
       periodStart = start_date ? new Date(start_date) : new Date(periodEnd.getTime() - 62 * 24 * 60 * 60 * 1000);
       triggerType = 'manual';
+      maxCampaignsPerRun = null;
     }
 
     const formatDate = (date: Date) => date.toISOString().split('T')[0];
@@ -501,8 +513,8 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "2.7.0-extended-period",
-          build_date: "2025-12-28"
+          version: "3.0.0-auto-continue",
+          build_date: "2026-01-06"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -579,13 +591,23 @@ serve(async (req) => {
 
     let allStats: OzonPerformanceStats[] = [];
 
-    // АВТОМАТИЧЕСКАЯ ОБРАБОТКА: Обрабатываем ВСЕ чанки начиная с campaign_offset
-    // По умолчанию campaign_offset=0 → обрабатываем все кампании автоматически
-    // Если указан offset → продолжаем с этого места (полезно если предыдущий запуск не завершился)
+    // АВТОМАТИЧЕСКАЯ ОБРАБОТКА: Обрабатываем чанки начиная с campaign_offset
+    // Для 'full' режима: ограничиваем до maxCampaignsPerRun кампаний за один вызов
+    // Для остальных режимов: обрабатываем все кампании
     const startChunkIndex = Math.floor(campaign_offset / chunkSize);
-    const chunksToProcess = startChunkIndex < campaignChunks.length
-      ? campaignChunks.slice(startChunkIndex)  // Все чанки начиная с startChunkIndex
-      : [];
+
+    let chunksToProcess = [];
+    if (startChunkIndex < campaignChunks.length) {
+      if (maxCampaignsPerRun !== null) {
+        // Ограниченный режим (full sync): берём только N кампаний
+        const maxChunks = Math.ceil(maxCampaignsPerRun / chunkSize);
+        const endChunkIndex = Math.min(startChunkIndex + maxChunks, campaignChunks.length);
+        chunksToProcess = campaignChunks.slice(startChunkIndex, endChunkIndex);
+      } else {
+        // Неограниченный режим (daily, weekly, custom): все оставшиеся чанки
+        chunksToProcess = campaignChunks.slice(startChunkIndex);
+      }
+    }
 
     if (chunksToProcess.length === 0) {
       console.error(`⚠️  campaign_offset=${campaign_offset} exceeds total campaigns (${campaigns.length}). No campaigns to process.`);
@@ -776,13 +798,19 @@ serve(async (req) => {
       });
     }
 
+    // Проверяем, нужно ли автоматически продолжить синхронизацию
+    const nextCampaignOffset = campaign_offset + chunksToProcess.length * chunkSize;
+    const hasMoreCampaigns = nextCampaignOffset < campaigns.length;
+    const shouldAutoContinue = hasMoreCampaigns && sync_period === 'full';
+
     // Обновляем историю
+    const finalStatus = shouldAutoContinue ? 'in_progress' : 'completed';
     if (syncId) {
       await supabaseClient
         .from("ozon_sync_history")
         .update({
-          status: 'completed',
-          completed_at: new Date().toISOString(),
+          status: finalStatus,
+          completed_at: shouldAutoContinue ? null : new Date().toISOString(),
           campaigns_count: campaigns.length,
           chunks_count: chunksToProcess.length,
           rows_inserted: allStats.length,  // Общее количество строк (до дедупликации на уровне кампаний)
@@ -792,17 +820,53 @@ serve(async (req) => {
             processed_campaigns: processedCampaigns.length,
             failed_campaigns: failedCampaigns.length,
             failed_campaign_names: failedCampaigns.map(fc => fc.name),
+            current_offset: nextCampaignOffset,
+            has_more: hasMoreCampaigns,
+            auto_continue: shouldAutoContinue,
           },
         })
         .eq("id", syncId);
     }
 
+    // AUTO-CONTINUE: Если есть ещё кампании и режим 'full', запускаем следующий batch
+    if (shouldAutoContinue) {
+      console.error(`\n🔄 AUTO-CONTINUE: Triggering next batch (offset ${nextCampaignOffset} of ${campaigns.length})`);
+
+      // Асинхронный вызов следующего batch (не ждём ответа)
+      const nextBatchPayload = {
+        marketplace_id,
+        sync_period: 'full',
+        campaign_offset: nextCampaignOffset,
+        start_date: formatDate(periodStart),
+        end_date: formatDate(periodEnd),
+      };
+
+      // Вызываем функцию саму себя через HTTP
+      const functionUrl = Deno.env.get("SUPABASE_URL") + "/functions/v1/sync-ozon-performance";
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+      fetch(functionUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${serviceKey}`,
+        },
+        body: JSON.stringify(nextBatchPayload),
+      }).catch(err => {
+        console.error("Failed to trigger next batch:", err);
+      });
+
+      console.error(`✅ Next batch triggered asynchronously`);
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
-        message: failedCampaigns.length > 0
-          ? `Synchronization completed with ${failedCampaigns.length} failed campaigns. Data saved incrementally.`
-          : "Synchronization completed successfully. All data saved.",
+        message: shouldAutoContinue
+          ? `Batch completed. Processing ${nextCampaignOffset}/${campaigns.length} campaigns. Auto-continuing...`
+          : failedCampaigns.length > 0
+            ? `Synchronization completed with ${failedCampaigns.length} failed campaigns. Data saved incrementally.`
+            : "Synchronization completed successfully. All data saved.",
         period: { from: formatDate(periodStart), to: formatDate(periodEnd) },
         total_campaigns: campaigns.length,
         processed_campaigns: processedCampaigns.length,
@@ -810,10 +874,14 @@ serve(async (req) => {
         failed_campaign_details: failedCampaigns,
         chunks_processed: chunksToProcess.length,
         rows_collected: allStats.length,  // Общее количество обработанных строк
+        current_offset: nextCampaignOffset,
+        has_more: hasMoreCampaigns,
+        auto_continue: shouldAutoContinue,
+        progress: `${nextCampaignOffset}/${campaigns.length} campaigns (${Math.round(nextCampaignOffset / campaigns.length * 100)}%)`,
         note: "Data is saved incrementally after each campaign (survives Edge Function timeout)",
         sync_id: syncId,
-        version: "2.7.0-extended-period",
-        build_date: "2025-12-28",
+        version: "3.0.0-auto-continue",
+        build_date: "2026-01-06",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -830,8 +898,8 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "2.7.0-extended-period",
-        build_date: "2025-12-28",
+        version: "3.0.0-auto-continue",
+        build_date: "2026-01-06",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

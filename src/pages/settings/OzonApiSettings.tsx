@@ -44,6 +44,7 @@ export const OzonApiSettings = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [lastFullSync, setLastFullSync] = useState<{period: string, date: string, progress: string} | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -71,15 +72,38 @@ export const OzonApiSettings = () => {
         .single();
 
       if (!error && data) {
+        const metadata = data.metadata as any;
+        const syncPeriod = metadata?.sync_period;
+
         if (data.status === "in_progress") {
           setIsSyncing(true);
-          const metadata = data.metadata as any;
-          const step = metadata?.current_step || "Синхронизация в процессе...";
-          const rowsCollected = metadata?.rows_collected || 0;
-          setSyncStatus(`${step} (собрано ${rowsCollected} записей)`);
+
+          // Для full sync показываем прогресс с auto-continue
+          if (syncPeriod === 'full' && metadata?.current_offset !== undefined && metadata?.total_campaigns) {
+            const progress = metadata.progress || `${metadata.current_offset}/${metadata.total_campaigns} кампаний`;
+            setSyncStatus(`Полная синхронизация: ${progress}`);
+            setLastFullSync({
+              period: `${data.period_from} - ${data.period_to}`,
+              date: new Date(data.started_at).toLocaleDateString('ru-RU'),
+              progress: progress,
+            });
+          } else {
+            const step = metadata?.current_step || "Синхронизация в процессе...";
+            const rowsCollected = metadata?.rows_collected || 0;
+            setSyncStatus(`${step} (собрано ${rowsCollected} записей)`);
+          }
         } else if (data.status === "completed") {
           setIsSyncing(false);
           setSyncStatus(`Завершено: ${data.rows_inserted || 0} записей за период ${data.period_from} - ${data.period_to}`);
+
+          // Обновляем статус последней полной синхронизации
+          if (syncPeriod === 'full' || data.trigger_type === 'manual_full') {
+            setLastFullSync({
+              period: `${data.period_from} - ${data.period_to}`,
+              date: new Date(data.completed_at || data.started_at).toLocaleDateString('ru-RU'),
+              progress: '100% завершена',
+            });
+          }
         } else if (data.status === "failed" || data.status === "timeout") {
           setIsSyncing(false);
           setSyncStatus(`Ошибка: ${data.error_message || data.status}`);
@@ -244,7 +268,7 @@ export const OzonApiSettings = () => {
     }
   };
 
-  const handleSyncData = async (days: number = 7) => {
+  const handleSyncData = async (syncType: 'full' | 'daily' = 'daily') => {
     if (!selectedMarketplaceId || !credentials) {
       toast({
         title: "Ошибка",
@@ -255,24 +279,14 @@ export const OzonApiSettings = () => {
     }
 
     setIsSyncing(true);
-    const periodText = days === 7 ? '7 дней' : '62 дней (2 месяца)';
+    const periodText = syncType === 'full' ? '62 дней (полная)' : '7 дней (ежедневная)';
     setSyncStatus(`Запуск синхронизации за ${periodText}...`);
 
     try {
-      let body: any = {
+      const body: any = {
         marketplace_id: selectedMarketplaceId,
+        sync_period: syncType, // 'full' или 'daily'
       };
-
-      if (days === 62) {
-        // Полная синхронизация за 62 дня - используем sync_period='weekly'
-        body.sync_period = 'weekly';
-      } else {
-        // Синхронизация за 7 дней - используем кастомный период
-        const endDate = new Date();
-        const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
-        body.start_date = startDate.toISOString().split("T")[0];
-        body.end_date = endDate.toISOString().split("T")[0];
-      }
 
       const { data, error } = await supabase.functions.invoke("sync-ozon-performance", {
         body,
@@ -281,9 +295,13 @@ export const OzonApiSettings = () => {
       if (error) throw error;
 
       // НЕ сбрасываем isSyncing здесь - пусть polling обнаружит завершение
+      const description = syncType === 'full'
+        ? 'Полная синхронизация за 62 дня запущена. Она будет автоматически продолжаться пакетами по 24 кампании. Следите за прогрессом на экране.'
+        : 'Синхронизация за 7 дней выполняется. Следите за прогрессом на экране.';
+
       toast({
         title: "Синхронизация запущена",
-        description: `Синхронизация за ${periodText} выполняется. Следите за прогрессом на экране.`,
+        description,
       });
     } catch (error: any) {
       setIsSyncing(false);
@@ -525,26 +543,80 @@ export const OzonApiSettings = () => {
               </Alert>
             )}
 
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">Выберите период для синхронизации:</p>
-              <div className="flex gap-3 flex-wrap">
-                <Button onClick={() => handleSyncData(7)} disabled={isSyncing} variant="outline">
+            {/* Полная синхронизация (62 дня) */}
+            <div className="space-y-3 p-4 border rounded-lg bg-blue-50 dark:bg-blue-950">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-medium">Полная синхронизация (62 дня)</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Загружает ВСЕ данные за 62 дня по всем кампаниям (RUNNING + STOPPED)
+                  </p>
+                  {lastFullSync && (
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      <p>Последняя: {lastFullSync.date}, период: {lastFullSync.period}</p>
+                      <p>Статус: {lastFullSync.progress}</p>
+                    </div>
+                  )}
+                </div>
+                <Button onClick={() => handleSyncData('full')} disabled={isSyncing} size="lg">
                   {isSyncing ? (
                     <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
                     <RefreshCw className="w-4 h-4 mr-2" />
                   )}
-                  За 7 дней
-                </Button>
-                <Button onClick={() => handleSyncData(62)} disabled={isSyncing} variant="outline">
-                  {isSyncing ? (
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                  )}
-                  За 62 дня
+                  Запустить
                 </Button>
               </div>
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  Автоматически продолжается пакетами по 24 кампании. Может занять 30-60 минут для 351 кампании.
+                </AlertDescription>
+              </Alert>
+            </div>
+
+            {/* Автоматическая ежедневная синхронизация */}
+            <div className="space-y-3 p-4 border rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-medium">Автоматическая синхронизация (7 дней)</h4>
+                    <Badge variant={formData.auto_sync_enabled ? "default" : "secondary"}>
+                      {formData.auto_sync_enabled ? "Включена" : "Отключена"}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Запускается раз в сутки, синхронизирует последние 7 дней
+                  </p>
+                </div>
+                <Switch
+                  checked={formData.auto_sync_enabled}
+                  onCheckedChange={(checked) => {
+                    setFormData(prev => ({ ...prev, auto_sync_enabled: checked }));
+                  }}
+                />
+              </div>
+              {formData.auto_sync_enabled && (
+                <Alert>
+                  <CheckCircle2 className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    Синхронизация выполняется автоматически каждые 24 часа в 02:00 по UTC.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+
+            {/* Ручная синхронизация за 7 дней */}
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Или запустите синхронизацию вручную:</p>
+              <Button onClick={() => handleSyncData('daily')} disabled={isSyncing} variant="outline">
+                {isSyncing ? (
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                )}
+                Синхронизировать за 7 дней
+              </Button>
             </div>
 
             <Alert>
