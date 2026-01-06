@@ -44,6 +44,7 @@ export const OzonApiSettings = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [syncProgress, setSyncProgress] = useState<number>(0); // Процент прогресса 0-100
   const [lastFullSync, setLastFullSync] = useState<{period: string, date: string, progress: string} | null>(null);
   const { toast } = useToast();
 
@@ -80,20 +81,26 @@ export const OzonApiSettings = () => {
 
           // Для full sync показываем прогресс с auto-continue
           if (syncPeriod === 'full' && metadata?.current_offset !== undefined && metadata?.total_campaigns) {
-            const progress = metadata.progress || `${metadata.current_offset}/${metadata.total_campaigns} кампаний`;
-            setSyncStatus(`Полная синхронизация: ${progress}`);
+            const currentOffset = metadata.current_offset || 0;
+            const totalCampaigns = metadata.total_campaigns || 1;
+            const progressPercent = Math.round((currentOffset / totalCampaigns) * 100);
+
+            setSyncProgress(progressPercent);
+            setSyncStatus(`Полная синхронизация: ${currentOffset}/${totalCampaigns} кампаний (${progressPercent}%)`);
             setLastFullSync({
               period: `${data.period_from} - ${data.period_to}`,
               date: new Date(data.started_at).toLocaleDateString('ru-RU'),
-              progress: progress,
+              progress: `${progressPercent}%`,
             });
           } else {
             const step = metadata?.current_step || "Синхронизация в процессе...";
             const rowsCollected = metadata?.rows_collected || 0;
+            setSyncProgress(50); // Неопределённый прогресс - показываем 50%
             setSyncStatus(`${step} (собрано ${rowsCollected} записей)`);
           }
         } else if (data.status === "completed") {
           setIsSyncing(false);
+          setSyncProgress(100);
           setSyncStatus(`Завершено: ${data.rows_inserted || 0} записей за период ${data.period_from} - ${data.period_to}`);
 
           // Обновляем статус последней полной синхронизации
@@ -106,6 +113,7 @@ export const OzonApiSettings = () => {
           }
         } else if (data.status === "failed" || data.status === "timeout") {
           setIsSyncing(false);
+          setSyncProgress(0);
           setSyncStatus(`Ошибка: ${data.error_message || data.status}`);
         }
       }
@@ -505,10 +513,13 @@ export const OzonApiSettings = () => {
                       </div>
                     </div>
                     <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-2.5">
-                      <div className="bg-blue-600 h-2.5 rounded-full animate-pulse" style={{ width: '100%' }}></div>
+                      <div
+                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-500"
+                        style={{ width: `${syncProgress}%` }}
+                      ></div>
                     </div>
                     <p className="text-xs text-blue-600 dark:text-blue-400">
-                      Синхронизация может занять 5-10 минут для большого объема данных. Не закрывайте страницу.
+                      {syncProgress}% завершено. Синхронизация может занять несколько минут. Не закрывайте страницу.
                     </p>
                   </div>
                 </CardContent>
