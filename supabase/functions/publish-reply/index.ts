@@ -50,26 +50,65 @@ Deno.serve(async (req) => {
       throw new Error("Marketplace not found");
     }
 
-    // === ИСПРАВЛЕНИЕ ДЛЯ OZON ===
-    // Если это Ozon, мы НЕ публикуем с сервера.
-    // Мы переводим статус в 'scheduled', чтобы расширение забрало ответ.
+    // === OZON LOGIC: API or Plugin ===
     if (marketplace.type === "ozon") {
-      console.log("Ozon reply detected. Queuing for Extension...");
+      console.log("[publish-reply] OZON marketplace detected");
 
-      await supabase
-        .from("replies")
-        .update({
-          status: "scheduled", // Ставим в очередь для расширения
-          scheduled_at: new Date().toISOString(),
-          error_message: null, // Очищаем старые ошибки
-          retry_count: 0,
-        })
-        .eq("id", reply_id);
+      // Check sync mode: 'api' (Premium Plus) or 'plugin' (fallback)
+      const { data: syncMode } = await supabase
+        .rpc('get_marketplace_sync_mode', { p_marketplace_id: marketplace.id });
 
-      // Возвращаем успех, так как задача успешно поставлена в очередь
-      return new Response(JSON.stringify({ success: true, mode: "queued_for_extension" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      console.log(`[publish-reply] OZON sync_mode: ${syncMode}`);
+
+      if (syncMode === 'api') {
+        // PREMIUM PLUS: Publish via OZON API
+        console.log("[publish-reply] Using OZON API for publishing");
+
+        // Get API credentials
+        const { data: credentials } = await supabase
+          .rpc('get_api_credentials', {
+            p_marketplace_id: marketplace.id,
+            p_api_type: 'seller'
+          });
+
+        if (!credentials || credentials.length === 0) {
+          console.error("[publish-reply] API credentials not found, falling back to plugin");
+          // Fall back to plugin if no credentials
+          await supabase
+            .from("replies")
+            .update({
+              status: "scheduled",
+              scheduled_at: new Date().toISOString(),
+              error_message: null,
+              retry_count: 0,
+            })
+            .eq("id", reply_id);
+
+          return new Response(JSON.stringify({ success: true, mode: "queued_for_extension" }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        // Proceed with API publishing (handled below with other marketplaces)
+        console.log("[publish-reply] API credentials found, proceeding with API publish");
+      } else {
+        // NO PREMIUM: Queue for plugin
+        console.log("[publish-reply] Using plugin mode, queuing for extension");
+
+        await supabase
+          .from("replies")
+          .update({
+            status: "scheduled",
+            scheduled_at: new Date().toISOString(),
+            error_message: null,
+            retry_count: 0,
+          })
+          .eq("id", reply_id);
+
+        return new Response(JSON.stringify({ success: true, mode: "queued_for_extension" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
     // =============================
 
@@ -90,6 +129,45 @@ Deno.serve(async (req) => {
 
     try {
       switch (marketplace.type) {
+        case "ozon":
+          // Get API credentials for OZON
+          const { data: ozonCreds } = await supabase
+            .rpc('get_api_credentials', {
+              p_marketplace_id: marketplace.id,
+              p_api_type: 'seller'
+            });
+
+          if (!ozonCreds || ozonCreds.length === 0) {
+            throw new Error("OZON API credentials not found");
+          }
+
+          const cred = ozonCreds[0];
+
+          // Get product SKU for OZON API
+          const product = reply.review?.product || reply.question?.product;
+          if (!product || !product.sku) {
+            throw new Error("Product SKU not found for OZON API");
+          }
+
+          if (reply.review_id) {
+            // Publish review comment
+            success = await publishToOzonReview(
+              cred.client_id,
+              cred.client_secret,
+              externalId,
+              reply.content,
+            );
+          } else if (reply.question_id) {
+            // Publish question answer
+            success = await publishToOzonQuestion(
+              cred.client_id,
+              cred.client_secret,
+              externalId,
+              product.sku,
+              reply.content,
+            );
+          }
+          break;
         case "wildberries":
           success = await publishToWildberries(
             marketplace.api_key_encrypted,
@@ -242,5 +320,71 @@ async function publishToYandexMarket(
     console.error("Yandex Market API error:", response.status, errorText);
     throw new Error(`Yandex Market API error: ${response.status}`);
   }
+  return true;
+}
+
+async function publishToOzonReview(
+  clientId: string,
+  apiKey: string,
+  reviewId: string,
+  content: string,
+): Promise<boolean> {
+  console.log("[publish-reply] Publishing to OZON review:", { reviewId });
+
+  const response = await fetch("https://api-seller.ozon.ru/v1/review/comment/create", {
+    method: "POST",
+    headers: {
+      "Client-Id": clientId,
+      "Api-Key": apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      review_id: reviewId,
+      text: content,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("[publish-reply] OZON review API error:", response.status, errorText);
+    throw new Error(`OZON review API error: ${response.status}`);
+  }
+
+  const result = await response.json();
+  console.log("[publish-reply] OZON review published successfully:", result);
+  return true;
+}
+
+async function publishToOzonQuestion(
+  clientId: string,
+  apiKey: string,
+  questionId: string,
+  sku: string,
+  content: string,
+): Promise<boolean> {
+  console.log("[publish-reply] Publishing to OZON question:", { questionId, sku });
+
+  const response = await fetch("https://api-seller.ozon.ru/v1/question/answer/create", {
+    method: "POST",
+    headers: {
+      "Client-Id": clientId,
+      "Api-Key": apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      question_id: questionId,
+      sku: parseInt(sku, 10),
+      text: content,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("[publish-reply] OZON question API error:", response.status, errorText);
+    throw new Error(`OZON question API error: ${response.status}`);
+  }
+
+  const result = await response.json();
+  console.log("[publish-reply] OZON question answered successfully:", result);
   return true;
 }
