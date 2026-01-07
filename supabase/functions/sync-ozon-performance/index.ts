@@ -390,7 +390,7 @@ Deno.serve(async (req) => {
           Accept: "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ campaigns: chunk, from: periodStart.toISOString(), to: periodEnd.toISOString(), groupBy: "DATE" }),
+        body: JSON.stringify({ campaigns: chunk, from: formatDate(periodStart), to: formatDate(periodEnd), groupBy: "DATE" }),
         redirect: "follow",
       }).catch((err) => {
         throw new Error(`Failed to request report: ${err.message}`);
