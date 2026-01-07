@@ -2,6 +2,7 @@
  * OZON Performance API Sync Function
  * Version: 3.0.6-auto-continue-fix
  * Date: 2026-01-07
+ * Deployment: Force re-deploy to production
  *
  * FIXES:
  * - Auto-continue теперь завершает предыдущую sync_history запись (не накапливает in_progress)
