@@ -3,7 +3,6 @@ name: Deploy Supabase Edge Functions
 on:
   push:
     branches:
-      - main
       - claude/**
     paths:
       - 'supabase/functions/**'
