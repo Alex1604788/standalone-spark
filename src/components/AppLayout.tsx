@@ -27,6 +27,7 @@ import {
   Tag,
   Users,
   Settings as SettingsIcon,
+  MessageCircle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -53,6 +54,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
   const [archivedReviewsCount, setArchivedReviewsCount] = useState(0);
   const [unansweredQuestionsCount, setUnansweredQuestionsCount] = useState(0);
   const [archivedQuestionsCount, setArchivedQuestionsCount] = useState(0);
+  const [unreadChatsCount, setUnreadChatsCount] = useState(0);
 
   useEffect(() => {
     // Автоматически открываем раздел аналитики, если мы на странице аналитики
@@ -160,6 +162,16 @@ const AppLayout = ({ children }: AppLayoutProps) => {
 
     setUnansweredQuestionsCount(unansweredQuestions || 0);
     setArchivedQuestionsCount(archivedQuestions || 0);
+
+    // Счётчик чатов с непрочитанными сообщениями
+    const { count: unreadChats } = await supabase
+      .from("chats")
+      .select("*", { count: "exact", head: true })
+      .in("marketplace_id", marketplaceIds)
+      .gt("unread_count", 0)
+      .eq("status", "active");
+
+    setUnreadChatsCount(unreadChats || 0);
   };
 
   // Основные пункты меню (без аналитики и настроек - они в Collapsible)
@@ -221,6 +233,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     // Проверяем отзывы и вопросы
     if (location.pathname.startsWith("/app/reviews")) return "Отзывы";
     if (location.pathname.startsWith("/app/questions")) return "Вопросы";
+    if (location.pathname === "/app/chats") return "Чаты";
 
     return "Аналитика";
   };
@@ -411,6 +424,27 @@ const AppLayout = ({ children }: AppLayoutProps) => {
               </Link>
             </CollapsibleContent>
           </Collapsible>
+
+          {/* Чаты */}
+          <Link
+            to="/app/chats"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className={`flex items-center justify-between gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
+              location.pathname === "/app/chats"
+                ? "bg-primary text-primary-foreground shadow-medium"
+                : "hover:bg-secondary text-foreground hover:shadow-soft"
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <MessageCircle className="w-5 h-5 flex-shrink-0" />
+              <span className="font-medium">Чаты</span>
+            </div>
+            {unreadChatsCount > 0 && (
+              <Badge variant="destructive" className="ml-auto">
+                {unreadChatsCount}
+              </Badge>
+            )}
+          </Link>
 
           {/* Настройки раздел */}
           <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
