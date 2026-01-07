@@ -212,6 +212,19 @@ serve(async (req) => {
   let supabaseClient: ReturnType<typeof createClient> | null = null;
   let syncId: number | undefined;
 
+  const markFailed = async (message: string) => {
+    if (supabaseClient && syncId) {
+      await supabaseClient
+        .from("ozon_sync_history")
+        .update({
+          status: "failed",
+          error_message: message,
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", syncId);
+    }
+  };
+
   try {
     supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -244,7 +257,7 @@ serve(async (req) => {
     const formatDate = (date: Date) => date.toISOString().split("T")[0];
 
     // Record sync start
-    const { data: syncRecord } = await supabaseClient
+    const { data: syncRecord, error: syncStartError } = await supabaseClient
       .from("ozon_sync_history")
       .insert({
         marketplace_id,
@@ -257,7 +270,11 @@ serve(async (req) => {
       .select()
       .single();
 
-    syncId = syncRecord?.id;
+    if (syncStartError || !syncRecord) {
+      return jsonResponse({ error: "Failed to start sync", details: syncStartError?.message }, 500);
+    }
+
+    syncId = syncRecord.id;
 
     // Load credentials
     const { data: creds, error: credsError } = await supabaseClient
@@ -268,6 +285,7 @@ serve(async (req) => {
       .single();
 
     if (credsError || !creds) {
+      await markFailed("API credentials not found. Please configure them first.");
       return jsonResponse({ error: "API credentials not found. Please configure them first." }, 404);
     }
 
@@ -292,6 +310,7 @@ serve(async (req) => {
       });
 
       if (tokenResponse.url && !tokenResponse.url.includes("/api/client/token")) {
+        await markFailed("Invalid credentials for OZON Performance API");
         return jsonResponse(
           {
             error: "Invalid credentials",
@@ -303,12 +322,7 @@ serve(async (req) => {
 
       if (!tokenResponse.ok) {
         const errorText = await tokenResponse.text();
-        if (syncId) {
-          await supabaseClient
-            .from("ozon_sync_history")
-            .update({ status: "failed", error_message: errorText, completed_at: new Date().toISOString() })
-            .eq("id", syncId);
-        }
+        await markFailed(errorText);
         return jsonResponse({ error: "Failed to obtain access token", details: errorText }, 401);
       }
 
@@ -342,6 +356,7 @@ serve(async (req) => {
 
     if (!campaignsResponse.ok) {
       const errorText = await campaignsResponse.text();
+      await markFailed(errorText);
       return jsonResponse(
         { error: "Failed to fetch campaigns list", status: campaignsResponse.status, details: errorText },
         campaignsResponse.status,
@@ -392,19 +407,25 @@ serve(async (req) => {
       reportRequests.push({ uuid, campaigns: chunk });
     }
 
-    // Poll and download each report sequentially to ensure clarity
-    for (const { uuid, campaigns } of reportRequests) {
-      const { success, link, error } = await pollReportStatus(uuid, accessToken as string);
-      if (!success) throw new Error(`Report generation failed (${uuid}): ${error}`);
+    // Poll and download each report in parallel to reduce total runtime
+    const reportResults = await Promise.all(
+      reportRequests.map(async ({ uuid, campaigns }) => {
+        const { success, link, error } = await pollReportStatus(uuid, accessToken as string);
+        if (!success) {
+          throw new Error(`Report generation failed (${uuid}): ${error}`);
+        }
 
-      const reportRows = await downloadAndParseReport(uuid, accessToken as string, {
-        link,
-        campaignIds: campaigns,
-        periodFrom: formatDate(periodStart),
-        periodTo: formatDate(periodEnd),
-      });
+        return downloadAndParseReport(uuid, accessToken as string, {
+          link,
+          campaignIds: campaigns,
+          periodFrom: formatDate(periodStart),
+          periodTo: formatDate(periodEnd),
+        });
+      }),
+    );
 
-      stats.push(...reportRows);
+    for (const rows of reportResults) {
+      stats.push(...rows);
     }
 
     if (stats.length === 0) {
