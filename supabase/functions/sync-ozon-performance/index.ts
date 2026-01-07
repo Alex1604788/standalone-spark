@@ -1,7 +1,11 @@
 /**
  * OZON Performance API Sync Function
- * Version: 3.0.5-ultra-small-batches
+ * Version: 3.0.6-auto-continue-fix
  * Date: 2026-01-07
+ *
+ * FIXES:
+ * - Auto-continue теперь завершает предыдущую sync_history запись (не накапливает in_progress)
+ * - Добавлен retry для OZON API лимита "Превышен лимит активных запросов" (30-60s delay)
  *
  * Key features:
  * - AUTO-CONTINUE CHAIN: Full sync (62 days) processes ALL campaigns via self-invoking chain
@@ -38,7 +42,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import JSZip from "https://esm.sh/jszip@3.10.1";
 
 // ВЕРСИЯ Edge Function - обновляется при каждом изменении
-const EDGE_FUNCTION_VERSION = "3.0.5-ultra-small-batches";
+const EDGE_FUNCTION_VERSION = "3.0.6-auto-continue-fix";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -97,7 +101,40 @@ async function fetchWithRetry(
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const response = await fetch(url, options);
-      return response; // Success!
+
+      // FIX: Проверяем OZON API лимит ("Превышен лимит активных запросов")
+      if (response.ok || response.status === 400 || response.status === 403) {
+        const responseText = await response.text();
+
+        // Проверяем, есть ли ошибка лимита OZON API
+        if (responseText.includes('Превышен лимит активных запросов') ||
+            responseText.includes('WORKER_LIMIT')) {
+          console.error(`⚠️ OZON API limit hit on attempt ${attempt}/${maxRetries}`);
+
+          if (attempt < maxRetries) {
+            // Большая задержка для OZON API (30-60 секунд)
+            const delay = 30000 + (Math.random() * 30000); // 30-60s random
+            console.error(`Waiting ${Math.round(delay/1000)}s for OZON API limit to clear...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue; // Retry
+          } else {
+            // Возвращаем response с ошибкой (caller обработает)
+            return new Response(responseText, {
+              status: response.status,
+              headers: response.headers
+            });
+          }
+        }
+
+        // Нормальный ответ - возвращаем
+        return new Response(responseText, {
+          status: response.status,
+          headers: response.headers
+        });
+      }
+
+      return response; // Другие статусы возвращаем как есть
+
     } catch (error: any) {
       lastError = error;
       console.error(`Fetch attempt ${attempt}/${maxRetries} failed:`, error.message);
@@ -853,13 +890,14 @@ serve(async (req) => {
     const shouldAutoContinue = hasMoreCampaigns && sync_period === 'full';
 
     // Обновляем историю
-    const finalStatus = shouldAutoContinue ? 'in_progress' : 'completed';
+    // FIX: Всегда завершаем текущую запись! Следующий батч создаст свою запись
+    const finalStatus = 'completed';
     if (syncId) {
       await supabaseClient
         .from("ozon_sync_history")
         .update({
           status: finalStatus,
-          completed_at: shouldAutoContinue ? null : new Date().toISOString(),
+          completed_at: new Date().toISOString(),
           campaigns_count: campaigns.length,
           chunks_count: chunksToProcess.length,
           rows_inserted: allStats.length,  // Общее количество строк (до дедупликации на уровне кампаний)
