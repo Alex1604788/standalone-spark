@@ -41,8 +41,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-// TEMPORARY: JSZip removed to fix bundle timeout
-// import JSZip from "https://cdn.skypack.dev/jszip@3.10.1";
+import JSZip from "npm:jszip@3.10.1";
 
 // ВЕРСИЯ Edge Function - обновляется при каждом изменении
 const EDGE_FUNCTION_VERSION = "3.0.6-auto-continue-fix";
@@ -239,9 +238,35 @@ async function downloadAndParseReport(
     const jsonData = await reportResponse.json();
     return jsonData.rows || [];
   } else if (contentType.includes("application/zip") || contentType.includes("application/octet-stream")) {
-    // TEMPORARY: ZIP support disabled due to bundle timeout
-    // Will be re-enabled after fixing JSZip import issue
-    throw new Error("ZIP reports are temporarily not supported. Please request CSV format from OZON API.");
+    // ZIP архив - распаковываем в памяти (без файлов на диске)
+    console.error("Report is a ZIP archive, extracting in-memory...");
+
+    try {
+      const zipBytes = await reportResponse.arrayBuffer();
+
+      // Загружаем ZIP в JSZip
+      const zip = await JSZip.loadAsync(zipBytes);
+
+      // Ищем CSV файл в архиве
+      const csvFiles = Object.keys(zip.files).filter(name =>
+        name.endsWith('.csv') && !zip.files[name].dir
+      );
+
+      if (csvFiles.length === 0) {
+        throw new Error("No CSV file found in ZIP archive");
+      }
+
+      // Читаем первый CSV файл
+      const csvFileName = csvFiles[0];
+      console.error(`Extracting CSV file: ${csvFileName}`);
+
+      csvText = await zip.files[csvFileName].async("text");
+      console.error(`Extracted CSV size: ${csvText.length} bytes`);
+
+    } catch (error) {
+      console.error("ZIP extraction failed:", error);
+      throw new Error(`Failed to extract ZIP: ${error.message}`);
+    }
   } else {
     // Plain text CSV
     csvText = await reportResponse.text();
