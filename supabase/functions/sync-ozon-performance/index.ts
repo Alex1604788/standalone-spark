@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 3.0.0-auto-continue
+ * Version: 3.0.1-progress-fix
  * Date: 2026-01-06
  *
  * Key features:
@@ -444,25 +444,8 @@ serve(async (req) => {
 
     const formatDate = (date: Date) => date.toISOString().split('T')[0];
 
-    // Создаем запись в истории синхронизаций
-    const { data: syncRecord, error: syncError } = await supabaseClient
-      .from("ozon_sync_history")
-      .insert({
-        marketplace_id,
-        status: 'in_progress',
-        trigger_type: triggerType,
-        period_from: formatDate(periodStart),
-        period_to: formatDate(periodEnd),
-        metadata: { sync_period },
-      })
-      .select()
-      .single();
-
-    if (syncError || !syncRecord) {
-      console.error("Failed to create sync history record:", syncError);
-    }
-
-    const syncId = syncRecord?.id;
+    // Создадим запись в истории синхронизаций ПОСЛЕ получения списка кампаний
+    let syncId: string | null = null;
 
     // 1. Получаем credentials из базы
     const { data: creds, error: credsError } = await supabaseClient
@@ -541,7 +524,7 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "3.0.0-auto-continue",
+          version: "3.0.1-progress-fix",
           build_date: "2026-01-06"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -605,6 +588,30 @@ serve(async (req) => {
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    // Создаем запись в истории синхронизаций ТЕПЕРЬ (когда знаем campaigns.length)
+    const { data: syncRecord, error: syncError } = await supabaseClient
+      .from("ozon_sync_history")
+      .insert({
+        marketplace_id,
+        status: 'in_progress',
+        trigger_type: triggerType,
+        period_from: formatDate(periodStart),
+        period_to: formatDate(periodEnd),
+        metadata: {
+          sync_period,
+          total_campaigns: campaigns.length,
+          current_offset: campaign_offset,
+        },
+      })
+      .select()
+      .single();
+
+    if (syncError || !syncRecord) {
+      console.error("Failed to create sync history record:", syncError);
+    }
+
+    syncId = syncRecord?.id || null;
 
     // 5. Запрашиваем статистику для всех RUNNING + STOPPED кампаний
     // После фильтрации осталось ~44 кампании (вместо 345)

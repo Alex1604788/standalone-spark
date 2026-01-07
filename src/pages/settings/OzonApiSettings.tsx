@@ -496,31 +496,23 @@ export const OzonApiSettings = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Постоянная карточка прогресса - видна ВСЕГДА когда идет синхронизация */}
+            {/* Статус синхронизации - УПРОЩЕННАЯ ВЕРСИЯ без прогресс-бара */}
             {isSyncing && (
               <Card className="border-blue-500 bg-blue-50 dark:bg-blue-950">
                 <CardContent className="pt-6">
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <RefreshCw className="h-5 w-5 animate-spin text-blue-600" />
-                      <div className="flex-1">
-                        <p className="font-medium text-blue-900 dark:text-blue-100">
-                          Синхронизация выполняется
-                        </p>
-                        <p className="text-sm text-blue-700 dark:text-blue-300">
-                          {syncStatus || 'Загрузка данных из OZON...'}
-                        </p>
-                      </div>
+                  <div className="flex items-center gap-3">
+                    <RefreshCw className="h-5 w-5 animate-spin text-blue-600" />
+                    <div className="flex-1">
+                      <p className="font-medium text-blue-900 dark:text-blue-100">
+                        Синхронизация выполняется - {syncProgress}%
+                      </p>
+                      <p className="text-sm text-blue-700 dark:text-blue-300">
+                        {syncStatus || 'Загрузка данных из OZON...'}
+                      </p>
+                      <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                        Синхронизация может занять несколько минут. Не закрывайте страницу.
+                      </p>
                     </div>
-                    <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-2.5">
-                      <div
-                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-500"
-                        style={{ width: `${syncProgress}%` }}
-                      ></div>
-                    </div>
-                    <p className="text-xs text-blue-600 dark:text-blue-400">
-                      {syncProgress}% завершено. Синхронизация может занять несколько минут. Не закрывайте страницу.
-                    </p>
                   </div>
                 </CardContent>
               </Card>
