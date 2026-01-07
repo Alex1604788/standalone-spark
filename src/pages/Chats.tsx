@@ -15,7 +15,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Search, RefreshCw, MessageSquare, Package2, Loader2, Send } from "lucide-react";
+import { Search, RefreshCw, MessageSquare, Package2, Loader2, Send, Package, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -29,13 +29,24 @@ interface ChatMessage {
   sender_name: string | null;
   text: string;
   is_read: boolean;
+  is_image: boolean;
+  image_urls: string[] | null;
+  moderate_status: string | null;
   sent_at: string;
+}
+
+interface Product {
+  name: string;
+  image_url?: string;
+  offer_id?: string;
 }
 
 interface Chat {
   id: string;
   chat_id: string;
   posting_number: string;
+  order_number: string | null;
+  product_sku: string | null;
   status: "active" | "closed" | "expired";
   unread_count: number;
   last_message_text: string | null;
@@ -48,6 +59,7 @@ interface Chat {
     name: string;
     type: string;
   };
+  product?: Product;
 }
 
 const Chats = () => {
@@ -95,6 +107,8 @@ const Chats = () => {
           id,
           chat_id,
           posting_number,
+          order_number,
+          product_sku,
           status,
           unread_count,
           last_message_text,
@@ -126,7 +140,24 @@ const Chats = () => {
         return;
       }
 
-      setChats(data || []);
+      // Enrich chats with product information
+      const chatsWithProducts = await Promise.all(
+        (data || []).map(async (chat) => {
+          if (chat.product_sku) {
+            const { data: product } = await supabase
+              .from("products")
+              .select("name, image_url, offer_id")
+              .eq("marketplace_id", chat.marketplace_id)
+              .eq("offer_id", chat.product_sku)
+              .maybeSingle();
+
+            return { ...chat, product: product || undefined };
+          }
+          return chat;
+        })
+      );
+
+      setChats(chatsWithProducts);
     } finally {
       setIsLoading(false);
     }
@@ -383,6 +414,46 @@ const Chats = () => {
             </DialogDescription>
           </DialogHeader>
 
+          {/* Order and Product Info */}
+          {(selectedChat?.order_number || selectedChat?.product) && (
+            <div className="bg-muted/30 border rounded-lg p-3 space-y-2">
+              {selectedChat.order_number && (
+                <div className="flex items-center gap-2 text-sm">
+                  <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Заказ:</span>
+                  <a
+                    href={`https://seller.ozon.ru/app/postings/${selectedChat.order_number}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline font-medium"
+                  >
+                    {selectedChat.order_number}
+                  </a>
+                </div>
+              )}
+              {selectedChat.product && (
+                <div className="flex items-center gap-3">
+                  {selectedChat.product.image_url && (
+                    <img
+                      src={selectedChat.product.image_url}
+                      alt={selectedChat.product.name}
+                      className="w-12 h-12 rounded object-cover"
+                    />
+                  )}
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <Package className="w-4 h-4 text-muted-foreground" />
+                      <span className="font-medium text-sm">{selectedChat.product.name}</span>
+                    </div>
+                    {selectedChat.product.offer_id && (
+                      <p className="text-xs text-muted-foreground">Артикул: {selectedChat.product.offer_id}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <ScrollArea className="h-[400px] pr-4">
             {isLoadingMessages ? (
               <div className="flex justify-center items-center py-12">
@@ -414,7 +485,28 @@ const Chats = () => {
                           {format(new Date(msg.sent_at), "dd.MM HH:mm", { locale: ru })}
                         </span>
                       </div>
-                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                      {msg.is_image && msg.image_urls && msg.image_urls.length > 0 ? (
+                        <div className="space-y-2">
+                          {msg.image_urls.map((url, idx) => (
+                            <a
+                              key={idx}
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block"
+                            >
+                              <img
+                                src={url}
+                                alt={`Изображение ${idx + 1}`}
+                                className="max-w-full rounded border hover:opacity-90 transition"
+                              />
+                            </a>
+                          ))}
+                          {msg.text && <p className="whitespace-pre-wrap mt-2">{msg.text}</p>}
+                        </div>
+                      ) : (
+                        <p className="whitespace-pre-wrap">{msg.text}</p>
+                      )}
                     </div>
                   </div>
                 ))}
