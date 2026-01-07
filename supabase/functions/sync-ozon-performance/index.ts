@@ -1,6 +1,6 @@
 /**
  * OZON Performance API Sync Function
- * Version: 3.0.2-version-tracking
+ * Version: 3.0.3-fix-sync-period
  * Date: 2026-01-07
  *
  * Key features:
@@ -24,11 +24,12 @@
  * - Filter: Process RUNNING + STOPPED campaigns (exclude only ARCHIVED + ENDED) - captures historical data from recently stopped campaigns
  * - Chunk size: 8 campaigns per chunk for optimal performance
  * - VERSION TRACKING: Version is logged and saved in sync_history metadata
+ * - Fixed: Removed 'weekly' sync mode, only 'full' and 'daily' are supported
  *
  * Sync modes:
  * - 'full': 62 days, max 24 campaigns per call, auto-continues until all done
- * - 'daily': 7 days, all campaigns (faster due to shorter period)
- * - 'custom': manual period via start_date/end_date
+ * - 'daily': 7 days, max 40 campaigns (prevents timeout on daily auto-sync)
+ * - 'custom': manual period via start_date/end_date (default = 'daily')
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -36,7 +37,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import JSZip from "https://esm.sh/jszip@3.10.1";
 
 // ВЕРСИЯ Edge Function - обновляется при каждом изменении
-const EDGE_FUNCTION_VERSION = "3.0.2-version-tracking";
+const EDGE_FUNCTION_VERSION = "3.0.3-fix-sync-period";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -427,27 +428,23 @@ serve(async (req) => {
     let triggerType: string = 'manual';
     let maxCampaignsPerRun: number | null = null; // null = без ограничений
 
-    if (sync_period === 'daily') {
-      // Ежедневная синхронизация: последние 7 дней, все кампании
-      periodStart = new Date(periodEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
-      triggerType = 'cron_daily';
-      maxCampaignsPerRun = null; // Обрабатываем все кампании (короткий период = быстрее)
-    } else if (sync_period === 'full') {
+    if (sync_period === 'full') {
       // Полная синхронизация: 62 дня, с auto-continue chain
       periodStart = new Date(periodEnd.getTime() - 62 * 24 * 60 * 60 * 1000);
       triggerType = 'manual_full';
       maxCampaignsPerRun = 24; // Ограничиваем до 24 кампаний (3 чанка × 8), затем auto-continue
-    } else if (sync_period === 'weekly') {
-      // Legacy: weekly sync (deprecated, используйте 'full' вместо этого)
-      periodStart = new Date(periodEnd.getTime() - 62 * 24 * 60 * 60 * 1000);
-      triggerType = 'cron_weekly';
-      maxCampaignsPerRun = null;
+    } else if (sync_period === 'daily') {
+      // Ежедневная синхронизация: последние 7 дней, с ограничением для предотвращения таймаута
+      periodStart = new Date(periodEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
+      triggerType = 'cron_daily';
+      maxCampaignsPerRun = 40; // Ограничиваем чтобы уложиться в таймаут (5 чанков × 8 кампаний)
     } else {
-      // Кастомный период (по умолчанию 62 дня если не указано)
+      // Любое другое значение (в т.ч. 'custom', 'weekly', 'hourly' и т.д.) = режим 'daily' по умолчанию
+      console.error(`⚠️ Unknown sync_period: "${sync_period}", using 'daily' as default`);
       periodEnd = end_date ? new Date(end_date) : periodEnd;
-      periodStart = start_date ? new Date(start_date) : new Date(periodEnd.getTime() - 62 * 24 * 60 * 60 * 1000);
+      periodStart = start_date ? new Date(start_date) : new Date(periodEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
       triggerType = 'manual';
-      maxCampaignsPerRun = null;
+      maxCampaignsPerRun = 40; // Безопасное ограничение
     }
 
     const formatDate = (date: Date) => date.toISOString().split('T')[0];
