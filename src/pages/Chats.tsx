@@ -145,6 +145,10 @@ const Chats = () => {
       // Enrich chats with product information
       const chatsWithProducts = await Promise.all(
         (data || []).map(async (chat) => {
+          const marketplaceData = Array.isArray(chat.marketplaces) 
+            ? chat.marketplaces[0] 
+            : chat.marketplaces;
+          
           if (chat.product_sku) {
             const { data: product } = await supabase
               .from("products")
@@ -153,13 +157,13 @@ const Chats = () => {
               .eq("offer_id", chat.product_sku)
               .maybeSingle();
 
-            return { ...chat, product: product || undefined };
+            return { ...chat, marketplaces: marketplaceData, product: product || undefined };
           }
-          return chat;
+          return { ...chat, marketplaces: marketplaceData };
         })
       );
 
-      setChats(chatsWithProducts);
+      setChats(chatsWithProducts as Chat[]);
     } finally {
       setIsLoading(false);
     }
