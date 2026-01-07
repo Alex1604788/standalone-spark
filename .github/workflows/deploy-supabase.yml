@@ -1,0 +1,79 @@
+name: Deploy Supabase Functions and Migrations
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - 'claude/**'
+    paths:
+      - 'supabase/functions/**'
+      - 'supabase/migrations/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Apply Database Migrations
+        run: |
+          if [ -d "supabase/migrations" ]; then
+            echo "🔄 Applying database migrations..."
+            supabase db push --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --password ${{ secrets.SUPABASE_DB_PASSWORD }}
+            echo "✅ Migrations applied successfully"
+          else
+            echo "ℹ️ No migrations directory found"
+          fi
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy Edge Functions
+        run: |
+          if [ -d "supabase/functions" ]; then
+            echo "🚀 Deploying Edge Functions..."
+
+            # Deploy each function
+            for func_dir in supabase/functions/*/; do
+              if [ -d "$func_dir" ]; then
+                func_name=$(basename "$func_dir")
+                echo "📦 Deploying function: $func_name"
+                supabase functions deploy $func_name \
+                  --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} \
+                  --no-verify-jwt
+              fi
+            done
+
+            echo "✅ All functions deployed successfully"
+          else
+            echo "ℹ️ No functions directory found"
+          fi
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deployment Summary
+        run: |
+          echo "================================"
+          echo "🎉 Deployment completed!"
+          echo "================================"
+          echo ""
+          echo "📋 Deployed components:"
+          echo "  • Database migrations"
+          echo "  • Edge Functions:"
+          for func_dir in supabase/functions/*/; do
+            if [ -d "$func_dir" ]; then
+              echo "    - $(basename "$func_dir")"
+            fi
+          done
