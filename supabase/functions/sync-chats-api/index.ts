@@ -115,6 +115,12 @@ serve(async (req) => {
           continue;
         }
 
+        // Extract context from first message (order_number, product_sku)
+        const firstMessage = messages[0];
+        const context = firstMessage?.context || {};
+        const orderNumber = context.order_number || null;
+        const productSku = context.sku || null;
+
         // Upsert chat
         const { data: chat, error: chatError } = await supabase
           .from('chats')
@@ -122,6 +128,8 @@ serve(async (req) => {
             marketplace_id,
             chat_id: chatId,
             posting_number: postingNumber,
+            order_number: orderNumber,
+            product_sku: productSku,
             status: 'active',
             unread_count: 0, // Will be calculated from messages
             updated_at: new Date().toISOString(),
@@ -144,15 +152,26 @@ serve(async (req) => {
 
         for (const message of messages) {
           try {
+            // Parse message data (can be text or image URLs)
+            const messageData = message.data || [];
+            const isImage = message.is_image || false;
+            const imageUrls = isImage && Array.isArray(messageData) ? messageData : [];
+            const textContent = !isImage && Array.isArray(messageData) && messageData.length > 0
+              ? messageData.join('\n')
+              : (message.text || '');
+
             const { error: messageError } = await supabase
               .from('chat_messages')
               .upsert({
                 chat_id: chat.id,
-                message_id: String(message.id),
-                sender_type: message.sender_type || 'buyer',
-                sender_name: message.sender_name || null,
-                text: message.text || '',
+                message_id: String(message.message_id || message.id),
+                sender_type: message.user?.type === 'Сustomer' ? 'buyer' : (message.sender_type || 'seller'),
+                sender_name: message.user?.id || message.sender_name || null,
+                text: textContent,
                 is_read: message.is_read || false,
+                is_image: isImage,
+                image_urls: imageUrls.length > 0 ? imageUrls : null,
+                moderate_status: message.moderate_image_status || null,
                 sent_at: message.created_at || new Date().toISOString(),
                 created_at: new Date().toISOString(),
               }, {
