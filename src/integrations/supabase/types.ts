@@ -380,6 +380,118 @@ export type Database = {
           },
         ]
       }
+      chat_messages: {
+        Row: {
+          chat_id: string
+          created_at: string
+          id: string
+          image_urls: string[] | null
+          is_image: boolean | null
+          is_read: boolean | null
+          message_id: string
+          moderate_status: string | null
+          sender_name: string | null
+          sender_type: string
+          sent_at: string
+          text: string
+        }
+        Insert: {
+          chat_id: string
+          created_at?: string
+          id?: string
+          image_urls?: string[] | null
+          is_image?: boolean | null
+          is_read?: boolean | null
+          message_id: string
+          moderate_status?: string | null
+          sender_name?: string | null
+          sender_type: string
+          sent_at: string
+          text: string
+        }
+        Update: {
+          chat_id?: string
+          created_at?: string
+          id?: string
+          image_urls?: string[] | null
+          is_image?: boolean | null
+          is_read?: boolean | null
+          message_id?: string
+          moderate_status?: string | null
+          sender_name?: string | null
+          sender_type?: string
+          sent_at?: string
+          text?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_chat_id_fkey"
+            columns: ["chat_id"]
+            isOneToOne: false
+            referencedRelation: "chats"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chats: {
+        Row: {
+          chat_id: string
+          created_at: string
+          expires_at: string | null
+          id: string
+          last_message_at: string | null
+          last_message_from: string | null
+          last_message_text: string | null
+          marketplace_id: string
+          order_number: string | null
+          posting_number: string
+          product_sku: string | null
+          status: string | null
+          unread_count: number | null
+          updated_at: string
+        }
+        Insert: {
+          chat_id: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          last_message_at?: string | null
+          last_message_from?: string | null
+          last_message_text?: string | null
+          marketplace_id: string
+          order_number?: string | null
+          posting_number: string
+          product_sku?: string | null
+          status?: string | null
+          unread_count?: number | null
+          updated_at?: string
+        }
+        Update: {
+          chat_id?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          last_message_at?: string | null
+          last_message_from?: string | null
+          last_message_text?: string | null
+          marketplace_id?: string
+          order_number?: string | null
+          posting_number?: string
+          product_sku?: string | null
+          status?: string | null
+          unread_count?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chats_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cluster_warehouses: {
         Row: {
           cluster_id: string
@@ -918,8 +1030,11 @@ export type Database = {
           id: string
           is_active: boolean | null
           kill_switch_enabled: boolean | null
+          last_chats_sync_at: string | null
           last_check_at: string | null
           last_fallback_action_at: string | null
+          last_questions_sync_at: string | null
+          last_reviews_sync_at: string | null
           last_sync_at: string | null
           last_sync_count: number | null
           last_sync_error: string | null
@@ -932,6 +1047,7 @@ export type Database = {
           service_account_email: string | null
           session_expires_at: string | null
           session_token_encrypted: string | null
+          sync_mode: string | null
           type: Database["public"]["Enums"]["marketplace_type"]
           updated_at: string
           user_id: string
@@ -945,8 +1061,11 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           kill_switch_enabled?: boolean | null
+          last_chats_sync_at?: string | null
           last_check_at?: string | null
           last_fallback_action_at?: string | null
+          last_questions_sync_at?: string | null
+          last_reviews_sync_at?: string | null
           last_sync_at?: string | null
           last_sync_count?: number | null
           last_sync_error?: string | null
@@ -959,6 +1078,7 @@ export type Database = {
           service_account_email?: string | null
           session_expires_at?: string | null
           session_token_encrypted?: string | null
+          sync_mode?: string | null
           type: Database["public"]["Enums"]["marketplace_type"]
           updated_at?: string
           user_id: string
@@ -972,8 +1092,11 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           kill_switch_enabled?: boolean | null
+          last_chats_sync_at?: string | null
           last_check_at?: string | null
           last_fallback_action_at?: string | null
+          last_questions_sync_at?: string | null
+          last_reviews_sync_at?: string | null
           last_sync_at?: string | null
           last_sync_count?: number | null
           last_sync_error?: string | null
@@ -986,6 +1109,7 @@ export type Database = {
           service_account_email?: string | null
           session_expires_at?: string | null
           session_token_encrypted?: string | null
+          sync_mode?: string | null
           type?: Database["public"]["Enums"]["marketplace_type"]
           updated_at?: string
           user_id?: string
@@ -3303,6 +3427,10 @@ export type Database = {
           title: string
         }[]
       }
+      get_marketplace_sync_mode: {
+        Args: { p_marketplace_id: string }
+        Returns: string
+      }
       get_product_knowledge: {
         Args: { p_limit?: number; p_product_id: string }
         Returns: {
@@ -3402,6 +3530,7 @@ export type Database = {
           title: string
         }[]
       }
+      trigger_ozon_daily_sync: { Args: never; Returns: undefined }
       update_analytics_metrics: { Args: never; Returns: undefined }
       update_api_token: {
         Args: {
