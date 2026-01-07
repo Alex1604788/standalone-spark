@@ -1,7 +1,7 @@
 /**
  * OZON Performance API Sync Function
- * Version: 3.0.1-progress-fix
- * Date: 2026-01-06
+ * Version: 3.0.2-version-tracking
+ * Date: 2026-01-07
  *
  * Key features:
  * - AUTO-CONTINUE CHAIN: Full sync (62 days) processes ALL campaigns via self-invoking chain
@@ -23,6 +23,7 @@
  * - Fixed: CSV column mapping - first column is DATE, not SKU! Updated destructuring to match actual OZON CSV structure
  * - Filter: Process RUNNING + STOPPED campaigns (exclude only ARCHIVED + ENDED) - captures historical data from recently stopped campaigns
  * - Chunk size: 8 campaigns per chunk for optimal performance
+ * - VERSION TRACKING: Version is logged and saved in sync_history metadata
  *
  * Sync modes:
  * - 'full': 62 days, max 24 campaigns per call, auto-continues until all done
@@ -33,6 +34,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import JSZip from "https://esm.sh/jszip@3.10.1";
+
+// ВЕРСИЯ Edge Function - обновляется при каждом изменении
+const EDGE_FUNCTION_VERSION = "3.0.2-version-tracking";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -406,6 +410,10 @@ serve(async (req) => {
 
     const { marketplace_id, start_date, end_date, sync_period = 'custom', campaign_offset = 0, test = false } = await req.json() as OzonPerformanceRequest;
 
+    // Логируем версию Edge Function в начале выполнения
+    console.error(`🚀 OZON Performance Sync starting - VERSION: ${EDGE_FUNCTION_VERSION}`);
+    console.error(`📋 Request: marketplace=${marketplace_id}, sync_period=${sync_period}, offset=${campaign_offset}`);
+
     if (!marketplace_id) {
       return new Response(
         JSON.stringify({ error: "marketplace_id is required" }),
@@ -599,6 +607,7 @@ serve(async (req) => {
         period_from: formatDate(periodStart),
         period_to: formatDate(periodEnd),
         metadata: {
+          version: EDGE_FUNCTION_VERSION,  // Версия Edge Function
           sync_period,
           total_campaigns: campaigns.length,
           current_offset: campaign_offset,
@@ -857,6 +866,7 @@ serve(async (req) => {
           chunks_count: chunksToProcess.length,
           rows_inserted: allStats.length,  // Общее количество строк (до дедупликации на уровне кампаний)
           metadata: {
+            version: EDGE_FUNCTION_VERSION,  // Версия Edge Function
             sync_period,
             total_campaigns: campaigns.length,
             processed_campaigns: processedCampaigns.length,
@@ -922,8 +932,8 @@ serve(async (req) => {
         progress: `${nextCampaignOffset}/${campaigns.length} campaigns (${Math.round(nextCampaignOffset / campaigns.length * 100)}%)`,
         note: "Data is saved incrementally after each campaign (survives Edge Function timeout)",
         sync_id: syncId,
-        version: "3.0.0-auto-continue",
-        build_date: "2026-01-06",
+        version: EDGE_FUNCTION_VERSION,
+        build_date: "2026-01-07",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
