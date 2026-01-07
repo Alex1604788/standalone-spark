@@ -1,12 +1,12 @@
 /**
  * OZON Performance API Sync Function
- * Version: 3.0.3-fix-sync-period
+ * Version: 3.0.4-reduce-batch-size
  * Date: 2026-01-07
  *
  * Key features:
  * - AUTO-CONTINUE CHAIN: Full sync (62 days) processes ALL campaigns via self-invoking chain
- * - FULL SYNC: Processes 24 campaigns per invocation, then auto-calls next batch
- * - DAILY SYNC: Auto-sync every 24 hours for last 7 days (all campaigns, faster period)
+ * - FULL SYNC: Processes 12 campaigns per invocation (3 chunks × 4), then auto-calls next batch
+ * - DAILY SYNC: Processes 20 campaigns per invocation (5 chunks × 4) for daily sync
  * - ZIP archive extraction support (in-memory using JSZip)
  * - Individual report requests per campaign (not batch!) - Fixes duplicate key violations
  * - INCREMENTAL SAVE: Each campaign's data is saved IMMEDIATELY after processing (survives Edge Function timeout)
@@ -22,13 +22,14 @@
  * - Fixed: Deduplicate rows within CSV - OZON returns cumulative snapshots, we keep the last one
  * - Fixed: CSV column mapping - first column is DATE, not SKU! Updated destructuring to match actual OZON CSV structure
  * - Filter: Process RUNNING + STOPPED campaigns (exclude only ARCHIVED + ENDED) - captures historical data from recently stopped campaigns
- * - Chunk size: 8 campaigns per chunk for optimal performance
+ * - Chunk size: 4 campaigns per chunk (reduced from 8 to fit in Edge Function resource limits)
  * - VERSION TRACKING: Version is logged and saved in sync_history metadata
  * - Fixed: Removed 'weekly' sync mode, only 'full' and 'daily' are supported
+ * - Fixed: Reduced batch sizes to prevent WORKER_LIMIT errors
  *
  * Sync modes:
- * - 'full': 62 days, max 24 campaigns per call, auto-continues until all done
- * - 'daily': 7 days, max 40 campaigns (prevents timeout on daily auto-sync)
+ * - 'full': 62 days, max 12 campaigns per call (3 chunks × 4), auto-continues until all done
+ * - 'daily': 7 days, max 20 campaigns (5 chunks × 4)
  * - 'custom': manual period via start_date/end_date (default = 'daily')
  */
 
@@ -37,7 +38,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import JSZip from "https://esm.sh/jszip@3.10.1";
 
 // ВЕРСИЯ Edge Function - обновляется при каждом изменении
-const EDGE_FUNCTION_VERSION = "3.0.3-fix-sync-period";
+const EDGE_FUNCTION_VERSION = "3.0.4-reduce-batch-size";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -432,19 +433,19 @@ serve(async (req) => {
       // Полная синхронизация: 62 дня, с auto-continue chain
       periodStart = new Date(periodEnd.getTime() - 62 * 24 * 60 * 60 * 1000);
       triggerType = 'manual_full';
-      maxCampaignsPerRun = 24; // Ограничиваем до 24 кампаний (3 чанка × 8), затем auto-continue
+      maxCampaignsPerRun = 12; // REDUCED: 3 chunks × 4 campaigns (было 24) - предотвращаем WORKER_LIMIT
     } else if (sync_period === 'daily') {
       // Ежедневная синхронизация: последние 7 дней, с ограничением для предотвращения таймаута
       periodStart = new Date(periodEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
       triggerType = 'cron_daily';
-      maxCampaignsPerRun = 40; // Ограничиваем чтобы уложиться в таймаут (5 чанков × 8 кампаний)
+      maxCampaignsPerRun = 20; // REDUCED: 5 chunks × 4 campaigns (было 40) - предотвращаем WORKER_LIMIT
     } else {
       // Любое другое значение (в т.ч. 'custom', 'weekly', 'hourly' и т.д.) = режим 'daily' по умолчанию
       console.error(`⚠️ Unknown sync_period: "${sync_period}", using 'daily' as default`);
       periodEnd = end_date ? new Date(end_date) : periodEnd;
       periodStart = start_date ? new Date(start_date) : new Date(periodEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
       triggerType = 'manual';
-      maxCampaignsPerRun = 40; // Безопасное ограничение
+      maxCampaignsPerRun = 20; // REDUCED: безопасное ограничение (было 40)
     }
 
     const formatDate = (date: Date) => date.toISOString().split('T')[0];
@@ -620,9 +621,9 @@ serve(async (req) => {
     syncId = syncRecord?.id || null;
 
     // 5. Запрашиваем статистику для всех RUNNING + STOPPED кампаний
-    // После фильтрации осталось ~44 кампании (вместо 345)
-    // Chunk size = 8: позволяет обработать ~44 кампании за 6 чанков без превышения таймаута
-    const chunkSize = 8;  // Increased from 5 now that we filter campaigns
+    // После фильтрации осталось ~55 кампаний (вместо 362)
+    // Chunk size = 4: REDUCED from 8 to prevent WORKER_LIMIT errors (Edge Function memory/time limits)
+    const chunkSize = 4;  // CRITICAL: Small chunks to fit in 2-minute Edge Function timeout
     const campaignChunks = [];
     for (let i = 0; i < campaigns.length; i += chunkSize) {
       campaignChunks.push(campaigns.slice(i, i + chunkSize));
