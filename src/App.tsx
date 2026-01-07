@@ -16,6 +16,7 @@ import NotFound from "./pages/NotFound";
 const Marketplaces = lazy(() => import("./pages/Marketplaces"));
 const Reviews = lazy(() => import("./pages/Reviews"));
 const Questions = lazy(() => import("./pages/Questions"));
+const Chats = lazy(() => import("./pages/Chats"));
 const Profile = lazy(() => import("./pages/Profile"));
 const ReviewQueue = lazy(() => import("./pages/ReviewQueue"));
 const Analytics = lazy(() => import("./pages/Analytics"));
@@ -95,6 +96,7 @@ const App = () => (
             <Route path="/app/analytics" element={<ProtectedPage><Analytics /></ProtectedPage>} />
             <Route path="/app/reviews/:status" element={<ProtectedPage><Reviews /></ProtectedPage>} />
             <Route path="/app/questions/:status" element={<ProtectedPage><Questions /></ProtectedPage>} />
+            <Route path="/app/chats" element={<ProtectedPage><Chats /></ProtectedPage>} />
             <Route path="/app/profile" element={<ProtectedPage><Profile /></ProtectedPage>} />
             <Route path="/app/review-queue" element={<ProtectedPage><ReviewQueue /></ProtectedPage>} />
             <Route path="/app/templates" element={<ProtectedPage><Templates /></ProtectedPage>} />

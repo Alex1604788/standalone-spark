@@ -44,6 +44,9 @@ interface Marketplace {
   last_check_at?: string | null;
   last_sync_products_at?: string | null;
   last_sync_reviews_at?: string | null;
+  last_questions_sync_at?: string | null;
+  last_chats_sync_at?: string | null;
+  sync_mode?: string | null;
 }
 
 const s = (v: unknown) => (v ?? "").toString();
@@ -625,6 +628,15 @@ const Marketplaces = () => {
                       <p className="text-xs text-muted-foreground">Email: {s(marketplace.verified_email)}</p>
                     )}
 
+                    {/* Sync Mode Badge */}
+                    {marketplace.type === "ozon" && marketplace.sync_mode && (
+                      <div className="flex items-center gap-2">
+                        <Badge variant={marketplace.sync_mode === "api" ? "default" : "secondary"} className="text-xs">
+                          {marketplace.sync_mode === "api" ? "⚡ API Mode" : "🔌 Plugin Mode"}
+                        </Badge>
+                      </div>
+                    )}
+
                     {marketplace.last_sync_at && (
                       <div className="space-y-1">
                         <p className="text-xs text-muted-foreground">
@@ -662,6 +674,42 @@ const Marketplaces = () => {
                         {marketplace.last_sync_error && (
                           <p className="text-xs text-destructive">{marketplace.last_sync_error}</p>
                         )}
+                      </div>
+                    )}
+
+                    {/* Individual Sync Statuses */}
+                    {marketplace.type === "ozon" && marketplace.sync_mode === "api" && (
+                      <div className="bg-muted/30 border border-border rounded-lg p-3 space-y-2">
+                        <p className="text-xs font-medium text-foreground">Статус синхронизации (API):</p>
+                        <div className="space-y-1">
+                          {marketplace.last_sync_reviews_at && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">📝 Отзывы:</span>
+                              <span className="text-foreground">
+                                {format(new Date(marketplace.last_sync_reviews_at), "dd.MM HH:mm", { locale: ru })}
+                              </span>
+                            </div>
+                          )}
+                          {marketplace.last_questions_sync_at && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">❓ Вопросы:</span>
+                              <span className="text-foreground">
+                                {format(new Date(marketplace.last_questions_sync_at), "dd.MM HH:mm", { locale: ru })}
+                              </span>
+                            </div>
+                          )}
+                          {marketplace.last_chats_sync_at && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">💬 Чаты:</span>
+                              <span className="text-foreground">
+                                {format(new Date(marketplace.last_chats_sync_at), "dd.MM HH:mm", { locale: ru })}
+                              </span>
+                            </div>
+                          )}
+                          {!marketplace.last_sync_reviews_at && !marketplace.last_questions_sync_at && !marketplace.last_chats_sync_at && (
+                            <p className="text-xs text-muted-foreground italic">Синхронизация еще не проводилась</p>
+                          )}
+                        </div>
                       </div>
                     )}
 
