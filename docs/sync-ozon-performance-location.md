@@ -22,3 +22,9 @@ git show HEAD:supabase/functions/sync-ozon-performance/index.ts > sync-ozon-perf
 ```
 
 That command saves the exact committed contents to `sync-ozon-performance.ts` in your current directory.
+
+## Branch notes
+
+- The current repository only has a local branch named `work` (visible via `git status -sb`).
+- If your remote repository does **not** have a `work` branch, you can still inspect the latest committed file from whatever branch you have checked out by using `git show HEAD:supabase/functions/sync-ozon-performance/index.ts`.
+- To copy the file onto another branch, check out that branch and re-run the `git show` redirection above to export the file, then commit it on that branch.
