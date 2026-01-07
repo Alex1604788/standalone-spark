@@ -29,7 +29,7 @@ interface ApiCredentials {
   token_expires_at?: string | null;
 }
 
-export const OzonApiSettings = () => {
+const OzonApiSettings = () => {
   const [marketplaces, setMarketplaces] = useState<Marketplace[]>([]);
   const [selectedMarketplaceId, setSelectedMarketplaceId] = useState<string>("");
   const [credentials, setCredentials] = useState<ApiCredentials | null>(null);
@@ -616,3 +616,5 @@ export const OzonApiSettings = () => {
     </div>
   );
 };
+
+export default OzonApiSettings;
