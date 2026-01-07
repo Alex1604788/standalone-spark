@@ -15,7 +15,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Search, RefreshCw, MessageSquare, Package2, Loader2, Send, Package, ExternalLink } from "lucide-react";
+import { Search, RefreshCw, MessageSquare, Package2, Loader2, Send, Package, ExternalLink, Paperclip } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -72,6 +72,8 @@ const Chats = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
 
   const { toast } = useToast();
 
@@ -206,6 +208,7 @@ const Chats = () => {
   const openChatDialog = async (chat: Chat) => {
     setSelectedChat(chat);
     setMessageText("");
+    setSelectedFile(null);
     await fetchChatMessages(chat.id);
   };
 
@@ -213,6 +216,7 @@ const Chats = () => {
     setSelectedChat(null);
     setChatMessages([]);
     setMessageText("");
+    setSelectedFile(null);
   };
 
   const sendMessage = async () => {
@@ -250,6 +254,67 @@ const Chats = () => {
       await fetchChats();
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const sendFile = async () => {
+    if (!selectedChat || !selectedFile) return;
+
+    setIsUploadingFile(true);
+    try {
+      const formData = new FormData();
+      formData.append('chat_id', selectedChat.chat_id);
+      formData.append('marketplace_id', selectedChat.marketplace_id);
+      formData.append('file', selectedFile);
+
+      const { data, error } = await supabase.functions.invoke("send-chat-file", {
+        body: formData,
+      });
+
+      if (error) {
+        console.error("Error sending file:", error);
+        toast({
+          title: "Ошибка",
+          description: error.message || "Не удалось отправить файл",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Успешно",
+        description: "Файл отправлен",
+      });
+
+      setSelectedFile(null);
+
+      // Reload messages
+      await fetchChatMessages(selectedChat.id);
+      await fetchChats();
+    } finally {
+      setIsUploadingFile(false);
+    }
+  };
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      // Validate file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        toast({
+          title: "Ошибка",
+          description: "Размер файла не должен превышать 10 МБ",
+          variant: "destructive",
+        });
+        return;
+      }
+      setSelectedFile(file);
+      // Auto-send file immediately after selection
+      setTimeout(() => {
+        if (file) {
+          sendFile();
+        }
+      }, 100);
     }
   };
 
@@ -514,19 +579,52 @@ const Chats = () => {
             )}
           </ScrollArea>
 
-          <DialogFooter className="flex-col sm:flex-row gap-4">
-            <div className="flex-1">
+          <DialogFooter className="flex-col gap-4">
+            <div className="flex-1 space-y-2">
               <Label htmlFor="message-input">Ваше сообщение</Label>
-              <Textarea
-                id="message-input"
-                value={messageText}
-                onChange={(e) => setMessageText(e.target.value)}
-                placeholder="Введите текст сообщения..."
-                rows={3}
-                disabled={selectedChat?.status !== "active"}
-              />
+              <div className="flex gap-2">
+                <Textarea
+                  id="message-input"
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  placeholder="Введите текст сообщения..."
+                  rows={3}
+                  disabled={selectedChat?.status !== "active"}
+                  className="flex-1"
+                />
+                <div className="flex flex-col gap-2">
+                  <input
+                    type="file"
+                    id="file-input"
+                    accept="image/*,.pdf,.doc,.docx"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => document.getElementById('file-input')?.click()}
+                    disabled={isUploadingFile || selectedChat?.status !== "active"}
+                    title="Прикрепить файл"
+                  >
+                    {isUploadingFile ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Paperclip className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+              {selectedFile && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Paperclip className="w-4 h-4" />
+                  <span>{selectedFile.name}</span>
+                  <span className="text-xs">({(selectedFile.size / 1024).toFixed(1)} КБ)</span>
+                </div>
+              )}
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 justify-end">
               <Button onClick={closeChatDialog} variant="outline">
                 Закрыть
               </Button>
