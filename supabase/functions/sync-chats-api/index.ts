@@ -1,3 +1,5 @@
+// VERSION: 2026-01-08-v2 - Fetch active chats from OZON /v3/chat/list
+// BRANCH: claude/setup-ozon-cron-jobs-2qPjk
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -66,17 +68,63 @@ serve(async (req) => {
       .update({ last_sync_status: 'syncing' })
       .eq('id', marketplace_id);
 
-    // Get existing chats from database to sync only active ones
-    const { data: existingChats } = await supabase
-      .from('chats')
-      .select('chat_id, posting_number')
-      .eq('marketplace_id', marketplace_id)
-      .eq('status', 'active');
+    let chatsToSync: string[] = [];
 
-    // If chat_ids provided, sync only those, otherwise sync all existing active chats
-    const chatsToSync = chat_ids || (existingChats?.map(c => c.chat_id) || []);
+    // If specific chat_ids provided, use them
+    if (chat_ids && chat_ids.length > 0) {
+      chatsToSync = chat_ids;
+      console.log(`[sync-chats-api] Syncing ${chatsToSync.length} specific chats`);
+    } else {
+      // Otherwise, fetch all active chats from OZON API
+      console.log(`[sync-chats-api] Fetching all active chats from OZON API`);
 
-    console.log(`[sync-chats-api] Syncing ${chatsToSync.length} chats`);
+      let hasMore = true;
+      let cursor = '';
+
+      while (hasMore) {
+        const listResponse = await fetch('https://api-seller.ozon.ru/v3/chat/list', {
+          method: 'POST',
+          headers: {
+            'Client-Id': client_id,
+            'Api-Key': api_key,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            filter: {
+              chat_status: 'OPENED', // Only active/opened chats
+            },
+            limit: 100,
+            cursor: cursor || undefined,
+          }),
+        });
+
+        if (!listResponse.ok) {
+          console.error(`[sync-chats-api] Error fetching chat list:`, await listResponse.text());
+          break;
+        }
+
+        const listData = await listResponse.json();
+        const chats = listData.chats || [];
+
+        console.log(`[sync-chats-api] Fetched ${chats.length} chats from OZON API`);
+
+        for (const chatData of chats) {
+          if (chatData.chat?.chat_id) {
+            chatsToSync.push(chatData.chat.chat_id);
+          }
+        }
+
+        cursor = listData.cursor || '';
+        hasMore = listData.has_next && cursor && chats.length > 0;
+
+        // Small delay to avoid rate limits
+        if (hasMore) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+
+      console.log(`[sync-chats-api] Total chats to sync: ${chatsToSync.length}`);
+    }
 
     let totalMessages = 0;
     let totalChats = 0;
