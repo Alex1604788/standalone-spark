@@ -11,6 +11,8 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
+  console.log('[sync-questions-api] VERSION: 2026-01-08-v1 - Function started');
+
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders, status: 204 });
   }
@@ -24,6 +26,7 @@ serve(async (req) => {
 
   try {
     let { marketplace_id, ozon_seller_id, user_id, client_id, api_key } = await req.json();
+    console.log(`[sync-questions-api] Received request for marketplace: ${marketplace_id}`);
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
