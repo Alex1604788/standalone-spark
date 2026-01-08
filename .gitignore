@@ -25,3 +25,8 @@ dist-ssr
 
 # Git worktrees
 .worktrees/
+
+# Environment variables (contains secrets!)
+.env
+.env.local
+.env.production
