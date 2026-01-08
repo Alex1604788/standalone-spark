@@ -634,46 +634,57 @@ const PromotionsAnalytics = () => {
                                       </div>
                                     </div>
                                   </TableCell>
-                                  <TableCell className="text-center text-sm">
-                                    {format(new Date(product.date_range.min), "dd.MM", {
-                                      locale: ru,
-                                    })}{" "}
-                                    -{" "}
-                                    {format(new Date(product.date_range.max), "dd.MM", {
-                                      locale: ru,
-                                    })}
-                                    <div className="text-xs text-muted-foreground">
-                                      ({product.days_count} дн.)
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="text-center">—</TableCell>
-                                  <TableCell className="text-center font-medium text-sm">
-                                    {formatCurrency(product.total_money_spent)}
-                                  </TableCell>
-                                  <TableCell className="text-center text-sm">
-                                    {product.total_views.toLocaleString("ru-RU")}
-                                  </TableCell>
-                                  <TableCell className="text-center text-sm">
-                                    {product.total_clicks.toLocaleString("ru-RU")}
-                                  </TableCell>
-                                  <TableCell className="text-center text-sm">
-                                    {product.total_orders.toLocaleString("ru-RU")}
-                                  </TableCell>
-                                  <TableCell className="text-center text-sm">
-                                    {formatCurrency(product.total_revenue)}
-                                  </TableCell>
-                                  <TableCell className="text-center text-sm">
-                                    {formatPercent(product.avg_ctr)}
-                                  </TableCell>
-                                  <TableCell className="text-center text-sm">
-                                    {formatCurrency(product.avg_cpc)}
-                                  </TableCell>
-                                  <TableCell className="text-center text-sm">
-                                    {formatPercent(product.avg_conversion)}
-                                  </TableCell>
-                                  <TableCell className="text-center text-sm">
-                                    {product.avg_drr > 0 ? formatPercent(product.avg_drr) : "—"}
-                                  </TableCell>
+                                  {visibleColumns.товаров && <TableCell className="text-center">—</TableCell>}
+                                  {visibleColumns.расходы && (
+                                    <TableCell className="text-center font-medium text-sm">
+                                      {formatCurrency(product.total_money_spent)}
+                                    </TableCell>
+                                  )}
+                                  {visibleColumns.показы && (
+                                    <TableCell className="text-center text-sm">
+                                      {product.total_views.toLocaleString("ru-RU")}
+                                    </TableCell>
+                                  )}
+                                  {visibleColumns.клики && (
+                                    <TableCell className="text-center text-sm">
+                                      {product.total_clicks.toLocaleString("ru-RU")}
+                                    </TableCell>
+                                  )}
+                                  {visibleColumns.в_корзину && (
+                                    <TableCell className="text-center text-sm">
+                                      {product.total_add_to_cart ? product.total_add_to_cart.toLocaleString("ru-RU") : "—"}
+                                    </TableCell>
+                                  )}
+                                  {visibleColumns.заказы && (
+                                    <TableCell className="text-center text-sm">
+                                      {product.total_orders.toLocaleString("ru-RU")}
+                                    </TableCell>
+                                  )}
+                                  {visibleColumns.выручка && (
+                                    <TableCell className="text-center text-sm">
+                                      {formatCurrency(product.total_revenue)}
+                                    </TableCell>
+                                  )}
+                                  {visibleColumns.ctr && (
+                                    <TableCell className="text-center text-sm">
+                                      {formatPercent(product.avg_ctr)}
+                                    </TableCell>
+                                  )}
+                                  {visibleColumns.cpc && (
+                                    <TableCell className="text-center text-sm">
+                                      {formatCurrency(product.avg_cpc)}
+                                    </TableCell>
+                                  )}
+                                  {visibleColumns.конверсия && (
+                                    <TableCell className="text-center text-sm">
+                                      {formatPercent(product.avg_conversion)}
+                                    </TableCell>
+                                  )}
+                                  {visibleColumns.дрр && (
+                                    <TableCell className="text-center text-sm">
+                                      {product.avg_drr > 0 ? formatPercent(product.avg_drr) : "—"}
+                                    </TableCell>
+                                  )}
                                 </TableRow>
                                 {isProductExpanded && (
                                   <TableRow key={`${productKey}-details`} className="bg-muted/10">
