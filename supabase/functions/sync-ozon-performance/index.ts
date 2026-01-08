@@ -33,6 +33,8 @@ interface OzonPerformanceStats {
   clicks: number;
   orders: number;
   revenue?: number;
+  orders_model?: number;
+  revenue_model?: number;
 }
 
 // Вспомогательная функция для polling статуса отчета
@@ -148,7 +150,7 @@ async function downloadAndParseReport(
         continue;
       }
 
-      const [sku, , , views, clicks, , , , , spent, orders, revenue] = columns;
+      const [sku, , , views, clicks, , , , , spent, orders, revenue, model_orders, model_revenue] = columns;
 
       // Парсим числовые значения (заменяем запятые на точки для дробных чисел)
       const parseNum = (str: string): number => {
@@ -165,6 +167,8 @@ async function downloadAndParseReport(
         clicks: parseInt(clicks) || 0,
         orders: parseInt(orders) || 0,
         revenue: parseNum(revenue),
+        orders_model: parseInt(model_orders) || 0,
+        revenue_model: parseNum(model_revenue),
       });
     }
 
@@ -575,6 +579,8 @@ serve(async (req) => {
       clicks: stat.clicks || 0,
       orders: stat.orders || 0,
       revenue: stat.revenue || null,
+      orders_model: stat.orders_model || 0,
+      revenue_model: stat.revenue_model || null,
       // CTR, CPC, conversion, DRR будут рассчитаны триггером
     }));
 
