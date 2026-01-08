@@ -1,9 +1,9 @@
 /**
  * OZON Performance API Sync Function
- * Version: 3.0.6-auto-continue-fix
- * Date: 2026-01-07
+ * Version: 3.0.7-model-orders-support
+ * Date: 2026-01-08
  * Deployment: Auto-deploy только из claude/** веток (main отключен)
- * Last deployed: 2026-01-07 18:27 UTC (SUPABASE_ACCESS_TOKEN проверен)
+ * Last deployed: 2026-01-08 (pending)
  *
  * FIXES:
  * - Auto-continue теперь завершает предыдущую sync_history запись (не накапливает in_progress)
@@ -44,7 +44,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import JSZip from "npm:jszip@3.10.1";
 
 // ВЕРСИЯ Edge Function - обновляется при каждом изменении
-const EDGE_FUNCTION_VERSION = "3.0.6-auto-continue-fix";
+const EDGE_FUNCTION_VERSION = "3.0.7-model-orders-support";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -80,6 +80,7 @@ interface OzonPerformanceStats {
   orders: number;
   orders_model?: number;  // Заказы модели - OZON возвращает отдельно от orders
   revenue?: number;
+  revenue_model?: number;  // Выручка с модели - OZON возвращает отдельно от revenue
   add_to_cart?: number;
   avg_bill?: number;
 }
@@ -412,6 +413,7 @@ async function downloadAndParseReport(
       orders: parseInt(orders),
       orders_model: parseInt(ordersModel),  // Заказы модели - OZON складывает с orders в итоговой аналитике
       revenue: parseNum(revenue),
+      revenue_model: parseNum(revenueFromModels),  // Выручка с модели - OZON возвращает отдельно
       add_to_cart: parseInt(toCart),  // Fixed: use parseInt for INTEGER column
       avg_bill: parseNum(avgCpc),
     });
@@ -569,8 +571,8 @@ serve(async (req) => {
           success: true,
           message: "Connection successful",
           token_obtained: true,
-          version: "3.0.1-progress-fix",
-          build_date: "2026-01-06"
+          version: EDGE_FUNCTION_VERSION,
+          build_date: "2026-01-08"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -804,6 +806,7 @@ serve(async (req) => {
               orders: stat.orders || 0,
               orders_model: stat.orders_model || 0,
               revenue: stat.revenue || null,
+              revenue_model: stat.revenue_model || null,
               add_to_cart: stat.add_to_cart || null,
               avg_bill: stat.avg_bill || null,
             }));
@@ -971,7 +974,7 @@ serve(async (req) => {
         note: "Data is saved incrementally after each campaign (survives Edge Function timeout)",
         sync_id: syncId,
         version: EDGE_FUNCTION_VERSION,
-        build_date: "2026-01-07",
+        build_date: "2026-01-08",
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -988,8 +991,8 @@ serve(async (req) => {
       JSON.stringify({
         error: "Internal server error",
         details: errorDetails,
-        version: "3.0.0-auto-continue",
-        build_date: "2026-01-06",
+        version: EDGE_FUNCTION_VERSION,
+        build_date: "2026-01-08",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
