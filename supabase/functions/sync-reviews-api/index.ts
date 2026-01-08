@@ -1,4 +1,4 @@
-// VERSION: 2026-01-08-v5 - Incremental sync (7 days manual, since last auto)
+// VERSION: 2026-01-08-v6 - Set segment explicitly (fix display issue)
 // BRANCH: claude/setup-ozon-cron-jobs-2qPjk
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -11,7 +11,7 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  console.log('[sync-reviews-api] VERSION: 2026-01-08-v5 - Function started');
+  console.log('[sync-reviews-api] VERSION: 2026-01-08-v6 - Function started');
 
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders, status: 204 });
@@ -208,6 +208,7 @@ serve(async (req) => {
           }
 
           // Upsert review
+          const isAnswered = (review.comments_amount || 0) > 0;
           const { error: reviewError } = await supabase
             .from('reviews')
             .upsert({
@@ -222,8 +223,9 @@ serve(async (req) => {
               review_date: review.published_at || new Date().toISOString(),
               raw: review,
               inserted_at: new Date().toISOString(),
-              status: 'new',
-              is_answered: (review.comments_amount || 0) > 0,
+              status: isAnswered ? 'answered' : 'new',
+              is_answered: isAnswered,
+              segment: isAnswered ? 'archived' : 'unanswered',
             }, {
               onConflict: 'marketplace_id,external_id',
               ignoreDuplicates: false,
