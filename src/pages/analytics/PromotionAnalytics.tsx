@@ -172,7 +172,7 @@ const PromotionAnalytics = () => {
       console.log("🔍 Ищем marketplace_id:", marketplace.id, "в списке:", allMarketplaces?.some((m: any) => m.marketplace_id === marketplace.id));
 
       // Упрощаем запрос - убираем join с products, загрузим их отдельно если нужно
-      const { data: performanceData, error } = await supabase
+      const { data: performanceData, error} = await supabase
         .from("ozon_performance_daily")
         .select(`
           campaign_id,
@@ -189,6 +189,7 @@ const PromotionAnalytics = () => {
           orders,
           orders_model,
           revenue,
+          revenue_model,
           ctr,
           cpc,
           conversion,
@@ -297,7 +298,7 @@ const PromotionAnalytics = () => {
         campaign.total_add_to_cart += Number(row.add_to_cart || 0);
         campaign.total_favorites += Number(row.favorites || 0);
         campaign.total_orders += Number(row.orders || 0) + Number(row.orders_model || 0);
-        campaign.total_revenue += Number(row.revenue || 0);
+        campaign.total_revenue += Number(row.revenue || 0) + Number(row.revenue_model || 0);
 
         if (row.stat_date < campaign.date_range.min) {
           campaign.date_range.min = row.stat_date;
@@ -342,7 +343,7 @@ const PromotionAnalytics = () => {
         product.total_add_to_cart += Number(row.add_to_cart || 0);
         product.total_favorites += Number(row.favorites || 0);
         product.total_orders += Number(row.orders || 0) + Number(row.orders_model || 0);
-        product.total_revenue += Number(row.revenue || 0);
+        product.total_revenue += Number(row.revenue || 0) + Number(row.revenue_model || 0);
 
         if (row.stat_date < product.date_range.min) {
           product.date_range.min = row.stat_date;
