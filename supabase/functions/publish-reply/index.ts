@@ -1,4 +1,4 @@
-// VERSION: 2026-01-08-v7 - Fix segment update after publishing reply
+// VERSION: 2026-01-08-v8 - Fix SKU check for OZON reviews (SKU only needed for questions)
 // BRANCH: claude/setup-ozon-cron-jobs-2qPjk
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.58.0";
 
@@ -145,14 +145,8 @@ Deno.serve(async (req) => {
 
           const cred = ozonCreds[0];
 
-          // Get product SKU for OZON API
-          const product = reply.review?.product || reply.question?.product;
-          if (!product || !product.sku) {
-            throw new Error("Product SKU not found for OZON API");
-          }
-
           if (reply.review_id) {
-            // Publish review comment
+            // Publish review comment (SKU not needed)
             success = await publishToOzonReview(
               cred.client_id,
               cred.client_secret,
@@ -160,7 +154,12 @@ Deno.serve(async (req) => {
               reply.content,
             );
           } else if (reply.question_id) {
-            // Publish question answer
+            // Publish question answer (SKU required)
+            const product = reply.question?.product;
+            if (!product || !product.sku) {
+              throw new Error("Product SKU not found for OZON question API");
+            }
+
             success = await publishToOzonQuestion(
               cred.client_id,
               cred.client_secret,
