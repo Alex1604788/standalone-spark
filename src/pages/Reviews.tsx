@@ -286,15 +286,34 @@ const Reviews = () => {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      // ✅ Используем inner join для products (как было), но считаем по reviews напрямую
-      // Это исправит несоответствие счетчиков
+      // ✅ OPTIMIZATION: Count separately without INNER JOIN to avoid timeout
+      // First get count with simple query (no joins)
+      let countQuery = supabase
+        .from("reviews")
+        .select("id", { count: "exact", head: true })
+        .eq("marketplace_id", marketplaceIds[0]);
+
+      if (statusFilter === "unanswered") {
+        countQuery = countQuery.eq("segment", "unanswered");
+      } else if (statusFilter === "pending") {
+        countQuery = countQuery.eq("segment", "pending");
+      } else if (statusFilter === "archived") {
+        countQuery = countQuery.eq("segment", "archived");
+      }
+
+      if (ratingFilter !== "all") {
+        countQuery = countQuery.eq("rating", parseInt(ratingFilter, 10));
+      }
+
+      const { count } = await countQuery;
+
+      // Then get data with INNER JOIN (no count to avoid timeout)
       let query = supabase
         .from("reviews")
         .select(
           `*,
      products!inner(name, offer_id, image_url, marketplace_id),
      replies(id, content, status, created_at, tone)`,
-          { count: "exact" },
         )
         .in("products.marketplace_id", marketplaceIds);
 
@@ -316,7 +335,7 @@ const Reviews = () => {
       // и не зависело от особенностей фильтрации по связанной таблице products.
       // Здесь дополнительных условий по searchQuery не добавляем.
 
-      const { data, error, count } = await query.order("review_date", { ascending: false }).range(from, to);
+      const { data, error } = await query.order("review_date", { ascending: false }).range(from, to);
 
       if (error) {
         throw error;
