@@ -17,7 +17,9 @@ import {
   Calendar,
   Package,
   Settings,
-  Zap
+  Zap,
+  ArrowUpDown,
+  Circle
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -91,6 +93,23 @@ const PromotionsAnalytics = () => {
     setVisibleColumns(prev => ({ ...prev, [column]: !prev[column] }));
   };
 
+  // Сортировка кампаний
+  const [sortConfig, setSortConfig] = useState<{
+    key: string;
+    direction: 'asc' | 'desc' | null;
+  }>({
+    key: '',
+    direction: null,
+  });
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'desc';
+    if (sortConfig.key === key && sortConfig.direction === 'desc') {
+      direction = 'asc';
+    }
+    setSortConfig({ key, direction });
+  };
+
   // Получаем marketplace_id пользователя
   const { data: marketplace } = useQuery({
     queryKey: ["user-marketplace"],
@@ -138,7 +157,8 @@ const PromotionsAnalytics = () => {
         .eq("marketplace_id", marketplace.id)
         .gte("stat_date", format(dateRange.start, "yyyy-MM-dd"))
         .lte("stat_date", format(dateRange.end, "yyyy-MM-dd"))
-        .order("stat_date", { ascending: false });
+        .order("stat_date", { ascending: false })
+        .limit(100000);
 
       if (error) throw error;
       if (!performanceData) return [];
@@ -278,7 +298,7 @@ const PromotionsAnalytics = () => {
     setExpandedProducts(newExpanded);
   };
 
-  const filteredCampaigns = campaignsData?.filter((campaign) => {
+  let filteredCampaigns = campaignsData?.filter((campaign) => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       return (
@@ -294,6 +314,65 @@ const PromotionsAnalytics = () => {
     }
     return true;
   }) || [];
+
+  // Применяем сортировку
+  if (sortConfig.key && sortConfig.direction) {
+    filteredCampaigns = [...filteredCampaigns].sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+
+      switch (sortConfig.key) {
+        case 'товаров':
+          aValue = a.sku_count;
+          bValue = b.sku_count;
+          break;
+        case 'расходы':
+          aValue = a.total_money_spent;
+          bValue = b.total_money_spent;
+          break;
+        case 'показы':
+          aValue = a.total_views;
+          bValue = b.total_views;
+          break;
+        case 'клики':
+          aValue = a.total_clicks;
+          bValue = b.total_clicks;
+          break;
+        case 'заказы':
+          aValue = a.total_orders;
+          bValue = b.total_orders;
+          break;
+        case 'выручка':
+          aValue = a.total_revenue;
+          bValue = b.total_revenue;
+          break;
+        case 'ctr':
+          aValue = a.avg_ctr;
+          bValue = b.avg_ctr;
+          break;
+        case 'cpc':
+          aValue = a.avg_cpc;
+          bValue = b.avg_cpc;
+          break;
+        case 'конверсия':
+          aValue = a.avg_conversion;
+          bValue = b.avg_conversion;
+          break;
+        case 'дрр':
+          aValue = a.avg_drr;
+          bValue = b.avg_drr;
+          break;
+        default:
+          return 0;
+      }
+
+      if (sortConfig.direction === 'asc') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+  }
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("ru-RU", {
@@ -482,17 +561,137 @@ const PromotionsAnalytics = () => {
                   <TableRow>
                     <TableHead className="w-[50px]"></TableHead>
                     <TableHead>Кампания</TableHead>
-                    {visibleColumns.товаров && <TableHead className="text-center">Товаров</TableHead>}
-                    {visibleColumns.расходы && <TableHead className="text-center">Расходы</TableHead>}
-                    {visibleColumns.показы && <TableHead className="text-center">Показы</TableHead>}
-                    {visibleColumns.клики && <TableHead className="text-center">Клики</TableHead>}
+                    {visibleColumns.товаров && (
+                      <TableHead className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => handleSort('товаров')}
+                        >
+                          Товаров
+                          <ArrowUpDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </TableHead>
+                    )}
+                    {visibleColumns.расходы && (
+                      <TableHead className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => handleSort('расходы')}
+                        >
+                          Расходы
+                          <ArrowUpDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </TableHead>
+                    )}
+                    {visibleColumns.показы && (
+                      <TableHead className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => handleSort('показы')}
+                        >
+                          Показы
+                          <ArrowUpDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </TableHead>
+                    )}
+                    {visibleColumns.клики && (
+                      <TableHead className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => handleSort('клики')}
+                        >
+                          Клики
+                          <ArrowUpDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </TableHead>
+                    )}
                     {visibleColumns.в_корзину && <TableHead className="text-center">В корзину</TableHead>}
-                    {visibleColumns.заказы && <TableHead className="text-center">Заказы</TableHead>}
-                    {visibleColumns.выручка && <TableHead className="text-center">Выручка</TableHead>}
-                    {visibleColumns.ctr && <TableHead className="text-center">CTR</TableHead>}
-                    {visibleColumns.cpc && <TableHead className="text-center">CPC</TableHead>}
-                    {visibleColumns.конверсия && <TableHead className="text-center">Конверсия</TableHead>}
-                    {visibleColumns.дрр && <TableHead className="text-center">ДРР</TableHead>}
+                    {visibleColumns.заказы && (
+                      <TableHead className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => handleSort('заказы')}
+                        >
+                          Заказы
+                          <ArrowUpDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </TableHead>
+                    )}
+                    {visibleColumns.выручка && (
+                      <TableHead className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => handleSort('выручка')}
+                        >
+                          Выручка
+                          <ArrowUpDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </TableHead>
+                    )}
+                    {visibleColumns.ctr && (
+                      <TableHead className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => handleSort('ctr')}
+                        >
+                          CTR
+                          <ArrowUpDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </TableHead>
+                    )}
+                    {visibleColumns.cpc && (
+                      <TableHead className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => handleSort('cpc')}
+                        >
+                          CPC
+                          <ArrowUpDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </TableHead>
+                    )}
+                    {visibleColumns.конверсия && (
+                      <TableHead className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => handleSort('конверсия')}
+                        >
+                          Конверсия
+                          <ArrowUpDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </TableHead>
+                    )}
+                    {visibleColumns.дрр && (
+                      <TableHead className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => handleSort('дрр')}
+                        >
+                          ДРР
+                          <ArrowUpDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
