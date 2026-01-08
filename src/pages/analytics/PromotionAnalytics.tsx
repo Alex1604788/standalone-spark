@@ -547,15 +547,17 @@ const PromotionAnalytics = () => {
     return `${value.toFixed(2)}%`;
   };
 
-  // Вычисляем общие метрики
-  const totalMetrics = filteredCampaigns.reduce(
-    (acc, campaign) => {
-      acc.totalSpent += campaign.total_money_spent;
-      acc.totalRevenue += campaign.total_revenue;
-      return acc;
-    },
-    { totalSpent: 0, totalRevenue: 0 }
-  );
+  // Вычисляем общие метрики ОТ ВСЕХ КАМПАНИЙ за выбранный период (не от отфильтрованных)
+  const totalMetrics = campaignsData
+    ? campaignsData.reduce(
+        (acc, campaign) => {
+          acc.totalSpent += campaign.total_money_spent;
+          acc.totalRevenue += campaign.total_revenue;
+          return acc;
+        },
+        { totalSpent: 0, totalRevenue: 0 }
+      )
+    : { totalSpent: 0, totalRevenue: 0 };
 
   const totalDRR = totalMetrics.totalRevenue > 0
     ? (totalMetrics.totalSpent / totalMetrics.totalRevenue) * 100
