@@ -45,7 +45,8 @@ const OzonApiSettings = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [syncProgress, setSyncProgress] = useState<number>(0); // Процент прогресса 0-100
-  const [lastFullSync, setLastFullSync] = useState<{period: string, date: string, progress: string} | null>(null);
+  const [lastFullSync, setLastFullSync] = useState<{period: string, date: string, progress: string, rows: number} | null>(null);
+  const [lastDailySync, setLastDailySync] = useState<{period: string, date: string, progress: string, rows: number} | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -64,7 +65,8 @@ const OzonApiSettings = () => {
     if (!selectedMarketplaceId) return;
 
     const checkSyncStatus = async () => {
-      const { data, error } = await supabase
+      // 1. Получить последнюю синхронизацию (любого типа) для текущего статуса
+      const { data: lastSync, error } = await supabase
         .from("ozon_sync_history")
         .select("*")
         .eq("marketplace_id", selectedMarketplaceId)
@@ -72,11 +74,11 @@ const OzonApiSettings = () => {
         .limit(1)
         .single();
 
-      if (!error && data) {
-        const metadata = data.metadata as any;
+      if (!error && lastSync) {
+        const metadata = lastSync.metadata as any;
         const syncPeriod = metadata?.sync_period;
 
-        if (data.status === "in_progress") {
+        if (lastSync.status === "in_progress") {
           setIsSyncing(true);
 
           // Для full sync показываем прогресс с auto-continue
@@ -87,34 +89,82 @@ const OzonApiSettings = () => {
 
             setSyncProgress(progressPercent);
             setSyncStatus(`Полная синхронизация: ${currentOffset}/${totalCampaigns} кампаний (${progressPercent}%)`);
-            setLastFullSync({
-              period: `${data.period_from} - ${data.period_to}`,
-              date: new Date(data.started_at).toLocaleDateString('ru-RU'),
-              progress: `${progressPercent}%`,
-            });
           } else {
             const step = metadata?.current_step || "Синхронизация в процессе...";
             const rowsCollected = metadata?.rows_collected || 0;
             setSyncProgress(50); // Неопределённый прогресс - показываем 50%
             setSyncStatus(`${step} (собрано ${rowsCollected} записей)`);
           }
-        } else if (data.status === "completed") {
+        } else if (lastSync.status === "completed") {
           setIsSyncing(false);
           setSyncProgress(100);
-          setSyncStatus(`Завершено: ${data.rows_inserted || 0} записей за период ${data.period_from} - ${data.period_to}`);
-
-          // Обновляем статус последней полной синхронизации
-          if (syncPeriod === 'full' || data.trigger_type === 'manual_full') {
-            setLastFullSync({
-              period: `${data.period_from} - ${data.period_to}`,
-              date: new Date(data.completed_at || data.started_at).toLocaleDateString('ru-RU'),
-              progress: '100% завершена',
-            });
-          }
-        } else if (data.status === "failed" || data.status === "timeout") {
+          setSyncStatus(`Завершено: ${lastSync.rows_inserted || 0} записей за период ${lastSync.period_from} - ${lastSync.period_to}`);
+        } else if (lastSync.status === "failed" || lastSync.status === "timeout") {
           setIsSyncing(false);
           setSyncProgress(0);
-          setSyncStatus(`Ошибка: ${data.error_message || data.status}`);
+          setSyncStatus(`Ошибка: ${lastSync.error_message || lastSync.status}`);
+        }
+      }
+
+      // 2. Получить последнюю ПОЛНУЮ синхронизацию (за 62 дня)
+      const { data: fullSync } = await supabase
+        .from("ozon_sync_history")
+        .select("*")
+        .eq("marketplace_id", selectedMarketplaceId)
+        .eq("trigger_type", "manual_full")
+        .eq("status", "completed")
+        .order("completed_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (fullSync) {
+        setLastFullSync({
+          period: `${fullSync.period_from} - ${fullSync.period_to}`,
+          date: new Date(fullSync.completed_at || fullSync.started_at).toLocaleDateString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          }),
+          progress: '100% завершена',
+          rows: fullSync.rows_inserted || 0,
+        });
+      }
+
+      // 3. Получить последнюю ДНЕВНУЮ синхронизацию (за 7 дней)
+      const { data: dailySync } = await supabase
+        .from("ozon_sync_history")
+        .select("*")
+        .eq("marketplace_id", selectedMarketplaceId)
+        .eq("status", "completed")
+        .in("trigger_type", ["manual", "auto", "cron"])
+        .order("completed_at", { ascending: false })
+        .limit(10); // Берем 10 последних, фильтруем по периоду
+
+      if (dailySync && dailySync.length > 0) {
+        // Найти последнюю синхронизацию за ~7 дней (не 62)
+        const sevenDaySync = dailySync.find(sync => {
+          if (!sync.period_from || !sync.period_to) return false;
+          const daysDiff = Math.round(
+            (new Date(sync.period_to).getTime() - new Date(sync.period_from).getTime()) / (1000 * 60 * 60 * 24)
+          );
+          return daysDiff >= 6 && daysDiff <= 10; // 7 дней ±3
+        });
+
+        if (sevenDaySync) {
+          setLastDailySync({
+            period: `${sevenDaySync.period_from} - ${sevenDaySync.period_to}`,
+            date: new Date(sevenDaySync.completed_at || sevenDaySync.started_at).toLocaleDateString('ru-RU', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            }),
+            progress: '100% завершена',
+            rows: sevenDaySync.rows_inserted || 0,
+          });
         }
       }
     };
@@ -526,6 +576,58 @@ const OzonApiSettings = () => {
               </Alert>
             )}
 
+            {/* Статистика синхронизаций */}
+            {(lastFullSync || lastDailySync) && !isSyncing && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {lastFullSync && (
+                  <Card className="border-green-200 dark:border-green-900">
+                    <CardContent className="pt-4">
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 className="h-4 w-4 text-green-600 mt-1 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-green-900 dark:text-green-100">
+                            Последняя полная синхронизация (62 дня)
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            📅 {lastFullSync.date}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            📊 Период: {lastFullSync.period}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            ✅ Записей: {lastFullSync.rows.toLocaleString('ru-RU')}
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+                {lastDailySync && (
+                  <Card className="border-blue-200 dark:border-blue-900">
+                    <CardContent className="pt-4">
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 className="h-4 w-4 text-blue-600 mt-1 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                            Последняя синхронизация (7 дней)
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            📅 {lastDailySync.date}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            📊 Период: {lastDailySync.period}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            ✅ Записей: {lastDailySync.rows.toLocaleString('ru-RU')}
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
+
             {/* Полная синхронизация (62 дня) */}
             <div className="space-y-3 p-4 border rounded-lg bg-blue-50 dark:bg-blue-950">
               <div className="flex items-center justify-between">
@@ -534,12 +636,6 @@ const OzonApiSettings = () => {
                   <p className="text-sm text-muted-foreground">
                     Загружает ВСЕ данные за 62 дня по всем кампаниям (RUNNING + STOPPED)
                   </p>
-                  {lastFullSync && (
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      <p>Последняя: {lastFullSync.date}, период: {lastFullSync.period}</p>
-                      <p>Статус: {lastFullSync.progress}</p>
-                    </div>
-                  )}
                 </div>
                 <Button onClick={() => handleSyncData('full')} disabled={isSyncing} size="lg">
                   {isSyncing ? (
