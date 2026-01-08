@@ -141,32 +141,34 @@ serve(async (req) => {
       // Process reviews
       for (const review of reviews) {
         try {
-          // Основной идентификатор - offer_id, второстепенный - sku
-          const productOfferId = review.product_offer_id;
-          const productExternalId = review.product_external_id; // это SKU из URL
-          
-          console.log(`[sync-reviews-api] 🔍 Поиск товара: offer_id="${productOfferId}", sku="${productExternalId}"`);
-          
+          // OZON API возвращает только sku (число)
+          const reviewSku = review.sku ? String(review.sku) : null;
+
+          console.log(`[sync-reviews-api] 🔍 Поиск товара: sku="${reviewSku}"`);
+
           let product = null;
-          
-          // ПРИОРИТЕТ 1: Ищем по offer_id (основной идентификатор)
-          if (productOfferId) {
-            product = products.find(p => p.offer_id === productOfferId);
+
+          if (reviewSku) {
+            // Ищем по sku
+            product = products.find(p => p.sku === reviewSku);
+
+            // Если не нашли по sku, пробуем по external_id
+            if (!product) {
+              product = products.find(p => p.external_id === reviewSku);
+            }
+
+            // Если не нашли по sku, пробуем по offer_id
+            if (!product) {
+              product = products.find(p => p.offer_id === reviewSku);
+            }
+
             if (product) {
-              console.log(`[sync-reviews-api] ✅ Товар найден по offer_id: ${product.id}`);
+              console.log(`[sync-reviews-api] ✅ Товар найден: ${product.id}`);
             }
           }
-          
-          // ПРИОРИТЕТ 2: Если не нашли, ищем по sku (второстепенный)
-          if (!product && productExternalId) {
-            product = products.find(p => p.sku === productExternalId);
-            if (product) {
-              console.log(`[sync-reviews-api] ✅ Товар найден по sku: ${product.id}`);
-            }
-          }
-          
+
           if (!product) {
-            console.log(`[sync-reviews-api] ❌ Товар НЕ НАЙДЕН для offer_id="${productOfferId}", sku="${productExternalId}"`);
+            console.log(`[sync-reviews-api] ❌ Товар НЕ НАЙДЕН для sku="${reviewSku}"`);
             continue;
           }
 
@@ -176,17 +178,17 @@ serve(async (req) => {
             .upsert({
               marketplace_id,
               product_id: product.id,
-              external_id: String(review.review_id || review.id),
-              rating: review.score || 0,
-              author_name: review.author || 'Anonymous',
+              external_id: String(review.id),
+              rating: review.rating || 0,
+              author_name: 'Anonymous', // API не возвращает имя автора
               text: review.text || '',
-              advantages: review.advantages || null,
-              disadvantages: review.disadvantages || null,
-              review_date: review.created_at || new Date().toISOString(),
+              advantages: null, // API не возвращает advantages/disadvantages
+              disadvantages: null,
+              review_date: review.published_at || new Date().toISOString(),
               raw: review,
               inserted_at: new Date().toISOString(),
               status: 'new',
-              is_answered: false,
+              is_answered: (review.comments_amount || 0) > 0,
             }, {
               onConflict: 'marketplace_id,external_id',
               ignoreDuplicates: false,
