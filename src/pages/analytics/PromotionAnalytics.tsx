@@ -1,11 +1,26 @@
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { Megaphone, Zap, DollarSign, ChevronRight, ChevronDown, Search, Package, Calendar } from "lucide-react";
+import {
+  Megaphone,
+  DollarSign,
+  ChevronRight,
+  ChevronDown,
+  Search,
+  Package,
+  Calendar,
+  Settings,
+  ArrowUpDown,
+  TrendingUp,
+  Eye,
+  MousePointerClick,
+  ShoppingCart
+} from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
@@ -62,6 +77,44 @@ const PromotionAnalytics = () => {
     start: subDays(new Date(), 90),
     end: new Date(),
   });
+
+  // Управление видимостью столбцов
+  const [visibleColumns, setVisibleColumns] = useState({
+    товаров: true,
+    расходы: true,
+    показы: true,
+    клики: true,
+    в_корзину: true,
+    избранное: true,
+    заказы: true,
+    выручка: true,
+    ctr: true,
+    cpc: true,
+    конв_корзина: true,
+    конверсия: true,
+    дрр: true,
+  });
+
+  const toggleColumn = (column: keyof typeof visibleColumns) => {
+    setVisibleColumns(prev => ({ ...prev, [column]: !prev[column] }));
+  };
+
+  // Сортировка кампаний
+  const [sortConfig, setSortConfig] = useState<{
+    key: string;
+    direction: 'asc' | 'desc' | null;
+  }>({
+    key: '',
+    direction: null,
+  });
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'desc';
+    if (sortConfig.key === key && sortConfig.direction === 'desc') {
+      direction = 'asc';
+    }
+    setSortConfig({ key, direction });
+  };
 
   // Получаем marketplace_id пользователя
   const { data: marketplace } = useQuery({
@@ -145,7 +198,8 @@ const PromotionAnalytics = () => {
         .eq("marketplace_id", marketplace.id)
         .gte("stat_date", format(dateRange.start, "yyyy-MM-dd"))
         .lte("stat_date", format(dateRange.end, "yyyy-MM-dd"))
-        .order("stat_date", { ascending: false });
+        .order("stat_date", { ascending: false })
+        .limit(100000);
 
       if (error) {
         console.error("❌ Ошибка загрузки данных продвижений:", error);
@@ -392,7 +446,7 @@ const PromotionAnalytics = () => {
     setExpandedProducts(newExpanded);
   };
 
-  const filteredCampaigns = campaignsData?.filter((campaign) => {
+  let filteredCampaigns = campaignsData?.filter((campaign) => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       return (
@@ -409,6 +463,77 @@ const PromotionAnalytics = () => {
     return true;
   }) || [];
 
+  // Применяем сортировку
+  if (sortConfig.key && sortConfig.direction) {
+    filteredCampaigns = [...filteredCampaigns].sort((a, b) => {
+      let aValue: number = 0;
+      let bValue: number = 0;
+
+      switch (sortConfig.key) {
+        case 'товаров':
+          aValue = a.sku_count;
+          bValue = b.sku_count;
+          break;
+        case 'расходы':
+          aValue = a.total_money_spent;
+          bValue = b.total_money_spent;
+          break;
+        case 'показы':
+          aValue = a.total_views;
+          bValue = b.total_views;
+          break;
+        case 'клики':
+          aValue = a.total_clicks;
+          bValue = b.total_clicks;
+          break;
+        case 'в_корзину':
+          aValue = a.total_add_to_cart;
+          bValue = b.total_add_to_cart;
+          break;
+        case 'избранное':
+          aValue = a.total_favorites;
+          bValue = b.total_favorites;
+          break;
+        case 'заказы':
+          aValue = a.total_orders;
+          bValue = b.total_orders;
+          break;
+        case 'выручка':
+          aValue = a.total_revenue;
+          bValue = b.total_revenue;
+          break;
+        case 'ctr':
+          aValue = a.avg_ctr;
+          bValue = b.avg_ctr;
+          break;
+        case 'cpc':
+          aValue = a.avg_cpc;
+          bValue = b.avg_cpc;
+          break;
+        case 'конв_корзина':
+          aValue = a.avg_add_to_cart_conversion;
+          bValue = b.avg_add_to_cart_conversion;
+          break;
+        case 'конверсия':
+          aValue = a.avg_conversion;
+          bValue = b.avg_conversion;
+          break;
+        case 'дрр':
+          aValue = a.avg_drr;
+          bValue = b.avg_drr;
+          break;
+        default:
+          return 0;
+      }
+
+      if (sortConfig.direction === 'asc') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+  }
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("ru-RU", {
       style: "currency",
@@ -422,27 +547,18 @@ const PromotionAnalytics = () => {
     return `${value.toFixed(2)}%`;
   };
 
-  // Вычисляем метрики для вкладки Конверсия
-  const conversionMetrics = campaignsData
-    ? campaignsData.reduce(
-        (acc, campaign) => {
-          acc.totalClicks += campaign.total_clicks;
-          acc.totalOrders += campaign.total_orders;
-          acc.totalRevenue += campaign.total_revenue;
-          acc.totalSpent += campaign.total_money_spent;
-          return acc;
-        },
-        { totalClicks: 0, totalOrders: 0, totalRevenue: 0, totalSpent: 0 }
-      )
-    : null;
+  // Вычисляем общие метрики
+  const totalMetrics = filteredCampaigns.reduce(
+    (acc, campaign) => {
+      acc.totalSpent += campaign.total_money_spent;
+      acc.totalRevenue += campaign.total_revenue;
+      return acc;
+    },
+    { totalSpent: 0, totalRevenue: 0 }
+  );
 
-  const overallConversion = conversionMetrics && conversionMetrics.totalClicks > 0
-    ? (conversionMetrics.totalOrders / conversionMetrics.totalClicks) * 100
-    : 0;
-
-  // Вычисляем ROI
-  const roi = conversionMetrics && conversionMetrics.totalSpent > 0
-    ? ((conversionMetrics.totalRevenue - conversionMetrics.totalSpent) / conversionMetrics.totalSpent) * 100
+  const totalDRR = totalMetrics.totalRevenue > 0
+    ? (totalMetrics.totalSpent / totalMetrics.totalRevenue) * 100
     : 0;
 
   return (
@@ -507,32 +623,89 @@ const PromotionAnalytics = () => {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="campaigns" className="space-y-6">
-        <TabsList className="bg-white border">
-          <TabsTrigger value="campaigns" className="flex items-center gap-2">
-            <Megaphone className="w-4 h-4" />
-            Кампании
-          </TabsTrigger>
-          <TabsTrigger value="conversion" className="flex items-center gap-2">
-            <Zap className="w-4 h-4" />
-            Конверсия
-          </TabsTrigger>
-          <TabsTrigger value="roi" className="flex items-center gap-2">
-            <DollarSign className="w-4 h-4" />
-            ROI
-          </TabsTrigger>
-        </TabsList>
+      {/* Общие метрики */}
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Общие расходы
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(totalMetrics.totalSpent)}</div>
+            <p className="text-xs text-muted-foreground mt-1">За выбранный период</p>
+          </CardContent>
+        </Card>
 
-        <TabsContent value="campaigns" className="space-y-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Общая выручка
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(totalMetrics.totalRevenue)}</div>
+            <p className="text-xs text-muted-foreground mt-1">От продвижения</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Общий ДРР
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatPercent(totalDRR)}</div>
+            <p className="text-xs text-muted-foreground mt-1">Доля рекламных расходов</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Megaphone className="w-5 h-5" />
-                Рекламные кампании
-              </CardTitle>
-              <CardDescription>
-                Иерархический просмотр кампаний и товаров с метриками эффективности
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Megaphone className="w-5 h-5" />
+                    Рекламные кампании
+                  </CardTitle>
+                  <CardDescription>
+                    Иерархический просмотр кампаний и товаров с метриками эффективности
+                  </CardDescription>
+                </div>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-2">
+                      <Settings className="h-4 w-4" />
+                      Столбцы
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-56" align="end">
+                    <div className="space-y-3">
+                      <h4 className="font-medium text-sm">Отображаемые столбцы</h4>
+                      <div className="space-y-2">
+                        {Object.entries(visibleColumns).map(([key, value]) => (
+                          <div key={key} className="flex items-center space-x-2">
+                            <Checkbox
+                              id={key}
+                              checked={value}
+                              onCheckedChange={() => toggleColumn(key as keyof typeof visibleColumns)}
+                            />
+                            <label
+                              htmlFor={key}
+                              className="text-sm font-normal cursor-pointer select-none capitalize"
+                            >
+                              {key.replace(/_/g, ' ')}
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
             </CardHeader>
             <CardContent>
               {isLoading ? (
@@ -569,20 +742,175 @@ const PromotionAnalytics = () => {
                       <TableRow>
                         <TableHead className="w-[50px]"></TableHead>
                         <TableHead>Кампания</TableHead>
-                        <TableHead className="text-center">Период</TableHead>
-                        <TableHead className="text-center">Товаров</TableHead>
-                        <TableHead className="text-center">Расходы</TableHead>
-                        <TableHead className="text-center">Показы</TableHead>
-                        <TableHead className="text-center">Клики</TableHead>
-                        <TableHead className="text-center">В корзину</TableHead>
-                        <TableHead className="text-center">Избранное</TableHead>
-                        <TableHead className="text-center">Заказы</TableHead>
-                        <TableHead className="text-center">Выручка</TableHead>
-                        <TableHead className="text-center">CTR</TableHead>
-                        <TableHead className="text-center">CPC</TableHead>
-                        <TableHead className="text-center">Конв.→🛒</TableHead>
-                        <TableHead className="text-center">Конверсия</TableHead>
-                        <TableHead className="text-center">ДРР</TableHead>
+                        {visibleColumns.товаров && (
+                          <TableHead className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => handleSort('товаров')}
+                            >
+                              Товаров
+                              <ArrowUpDown className="ml-2 h-4 w-4" />
+                            </Button>
+                          </TableHead>
+                        )}
+                        {visibleColumns.расходы && (
+                          <TableHead className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => handleSort('расходы')}
+                            >
+                              Расходы
+                              <ArrowUpDown className="ml-2 h-4 w-4" />
+                            </Button>
+                          </TableHead>
+                        )}
+                        {visibleColumns.показы && (
+                          <TableHead className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => handleSort('показы')}
+                            >
+                              Показы
+                              <ArrowUpDown className="ml-2 h-4 w-4" />
+                            </Button>
+                          </TableHead>
+                        )}
+                        {visibleColumns.клики && (
+                          <TableHead className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => handleSort('клики')}
+                            >
+                              Клики
+                              <ArrowUpDown className="ml-2 h-4 w-4" />
+                            </Button>
+                          </TableHead>
+                        )}
+                        {visibleColumns.в_корзину && (
+                          <TableHead className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => handleSort('в_корзину')}
+                            >
+                              В корзину
+                              <ArrowUpDown className="ml-2 h-4 w-4" />
+                            </Button>
+                          </TableHead>
+                        )}
+                        {visibleColumns.избранное && (
+                          <TableHead className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => handleSort('избранное')}
+                            >
+                              Избранное
+                              <ArrowUpDown className="ml-2 h-4 w-4" />
+                            </Button>
+                          </TableHead>
+                        )}
+                        {visibleColumns.заказы && (
+                          <TableHead className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => handleSort('заказы')}
+                            >
+                              Заказы
+                              <ArrowUpDown className="ml-2 h-4 w-4" />
+                            </Button>
+                          </TableHead>
+                        )}
+                        {visibleColumns.выручка && (
+                          <TableHead className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => handleSort('выручка')}
+                            >
+                              Выручка
+                              <ArrowUpDown className="ml-2 h-4 w-4" />
+                            </Button>
+                          </TableHead>
+                        )}
+                        {visibleColumns.ctr && (
+                          <TableHead className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => handleSort('ctr')}
+                            >
+                              CTR
+                              <ArrowUpDown className="ml-2 h-4 w-4" />
+                            </Button>
+                          </TableHead>
+                        )}
+                        {visibleColumns.cpc && (
+                          <TableHead className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => handleSort('cpc')}
+                            >
+                              CPC
+                              <ArrowUpDown className="ml-2 h-4 w-4" />
+                            </Button>
+                          </TableHead>
+                        )}
+                        {visibleColumns.конв_корзина && (
+                          <TableHead className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => handleSort('конв_корзина')}
+                            >
+                              Конв.→🛒
+                              <ArrowUpDown className="ml-2 h-4 w-4" />
+                            </Button>
+                          </TableHead>
+                        )}
+                        {visibleColumns.конверсия && (
+                          <TableHead className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => handleSort('конверсия')}
+                            >
+                              Конверсия
+                              <ArrowUpDown className="ml-2 h-4 w-4" />
+                            </Button>
+                          </TableHead>
+                        )}
+                        {visibleColumns.дрр && (
+                          <TableHead className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => handleSort('дрр')}
+                            >
+                              ДРР
+                              <ArrowUpDown className="ml-2 h-4 w-4" />
+                            </Button>
+                          </TableHead>
+                        )}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -615,54 +943,76 @@ const PromotionAnalytics = () => {
                               <TableCell>
                                 <div>
                                   <div className="font-medium">{campaign.campaign_name}</div>
-                                  {campaign.campaign_type && (
+                                  {campaign.campaign_type && campaign.campaign_type !== 'SKU' && (
                                     <Badge variant="secondary" className="text-xs mt-1">
                                       {campaign.campaign_type}
                                     </Badge>
                                   )}
                                 </div>
                               </TableCell>
-                              <TableCell className="text-center text-sm">
-                                {format(new Date(campaign.date_range.min), "dd.MM", { locale: ru })} -{" "}
-                                {format(new Date(campaign.date_range.max), "dd.MM", { locale: ru })}
-                              </TableCell>
-                              <TableCell className="text-center">{campaign.sku_count}</TableCell>
-                              <TableCell className="text-center font-medium">
-                                {formatCurrency(campaign.total_money_spent)}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                {campaign.total_views.toLocaleString("ru-RU")}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                {campaign.total_clicks.toLocaleString("ru-RU")}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                {campaign.total_add_to_cart.toLocaleString("ru-RU")}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                {campaign.total_favorites.toLocaleString("ru-RU")}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                {campaign.total_orders.toLocaleString("ru-RU")}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                {formatCurrency(campaign.total_revenue)}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                {formatPercent(campaign.avg_ctr)}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                {formatCurrency(campaign.avg_cpc)}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                {formatPercent(campaign.avg_add_to_cart_conversion)}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                {formatPercent(campaign.avg_conversion)}
-                              </TableCell>
-                              <TableCell className="text-center">
-                                {campaign.avg_drr > 0 ? formatPercent(campaign.avg_drr) : "—"}
-                              </TableCell>
+                              {visibleColumns.товаров && (
+                                <TableCell className="text-center">{campaign.sku_count}</TableCell>
+                              )}
+                              {visibleColumns.расходы && (
+                                <TableCell className="text-center font-medium">
+                                  {formatCurrency(campaign.total_money_spent)}
+                                </TableCell>
+                              )}
+                              {visibleColumns.показы && (
+                                <TableCell className="text-center">
+                                  {campaign.total_views.toLocaleString("ru-RU")}
+                                </TableCell>
+                              )}
+                              {visibleColumns.клики && (
+                                <TableCell className="text-center">
+                                  {campaign.total_clicks.toLocaleString("ru-RU")}
+                                </TableCell>
+                              )}
+                              {visibleColumns.в_корзину && (
+                                <TableCell className="text-center">
+                                  {campaign.total_add_to_cart.toLocaleString("ru-RU")}
+                                </TableCell>
+                              )}
+                              {visibleColumns.избранное && (
+                                <TableCell className="text-center">
+                                  {campaign.total_favorites.toLocaleString("ru-RU")}
+                                </TableCell>
+                              )}
+                              {visibleColumns.заказы && (
+                                <TableCell className="text-center">
+                                  {campaign.total_orders.toLocaleString("ru-RU")}
+                                </TableCell>
+                              )}
+                              {visibleColumns.выручка && (
+                                <TableCell className="text-center">
+                                  {formatCurrency(campaign.total_revenue)}
+                                </TableCell>
+                              )}
+                              {visibleColumns.ctr && (
+                                <TableCell className="text-center">
+                                  {formatPercent(campaign.avg_ctr)}
+                                </TableCell>
+                              )}
+                              {visibleColumns.cpc && (
+                                <TableCell className="text-center">
+                                  {formatCurrency(campaign.avg_cpc)}
+                                </TableCell>
+                              )}
+                              {visibleColumns.конв_корзина && (
+                                <TableCell className="text-center">
+                                  {formatPercent(campaign.avg_add_to_cart_conversion)}
+                                </TableCell>
+                              )}
+                              {visibleColumns.конверсия && (
+                                <TableCell className="text-center">
+                                  {formatPercent(campaign.avg_conversion)}
+                                </TableCell>
+                              )}
+                              {visibleColumns.дрр && (
+                                <TableCell className="text-center">
+                                  {campaign.avg_drr > 0 ? formatPercent(campaign.avg_drr) : "—"}
+                                </TableCell>
+                              )}
                             </TableRow>
                             {isExpanded &&
                               campaign.products.map((product) => {
@@ -718,59 +1068,73 @@ const PromotionAnalytics = () => {
                                           </div>
                                         </div>
                                       </TableCell>
-                                      <TableCell className="text-center text-sm">
-                                        {format(new Date(product.date_range.min), "dd.MM", {
-                                          locale: ru,
-                                        })}{" "}
-                                        -{" "}
-                                        {format(new Date(product.date_range.max), "dd.MM", {
-                                          locale: ru,
-                                        })}
-                                        <div className="text-xs text-muted-foreground">
-                                          ({product.days_count} дн.)
-                                        </div>
-                                      </TableCell>
-                                      <TableCell className="text-center">—</TableCell>
-                                      <TableCell className="text-center font-medium text-sm">
-                                        {formatCurrency(product.total_money_spent)}
-                                      </TableCell>
-                                      <TableCell className="text-center text-sm">
-                                        {product.total_views.toLocaleString("ru-RU")}
-                                      </TableCell>
-                                      <TableCell className="text-center text-sm">
-                                        {product.total_clicks.toLocaleString("ru-RU")}
-                                      </TableCell>
-                                      <TableCell className="text-center text-sm">
-                                        {product.total_add_to_cart.toLocaleString("ru-RU")}
-                                      </TableCell>
-                                      <TableCell className="text-center text-sm">
-                                        {product.total_favorites.toLocaleString("ru-RU")}
-                                      </TableCell>
-                                      <TableCell className="text-center text-sm">
-                                        {product.total_orders.toLocaleString("ru-RU")}
-                                      </TableCell>
-                                      <TableCell className="text-center text-sm">
-                                        {formatCurrency(product.total_revenue)}
-                                      </TableCell>
-                                      <TableCell className="text-center text-sm">
-                                        {formatPercent(product.avg_ctr)}
-                                      </TableCell>
-                                      <TableCell className="text-center text-sm">
-                                        {formatCurrency(product.avg_cpc)}
-                                      </TableCell>
-                                      <TableCell className="text-center text-sm">
-                                        {formatPercent(product.avg_add_to_cart_conversion)}
-                                      </TableCell>
-                                      <TableCell className="text-center text-sm">
-                                        {formatPercent(product.avg_conversion)}
-                                      </TableCell>
-                                      <TableCell className="text-center text-sm">
-                                        {product.avg_drr > 0 ? formatPercent(product.avg_drr) : "—"}
-                                      </TableCell>
+                                      {visibleColumns.товаров && (
+                                        <TableCell className="text-center">—</TableCell>
+                                      )}
+                                      {visibleColumns.расходы && (
+                                        <TableCell className="text-center font-medium text-sm">
+                                          {formatCurrency(product.total_money_spent)}
+                                        </TableCell>
+                                      )}
+                                      {visibleColumns.показы && (
+                                        <TableCell className="text-center text-sm">
+                                          {product.total_views.toLocaleString("ru-RU")}
+                                        </TableCell>
+                                      )}
+                                      {visibleColumns.клики && (
+                                        <TableCell className="text-center text-sm">
+                                          {product.total_clicks.toLocaleString("ru-RU")}
+                                        </TableCell>
+                                      )}
+                                      {visibleColumns.в_корзину && (
+                                        <TableCell className="text-center text-sm">
+                                          {product.total_add_to_cart.toLocaleString("ru-RU")}
+                                        </TableCell>
+                                      )}
+                                      {visibleColumns.избранное && (
+                                        <TableCell className="text-center text-sm">
+                                          {product.total_favorites.toLocaleString("ru-RU")}
+                                        </TableCell>
+                                      )}
+                                      {visibleColumns.заказы && (
+                                        <TableCell className="text-center text-sm">
+                                          {product.total_orders.toLocaleString("ru-RU")}
+                                        </TableCell>
+                                      )}
+                                      {visibleColumns.выручка && (
+                                        <TableCell className="text-center text-sm">
+                                          {formatCurrency(product.total_revenue)}
+                                        </TableCell>
+                                      )}
+                                      {visibleColumns.ctr && (
+                                        <TableCell className="text-center text-sm">
+                                          {formatPercent(product.avg_ctr)}
+                                        </TableCell>
+                                      )}
+                                      {visibleColumns.cpc && (
+                                        <TableCell className="text-center text-sm">
+                                          {formatCurrency(product.avg_cpc)}
+                                        </TableCell>
+                                      )}
+                                      {visibleColumns.конв_корзина && (
+                                        <TableCell className="text-center text-sm">
+                                          {formatPercent(product.avg_add_to_cart_conversion)}
+                                        </TableCell>
+                                      )}
+                                      {visibleColumns.конверсия && (
+                                        <TableCell className="text-center text-sm">
+                                          {formatPercent(product.avg_conversion)}
+                                        </TableCell>
+                                      )}
+                                      {visibleColumns.дрр && (
+                                        <TableCell className="text-center text-sm">
+                                          {product.avg_drr > 0 ? formatPercent(product.avg_drr) : "—"}
+                                        </TableCell>
+                                      )}
                                     </TableRow>
                                     {isProductExpanded && (
                                       <TableRow key={`${productKey}-details`} className="bg-muted/10">
-                                        <TableCell colSpan={16} className="p-4">
+                                        <TableCell colSpan={20} className="p-4">
                                           <div className="space-y-2 text-sm">
                                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                               <div>
@@ -820,136 +1184,7 @@ const PromotionAnalytics = () => {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="conversion" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Zap className="w-5 h-5" />
-                Конверсия
-              </CardTitle>
-              <CardDescription>
-                Анализ конверсии по кампаниям, каналам, товарам
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {conversionMetrics ? (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium">Общая конверсия</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-2xl font-bold">{formatPercent(overallConversion)}</div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {conversionMetrics.totalOrders} заказов из {conversionMetrics.totalClicks} кликов
-                        </p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium">Всего кликов</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-2xl font-bold">
-                          {conversionMetrics.totalClicks.toLocaleString("ru-RU")}
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium">Всего заказов</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-2xl font-bold">
-                          {conversionMetrics.totalOrders.toLocaleString("ru-RU")}
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium">Выручка</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-2xl font-bold">
-                          {formatCurrency(conversionMetrics.totalRevenue)}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Zap className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                  <p className="text-lg">Нет данных</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="roi" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <DollarSign className="w-5 h-5" />
-                ROI и эффективность
-              </CardTitle>
-              <CardDescription>
-                Возврат инвестиций, эффективность кампаний, прибыльность
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {conversionMetrics ? (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium">ROI</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className={`text-2xl font-bold ${roi >= 0 ? "text-green-600" : "text-red-600"}`}>
-                          {formatPercent(roi)}
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {roi >= 0 ? "Прибыльность" : "Убыточность"}
-                        </p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium">Расходы</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-2xl font-bold text-red-600">
-                          {formatCurrency(conversionMetrics.totalSpent)}
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium">Прибыль</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className={`text-2xl font-bold ${conversionMetrics.totalRevenue - conversionMetrics.totalSpent >= 0 ? "text-green-600" : "text-red-600"}`}>
-                          {formatCurrency(conversionMetrics.totalRevenue - conversionMetrics.totalSpent)}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  <DollarSign className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                  <p className="text-lg">Нет данных</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      </div>
     </div>
   );
 };
