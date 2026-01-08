@@ -1438,6 +1438,7 @@ export type Database = {
           orders: number | null
           orders_model: number | null
           revenue: number | null
+          revenue_model: number | null
           sku: string
           stat_date: string
           views: number | null
@@ -1465,6 +1466,7 @@ export type Database = {
           orders?: number | null
           orders_model?: number | null
           revenue?: number | null
+          revenue_model?: number | null
           sku: string
           stat_date: string
           views?: number | null
@@ -1492,6 +1494,7 @@ export type Database = {
           orders?: number | null
           orders_model?: number | null
           revenue?: number | null
+          revenue_model?: number | null
           sku?: string
           stat_date?: string
           views?: number | null
