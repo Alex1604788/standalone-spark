@@ -525,7 +525,7 @@ const PromotionsAnalytics = () => {
                           <TableCell>
                             <div>
                               <div className="font-medium">{campaign.campaign_name}</div>
-                              {campaign.campaign_type && (
+                              {campaign.campaign_type && campaign.campaign_type !== 'SKU' && (
                                 <Badge variant="secondary" className="text-xs mt-1">
                                   <span>{campaign.campaign_type}</span>
                                 </Badge>
@@ -625,10 +625,10 @@ const PromotionsAnalytics = () => {
                                       )}
                                       <div>
                                         <div className="font-medium text-sm">
-                                          {product.product_name || product.sku}
+                                          {product.product_name || `SKU: ${product.sku}`}
                                         </div>
                                         <div className="text-xs text-muted-foreground">
-                                          {product.sku}
+                                          SKU: {product.sku}
                                           {product.offer_id && ` • Артикул: ${product.offer_id}`}
                                         </div>
                                       </div>
