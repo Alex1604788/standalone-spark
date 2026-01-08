@@ -11,7 +11,6 @@ import {
   ChevronDown,
   Search,
   Package,
-  Calendar,
   Settings,
   ArrowUpDown,
   TrendingUp,
@@ -25,6 +24,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
 import { ru } from "date-fns/locale";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 
 interface CampaignData {
   campaign_id: string;
@@ -577,7 +577,7 @@ const PromotionAnalytics = () => {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Calendar className="w-5 h-5" />
+            <Settings className="w-5 h-5" />
             Фильтры
           </CardTitle>
         </CardHeader>
@@ -594,31 +594,11 @@ const PromotionAnalytics = () => {
                 />
               </div>
             </div>
-            <div className="flex gap-2 items-center">
-              <label className="text-sm font-medium whitespace-nowrap flex items-center gap-1">
-                <Calendar className="w-4 h-4" />
-                Период:
-              </label>
-              <Input
-                type="date"
-                value={format(dateRange.start, "yyyy-MM-dd")}
-                onChange={(e) =>
-                  setDateRange({ ...dateRange, start: new Date(e.target.value) })
-                }
-                className="w-[160px]"
-                title="Начало периода"
-              />
-              <span className="text-muted-foreground font-medium">—</span>
-              <Input
-                type="date"
-                value={format(dateRange.end, "yyyy-MM-dd")}
-                onChange={(e) =>
-                  setDateRange({ ...dateRange, end: new Date(e.target.value) })
-                }
-                className="w-[160px]"
-                title="Конец периода"
-              />
-            </div>
+            <DateRangePicker
+              dateRange={dateRange}
+              onDateRangeChange={setDateRange}
+              className="w-auto"
+            />
           </div>
         </CardContent>
       </Card>
