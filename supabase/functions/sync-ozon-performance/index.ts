@@ -55,7 +55,7 @@ interface OzonPerformanceRequest {
   marketplace_id: string;
   start_date?: string; // YYYY-MM-DD
   end_date?: string; // YYYY-MM-DD
-  sync_period?: 'daily' | 'weekly' | 'custom'; // тип синхронизации
+  sync_period?: 'daily' | 'weekly' | 'custom' | 'full'; // тип синхронизации
   campaign_offset?: number; // Offset для пагинации кампаний (0, 8, 16, 24, ...)
   test?: boolean;
 }
@@ -266,7 +266,7 @@ async function downloadAndParseReport(
 
     } catch (error) {
       console.error("ZIP extraction failed:", error);
-      throw new Error(`Failed to extract ZIP: ${error.message}`);
+      throw new Error(`Failed to extract ZIP: ${(error as Error).message}`);
     }
   } else {
     // Plain text CSV
@@ -679,7 +679,7 @@ serve(async (req) => {
     // Для остальных режимов: обрабатываем все кампании
     const startChunkIndex = Math.floor(campaign_offset / chunkSize);
 
-    let chunksToProcess = [];
+    let chunksToProcess: CampaignInfo[][] = [];
     if (startChunkIndex < campaignChunks.length) {
       if (maxCampaignsPerRun !== null) {
         // Ограниченный режим (full sync): берём только N кампаний
@@ -858,8 +858,8 @@ serve(async (req) => {
             processedCampaigns.push(campaign.name);  // Технически обработана, просто нет данных
           }
         } catch (err) {
-          console.error(`Failed to parse report for campaign ${campaign.name}:`, err.message);
-          failedCampaigns.push({name: campaign.name, id: campaign.id, reason: `Parse error: ${err.message}`});
+          console.error(`Failed to parse report for campaign ${campaign.name}:`, (err as Error).message);
+          failedCampaigns.push({name: campaign.name, id: campaign.id, reason: `Parse error: ${(err as Error).message}`});
           // Продолжаем со следующей кампанией
         }
 
@@ -982,9 +982,9 @@ serve(async (req) => {
     console.error("Function error:", error);
 
     const errorDetails = {
-      message: error.message,
-      name: error.name,
-      stack: error.stack?.split('\n').slice(0, 3).join('\n'),
+      message: (error as Error).message,
+      name: (error as Error).name,
+      stack: (error as Error).stack?.split('\n').slice(0, 3).join('\n'),
     };
 
     return new Response(
