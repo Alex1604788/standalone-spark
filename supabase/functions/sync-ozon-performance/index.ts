@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const VERSION = "3.0.0-model-orders-support";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -316,7 +318,12 @@ serve(async (req) => {
     if (test) {
       // Тестовый режим - просто проверяем подключение
       return new Response(
-        JSON.stringify({ success: true, message: "Connection successful", token_obtained: true }),
+        JSON.stringify({
+          success: true,
+          message: "Connection successful",
+          token_obtained: true,
+          version: VERSION
+        }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -620,6 +627,7 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         message: "Synchronization completed",
+        version: VERSION,
         period: { from: formatDate(periodStart), to: formatDate(periodEnd) },
         campaigns: campaignIds.length,
         chunks_processed: chunksToProcess.length,
