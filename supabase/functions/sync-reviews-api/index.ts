@@ -1,4 +1,4 @@
-// VERSION: 2026-01-08-v2 - Fix OZON API response fields (sku matching)
+// VERSION: 2026-01-08-v3 - Fix API response parsing (reviews array)
 // BRANCH: claude/setup-ozon-cron-jobs-2qPjk
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -11,7 +11,7 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  console.log('[sync-reviews-api] VERSION: 2026-01-08-v2 - Function started');
+  console.log('[sync-reviews-api] VERSION: 2026-01-08-v3 - Function started');
 
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders, status: 204 });
@@ -134,7 +134,7 @@ serve(async (req) => {
       }
 
       const reviewsData = await reviewsResponse.json();
-      const reviews = reviewsData.result?.reviews || [];
+      const reviews = reviewsData.reviews || [];
 
       console.log(`Page ${page}: Found ${reviews.length} reviews`);
 
