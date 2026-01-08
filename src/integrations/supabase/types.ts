@@ -3531,6 +3531,15 @@ export type Database = {
         }[]
       }
       trigger_ozon_daily_sync: { Args: never; Returns: undefined }
+      trigger_ozon_sync: {
+        Args: {
+          p_api_key: string
+          p_client_id: string
+          p_function_name: string
+          p_marketplace_id: string
+        }
+        Returns: undefined
+      }
       update_analytics_metrics: { Args: never; Returns: undefined }
       update_api_token: {
         Args: {

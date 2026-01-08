@@ -14,7 +14,6 @@ import {
   MousePointerClick,
   ShoppingCart,
   DollarSign,
-  Calendar,
   Package,
   Settings,
   Zap,
@@ -23,6 +22,7 @@ import {
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
@@ -54,6 +54,7 @@ interface ProductData {
   total_money_spent: number;
   total_views: number;
   total_clicks: number;
+  total_add_to_cart: number;
   total_orders: number;
   total_revenue: number;
   avg_ctr: number;
@@ -215,6 +216,7 @@ const PromotionsAnalytics = () => {
             total_money_spent: 0,
             total_views: 0,
             total_clicks: 0,
+            total_add_to_cart: 0,
             total_orders: 0,
             total_revenue: 0,
             avg_ctr: 0,
@@ -230,6 +232,7 @@ const PromotionsAnalytics = () => {
         product.total_money_spent += Number(row.money_spent || 0);
         product.total_views += Number(row.views || 0);
         product.total_clicks += Number(row.clicks || 0);
+        product.total_add_to_cart += Number(row.add_to_cart || 0);
         product.total_orders += Number(row.orders || 0);
         product.total_revenue += Number(row.revenue || 0);
 
@@ -431,24 +434,11 @@ const PromotionsAnalytics = () => {
                 />
               </div>
             </div>
-            <div className="flex gap-2">
-              <Input
-                type="date"
-                value={format(dateRange.start, "yyyy-MM-dd")}
-                onChange={(e) =>
-                  setDateRange({ ...dateRange, start: new Date(e.target.value) })
-                }
-                className="w-[150px]"
-              />
-              <Input
-                type="date"
-                value={format(dateRange.end, "yyyy-MM-dd")}
-                onChange={(e) =>
-                  setDateRange({ ...dateRange, end: new Date(e.target.value) })
-                }
-                className="w-[150px]"
-              />
-            </div>
+            <DateRangePicker
+              dateRange={dateRange}
+              onDateRangeChange={setDateRange}
+              className="w-auto"
+            />
           </div>
         </CardContent>
       </Card>
