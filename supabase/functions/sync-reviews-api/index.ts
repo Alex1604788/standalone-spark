@@ -1,4 +1,4 @@
-// VERSION: 2026-01-08-v4 - Incremental sync (30 days manual, since last auto)
+// VERSION: 2026-01-08-v5 - Incremental sync (7 days manual, since last auto)
 // BRANCH: claude/setup-ozon-cron-jobs-2qPjk
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -11,7 +11,7 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  console.log('[sync-reviews-api] VERSION: 2026-01-08-v4 - Function started');
+  console.log('[sync-reviews-api] VERSION: 2026-01-08-v5 - Function started');
 
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders, status: 204 });
@@ -71,16 +71,16 @@ serve(async (req) => {
     // Determine sync period:
     // 1. If 'since' provided in request - use it (explicit override)
     // 2. If last_reviews_sync_at exists - sync since last sync (automatic CRON)
-    // 3. Otherwise - last 30 days (manual first-time sync)
+    // 3. Otherwise - last 7 days (manual first-time sync, ~3500 reviews)
     if (!since) {
       if (lastReviewsSync) {
         since = lastReviewsSync;
         console.log(`[sync-reviews-api] Incremental sync since: ${since}`);
       } else {
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        since = thirtyDaysAgo.toISOString();
-        console.log(`[sync-reviews-api] First-time sync, fetching last 30 days since: ${since}`);
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        since = sevenDaysAgo.toISOString();
+        console.log(`[sync-reviews-api] First-time sync, fetching last 7 days since: ${since}`);
       }
     } else {
       console.log(`[sync-reviews-api] Using provided since parameter: ${since}`);
