@@ -1,3 +1,5 @@
+// VERSION: 2026-01-08-v2 - Enable OZON processing for API mode
+// BRANCH: claude/setup-ozon-cron-jobs-2qPjk
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.58.0';
 
 const corsHeaders = {
