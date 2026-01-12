@@ -36,3 +36,4 @@ apply-*.cjs
 apply-*.js
 execute-sql.sh
 supabase/.temp/
+execute-view.mjs
