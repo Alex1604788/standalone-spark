@@ -35,3 +35,4 @@ apply-*.mjs
 apply-*.cjs
 apply-*.js
 execute-sql.sh
+supabase/.temp/
