@@ -136,7 +136,7 @@ const PromotionsAnalytics = () => {
       if (!marketplace?.id) return [];
 
       const { data: performanceData, error } = await supabase
-        .from("ozon_performance_daily")
+        .from("ozon_performance_summary")
         .select(`
           campaign_id,
           campaign_name,
@@ -146,8 +146,8 @@ const PromotionsAnalytics = () => {
           money_spent,
           views,
           clicks,
-          orders,
-          revenue,
+          total_orders,
+          total_revenue,
           ctr,
           cpc,
           conversion,
@@ -195,8 +195,8 @@ const PromotionsAnalytics = () => {
         campaign.total_money_spent += Number(row.money_spent || 0);
         campaign.total_views += Number(row.views || 0);
         campaign.total_clicks += Number(row.clicks || 0);
-        campaign.total_orders += Number(row.orders || 0);
-        campaign.total_revenue += Number(row.revenue || 0);
+        campaign.total_orders += Number(row.total_orders || 0);
+        campaign.total_revenue += Number(row.total_revenue || 0);
 
         if (row.stat_date < campaign.date_range.min) {
           campaign.date_range.min = row.stat_date;
@@ -233,8 +233,8 @@ const PromotionsAnalytics = () => {
         product.total_views += Number(row.views || 0);
         product.total_clicks += Number(row.clicks || 0);
         product.total_add_to_cart += Number(row.add_to_cart || 0);
-        product.total_orders += Number(row.orders || 0);
-        product.total_revenue += Number(row.revenue || 0);
+        product.total_orders += Number(row.total_orders || 0);
+        product.total_revenue += Number(row.total_revenue || 0);
 
         if (row.stat_date < product.date_range.min) {
           product.date_range.min = row.stat_date;
@@ -538,7 +538,7 @@ const PromotionsAnalytics = () => {
             <div className="text-center py-8 text-muted-foreground space-y-2">
               <p className="text-lg">Нет данных за выбранный период</p>
               <p className="text-sm">
-                Убедитесь, что данные по продвижениям загружены в таблицу ozon_performance_daily
+                Убедитесь, что данные по продвижениям загружены в таблицу ozon_performance_summary
               </p>
               <p className="text-xs text-muted-foreground mt-4">
                 Период: {format(dateRange.start, "dd.MM.yyyy", { locale: ru })} - {format(dateRange.end, "dd.MM.yyyy", { locale: ru })}
