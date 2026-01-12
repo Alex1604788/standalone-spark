@@ -30,3 +30,8 @@ dist-ssr
 .env
 .env.local
 .env.production
+.temp/
+apply-*.mjs
+apply-*.cjs
+apply-*.js
+execute-sql.sh
