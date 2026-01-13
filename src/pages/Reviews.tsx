@@ -179,21 +179,24 @@ const Reviews = () => {
     if (!marketplaces || marketplaces.length === 0) return;
     const marketplaceIds = marketplaces.map((m) => m.id);
 
-    // Подсчитываем scheduled ответы
-    const { count: scheduled } = await supabase
+    // ⚡ Быстрые подсчёты: используем planned count (без точного сканирования)
+    const { count: scheduled, error: scheduledErr } = await supabase
       .from("replies")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "planned", head: true })
       .in("marketplace_id", marketplaceIds)
       .eq("status", "scheduled")
       .is("deleted_at", null);
 
-    // Подсчитываем publishing ответы
-    const { count: publishing } = await supabase
+    if (scheduledErr) console.warn("[updatePublishingStatus] scheduled count error:", scheduledErr);
+
+    const { count: publishing, error: publishingErr } = await supabase
       .from("replies")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "planned", head: true })
       .in("marketplace_id", marketplaceIds)
       .eq("status", "publishing")
       .is("deleted_at", null);
+
+    if (publishingErr) console.warn("[updatePublishingStatus] publishing count error:", publishingErr);
 
     setScheduledCount(scheduled || 0);
     setPublishingCount(publishing || 0);
@@ -341,22 +344,42 @@ const Reviews = () => {
         return;
       }
 
-      // Step 2: Fetch full data only for the limited set of IDs (small set -> no timeout)
       const reviewIds = idsData.map((r) => r.id);
 
-      const { data, error } = await supabase
+      // Step 2: Fetch reviews + products only (joins with replies can explode and hit statement_timeout)
+      const { data: reviewsData, error: reviewsError } = await supabase
         .from("reviews")
-        .select(
-          `*,
-     products(name, offer_id, image_url, marketplace_id),
-     replies(id, content, status, created_at, tone)`,
-        )
+        .select(`*, products(name, offer_id, image_url, marketplace_id)`)
         .in("id", reviewIds)
         .order("review_date", { ascending: false });
 
-      if (error) throw error;
+      if (reviewsError) throw reviewsError;
 
-      setReviews((data || []) as ReviewWithDetails[]);
+      // Step 3: Fetch replies separately (fast) and attach to reviews
+      const { data: repliesData, error: repliesError } = await supabase
+        .from("replies")
+        .select("id, review_id, content, status, created_at, tone")
+        .in("review_id", reviewIds)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false });
+
+      if (repliesError) throw repliesError;
+
+      const repliesByReviewId = new Map<string, any[]>();
+      for (const r of repliesData || []) {
+        const key = r.review_id as string;
+        const arr = repliesByReviewId.get(key) || [];
+        // держим максимум 3 последних, чтобы не раздувать payload
+        if (arr.length < 3) arr.push(r);
+        repliesByReviewId.set(key, arr);
+      }
+
+      const merged = (reviewsData || []).map((rev: any) => ({
+        ...rev,
+        replies: repliesByReviewId.get(rev.id) || [],
+      }));
+
+      setReviews(merged as ReviewWithDetails[]);
       setTotalReviews(count || 0);
     } catch (error) {
       console.error("Fetch error:", error);
@@ -375,17 +398,24 @@ const Reviews = () => {
       const { data: marketplaces } = await supabase.from("marketplaces").select("id").eq("user_id", user.id);
       if (!marketplaces?.length) return;
 
-      const { data, count } = await supabase
+      const marketplaceIds = marketplaces.map((m) => m.id);
+
+      // ⚡ Избегаем count=exact (может упираться в statement_timeout)
+      const { count: questionsCount } = await supabase
         .from("questions")
-        .select(`*, products!inner(name, marketplace_id)`, { count: "exact" })
-        .in(
-          "products.marketplace_id",
-          marketplaces.map((m) => m.id),
-        )
+        .select("id", { count: "planned", head: true })
+        .in("marketplace_id", marketplaceIds)
+        .is("deleted_at", null);
+
+      const { data } = await supabase
+        .from("questions")
+        .select(`*, products!inner(name, marketplace_id)`)
+        .in("marketplace_id", marketplaceIds)
+        .is("deleted_at", null)
         .order("question_date", { ascending: false })
         .limit(100);
 
-      setTotalQuestions(count || 0);
+      setTotalQuestions(questionsCount || 0);
       setQuestions((data || []).map((q: any) => ({ ...q, products: q.products || { name: "Товар" } })));
     } catch (e) {
       console.error("Fetch questions error:", e);
