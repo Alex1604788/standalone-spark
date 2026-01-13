@@ -287,57 +287,51 @@ const Reviews = () => {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      // ✅ OPTIMIZATION: Count separately without INNER JOIN to avoid timeout
-      // First get count with simple query (no joins)
-      let countQuery = supabase
+      // ✅ OPTIMIZATION v2: Use marketplace_id filter first (indexed), apply range BEFORE joins
+      // Step 1: Get review IDs with simple filtered query (fast, uses index)
+      let idsQuery = supabase
         .from("reviews")
-        .select("id", { count: "exact", head: true })
+        .select("id", { count: "exact" })
         .in("marketplace_id", marketplaceIds);
 
       if (statusFilter === "unanswered") {
-        countQuery = countQuery.eq("segment", "unanswered");
+        idsQuery = idsQuery.eq("segment", "unanswered");
       } else if (statusFilter === "pending") {
-        countQuery = countQuery.eq("segment", "pending");
+        idsQuery = idsQuery.eq("segment", "pending");
       } else if (statusFilter === "archived") {
-        countQuery = countQuery.eq("segment", "archived");
+        idsQuery = idsQuery.eq("segment", "archived");
       }
 
       if (ratingFilter !== "all") {
-        countQuery = countQuery.eq("rating", parseInt(ratingFilter, 10));
+        idsQuery = idsQuery.eq("rating", parseInt(ratingFilter, 10));
       }
 
-      const { count } = await countQuery;
+      const { data: idsData, count, error: idsError } = await idsQuery
+        .order("review_date", { ascending: false })
+        .range(from, to);
 
-      // Then get data with LEFT JOIN (no count to avoid timeout)
-      // Filter by reviews.marketplace_id directly, not through products join
-      let query = supabase
+      if (idsError) throw idsError;
+
+      // If no reviews found, set empty array
+      if (!idsData || idsData.length === 0) {
+        setReviews([]);
+        setTotalReviews(count || 0);
+        setIsTableLoading(false);
+        return;
+      }
+
+      // Step 2: Fetch full data only for the limited set of IDs (fast, small set)
+      const reviewIds = idsData.map((r) => r.id);
+      
+      const { data, error } = await supabase
         .from("reviews")
         .select(
           `*,
      products(name, offer_id, image_url, marketplace_id),
      replies(id, content, status, created_at, tone)`,
         )
-        .in("marketplace_id", marketplaceIds);
-
-      // ✅ Фильтр по segment на основе URL параметра
-      if (statusFilter === "unanswered") {
-        query = query.eq("segment", "unanswered");
-      } else if (statusFilter === "pending") {
-        query = query.eq("segment", "pending");
-      } else if (statusFilter === "archived") {
-        query = query.eq("segment", "archived");
-      }
-
-      // Фильтр по рейтингу
-      if (ratingFilter !== "all") {
-        query = query.eq("rating", parseInt(ratingFilter, 10));
-      }
-
-      // Поиск теперь обрабатывается на клиенте, чтобы поведение было как в разделе "Вопросы"
-      // и не зависело от особенностей фильтрации по связанной таблице products.
-      // Здесь дополнительных условий по searchQuery не добавляем.
-
-      const { data, error } = await query.order("review_date", { ascending: false }).range(from, to);
+        .in("id", reviewIds)
+        .order("review_date", { ascending: false });
 
       if (error) {
         throw error;

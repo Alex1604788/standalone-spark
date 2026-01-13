@@ -3139,6 +3139,111 @@ export type Database = {
       }
     }
     Views: {
+      ozon_performance_summary: {
+        Row: {
+          add_to_cart: number | null
+          avg_bill: number | null
+          avg_order_value: number | null
+          campaign_id: string | null
+          campaign_name: string | null
+          campaign_type: string | null
+          clicks: number | null
+          conversion: number | null
+          cpc: number | null
+          ctr: number | null
+          drr: number | null
+          id: string | null
+          import_batch_id: string | null
+          imported_at: string | null
+          marketplace_id: string | null
+          money_spent: number | null
+          offer_id: string | null
+          orders: number | null
+          orders_model: number | null
+          revenue: number | null
+          revenue_model: number | null
+          roi: number | null
+          sku: string | null
+          stat_date: string | null
+          total_orders: number | null
+          total_revenue: number | null
+          views: number | null
+        }
+        Insert: {
+          add_to_cart?: number | null
+          avg_bill?: number | null
+          avg_order_value?: never
+          campaign_id?: string | null
+          campaign_name?: string | null
+          campaign_type?: string | null
+          clicks?: number | null
+          conversion?: never
+          cpc?: never
+          ctr?: never
+          drr?: never
+          id?: string | null
+          import_batch_id?: string | null
+          imported_at?: string | null
+          marketplace_id?: string | null
+          money_spent?: number | null
+          offer_id?: string | null
+          orders?: number | null
+          orders_model?: number | null
+          revenue?: number | null
+          revenue_model?: number | null
+          roi?: never
+          sku?: string | null
+          stat_date?: string | null
+          total_orders?: never
+          total_revenue?: never
+          views?: number | null
+        }
+        Update: {
+          add_to_cart?: number | null
+          avg_bill?: number | null
+          avg_order_value?: never
+          campaign_id?: string | null
+          campaign_name?: string | null
+          campaign_type?: string | null
+          clicks?: number | null
+          conversion?: never
+          cpc?: never
+          ctr?: never
+          drr?: never
+          id?: string | null
+          import_batch_id?: string | null
+          imported_at?: string | null
+          marketplace_id?: string | null
+          money_spent?: number | null
+          offer_id?: string | null
+          orders?: number | null
+          orders_model?: number | null
+          revenue?: number | null
+          revenue_model?: number | null
+          roi?: never
+          sku?: string | null
+          stat_date?: string | null
+          total_orders?: never
+          total_revenue?: never
+          views?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ozon_performance_daily_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_logs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ozon_performance_daily_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pick_list_view: {
         Row: {
           category: string | null
