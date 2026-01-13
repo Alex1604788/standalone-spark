@@ -1,760 +1,1041 @@
-import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+// VERSION: 2026-01-12-v1 - Fix reviews loading with all marketplaces in count query
+import { useState, useEffect } from "react";
+import { useParams } from "react-router-dom";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, TrendingDown, Star, Search, Sparkles, ExternalLink, ArrowLeft } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { ChevronLeft, ChevronRight, Loader2, RefreshCw, Sparkles, Search, Send, Clock } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/integrations/supabase/client";
-import { useQuery } from "@tanstack/react-query";
-import { subDays } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
+import { ReviewsTable } from "@/components/reviews/ReviewsTable";
+import { ReviewWithDetails, getProductName, getProductArticle } from "@/lib/reviewHelpers";
+import { getReviewSegment, getReviewStatusBadge } from "@/lib/reviewStatusHelpers";
+import { HelpIcon } from "@/components/HelpIcon";
 
-interface AnalyticsReviewsProps {
-  onNavigateToDiagnostics: (productId: string) => void;
-  initialFilter?: "all" | "negative" | "unanswered";
-}
-
-interface ReviewMetrics {
-  total7Days: number;
-  total30Days: number;
-  ratingDistribution: { rating: number; count: number }[];
-  averageRating: number;
-  negativeShare7Days: number;
-  negativeCount7Days: number;
-}
-
-interface ProductReviewSummary {
-  productId: string;
-  productName: string;
-  productImage: string | null;
-  totalReviews: number;
-  averageRating: number;
-  negativeCount: number;
-  negativeShare: number;
-  negativeLastWeek: number;
-  isAnomaly: boolean;
-  anomalyMultiplier: number | null;
-}
-
-interface NegativeReviewCluster {
-  theme: string;
-  count: number;
-  examples: string[];
-}
-
-interface NegativeReview {
+interface Question {
   id: string;
-  text: string;
-  advantages: string;
-  disadvantages: string;
-  rating: number;
+  external_id: string;
   author_name: string;
-  review_date: string;
+  text: string;
+  question_date: string;
+  is_answered: boolean;
+  product_id: string;
+  products: {
+    name: string;
+    marketplace_id?: string;
+  };
+  replies?: any[];
 }
 
-interface AIRecommendations {
-  summary: string;
-  actions: string[];
-}
+const Reviews = () => {
+  const { status } = useParams<{ status: string }>();
+  const [reviews, setReviews] = useState<ReviewWithDetails[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
 
-export const AnalyticsReviews = ({ onNavigateToDiagnostics, initialFilter = "all" }: AnalyticsReviewsProps) => {
-  const navigate = useNavigate();
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
-  const [filterNegativeOnly, setFilterNegativeOnly] = useState(initialFilter === "negative");
-  const [sortBy, setSortBy] = useState<"negativeShare" | "negativeCount">("negativeShare");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(100);
+  const [totalReviews, setTotalReviews] = useState(0);
+  const [totalQuestions, setTotalQuestions] = useState(0);
+
   const [searchQuery, setSearchQuery] = useState("");
-  const detailsBlockRef = useRef<HTMLDivElement>(null);
+  const [ratingFilter, setRatingFilter] = useState<string>("all");
+  const statusFilter = status || "unanswered";
 
-  // Получаем все маркетплейсы пользователя (как в дашборде для согласованности данных)
-  const { data: marketplaces } = useQuery({
-    queryKey: ["user-marketplaces"],
-    queryFn: async () => {
+  const [selectedItem, setSelectedItem] = useState<ReviewWithDetails | Question | null>(null);
+  const [selectedReviewsIds, setSelectedReviewsIds] = useState<string[]>([]);
+
+  const [replyText, setReplyText] = useState("");
+  const [replyTone, setReplyTone] = useState("friendly");
+  const [responseLength, setResponseLength] = useState<"short" | "normal">("short");
+  const [replyMethod, setReplyMethod] = useState<"template" | "ai">("template");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isTableLoading, setIsTableLoading] = useState(false);
+
+  const [scheduleMode, setScheduleMode] = useState<"now" | "later">("now");
+  const [scheduledDateTime, setScheduledDateTime] = useState("");
+  const [existingDraftId, setExistingDraftId] = useState<string | null>(null);
+  
+  // ✅ Статус процесса автоматической отправки
+  const [scheduledCount, setScheduledCount] = useState(0);
+  const [publishingCount, setPublishingCount] = useState(0);
+  const [lastGenerationTime, setLastGenerationTime] = useState<Date | null>(null);
+
+  const { toast } = useToast();
+
+  useEffect(() => {
+    setPage(1);
+    setSelectedReviewsIds([]);
+  }, [searchQuery, ratingFilter, statusFilter, pageSize]);
+
+  // Автоматическая генерация черновиков в режиме полуавтомат/автомат
+  const triggerAutoGenerate = async () => {
+    setIsGenerating(true);
+    try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
+      if (!user) {
+        setIsGenerating(false);
+        return;
+      }
 
-      const { data, error } = await supabase
+      // Получаем маркетплейсы пользователя
+      const { data: marketplaces } = await supabase
         .from("marketplaces")
         .select("id")
         .eq("user_id", user.id);
 
-      if (error) throw error;
-      return data || [];
-    },
+      if (!marketplaces?.length) {
+        toast({
+          title: "Ошибка",
+          description: "Не найдено маркетплейсов",
+          variant: "destructive",
+        });
+        setIsGenerating(false);
+        return;
+      }
+
+      console.log("[Reviews] Triggering auto-generate drafts for", marketplaces.length, "marketplaces");
+      
+      toast({
+        title: "Запуск генерации...",
+        description: "Создаём ответы на неотвеченные отзывы согласно настройкам",
+      });
+
+      let totalGenerated = 0;
+      let totalScheduled = 0;
+      let totalDrafted = 0;
+
+      // Запускаем генерацию для каждого маркетплейса
+      for (const mp of marketplaces) {
+        console.log("[Reviews] Calling auto-generate-drafts for marketplace:", mp.id);
+        
+        const { data, error } = await supabase.functions.invoke("auto-generate-drafts", {
+          body: { 
+            user_id: user.id, 
+            marketplace_id: mp.id,
+            response_length: responseLength
+          }
+        });
+
+        if (error) {
+          console.error("[Reviews] Auto-generate error:", error);
+        } else {
+          console.log("[Reviews] Auto-generate result:", data);
+          const reviewsData = data?.reviews || {};
+          totalGenerated += (reviewsData.drafts_created || 0) + (reviewsData.scheduled || 0);
+          totalScheduled += reviewsData.scheduled || 0;
+          totalDrafted += reviewsData.drafts_created || 0;
+        }
+      }
+      
+      // Обновляем список после генерации
+      fetchReviews();
+      window.dispatchEvent(new Event("reviews-updated"));
+      
+      // ✅ Обновляем статус процесса
+      if (totalScheduled > 0) {
+        setLastGenerationTime(new Date());
+      }
+      await updatePublishingStatus();
+
+      // Показываем результат
+      const messages = [];
+      if (totalScheduled > 0) messages.push(`${totalScheduled} отправлено в очередь`);
+      if (totalDrafted > 0) messages.push(`${totalDrafted} создано черновиков`);
+      
+      toast({
+        title: totalGenerated > 0 ? "Генерация завершена" : "Нет новых отзывов",
+        description: totalGenerated > 0 
+          ? messages.join(", ") 
+          : "Все отзывы уже обработаны или нет неотвеченных отзывов",
+      });
+    } catch (e) {
+      console.error("[Reviews] Auto-generate error:", e);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось запустить генерацию",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // ✅ Функция для обновления статуса процесса отправки
+  const updatePublishingStatus = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data: marketplaces } = await supabase
+      .from("marketplaces")
+      .select("id")
+      .eq("user_id", user.id);
+
+    if (!marketplaces || marketplaces.length === 0) return;
+    const marketplaceIds = marketplaces.map((m) => m.id);
+
+    // Подсчитываем scheduled ответы
+    const { count: scheduled } = await supabase
+      .from("replies")
+      .select("*", { count: "exact", head: true })
+      .in("marketplace_id", marketplaceIds)
+      .eq("status", "scheduled")
+      .is("deleted_at", null);
+
+    // Подсчитываем publishing ответы
+    const { count: publishing } = await supabase
+      .from("replies")
+      .select("*", { count: "exact", head: true })
+      .in("marketplace_id", marketplaceIds)
+      .eq("status", "publishing")
+      .is("deleted_at", null);
+
+    setScheduledCount(scheduled || 0);
+    setPublishingCount(publishing || 0);
+  };
+
+  useEffect(() => {
+    fetchReviews();
+    fetchQuestions();
+    updatePublishingStatus();
+    
+    // ✅ Генерация теперь работает в фоновом режиме через cron job
+    // Автогенерация при открытии страницы отключена
+    // Пользователь может запустить генерацию вручную через кнопку "Автогенерация ответов"
+  }, [page, pageSize, ratingFilter, statusFilter]);
+
+  // ✅ Отдельный useEffect для real-time подписки и периодического обновления статуса
+  useEffect(() => {
+    updatePublishingStatus();
+    
+    // ✅ Real-time подписка на изменения в replies для отслеживания статуса отправки
+    const repliesChannel = supabase
+      .channel("replies-status-updates")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "replies",
+        },
+        () => {
+          updatePublishingStatus();
+        }
+      )
+      .subscribe();
+
+    // Обновляем статус каждые 10 секунд
+    const interval = setInterval(updatePublishingStatus, 10000);
+
+    return () => {
+      supabase.removeChannel(repliesChannel);
+      clearInterval(interval);
+    };
+  }, []); // Пустой массив зависимостей - запускается только при монтировании
+
+  // При открытии отзыва загрузить существующий черновик
+  useEffect(() => {
+    const loadDraft = async () => {
+      if (!selectedItem) {
+        setReplyText("");
+        setExistingDraftId(null);
+        return;
+      }
+      
+      const isReview = "rating" in selectedItem;
+      const { data: drafts } = await supabase
+        .from("replies")
+        .select("id, content")
+        .eq(isReview ? "review_id" : "question_id", selectedItem.id)
+        .eq("status", "drafted")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      
+      if (drafts && drafts.length > 0) {
+        setReplyText(drafts[0].content);
+        setExistingDraftId(drafts[0].id);
+      } else {
+        setReplyText("");
+        setExistingDraftId(null);
+      }
+    };
+    
+    loadDraft();
+  }, [selectedItem]);
+
+  const fetchReviews = async () => {
+    setIsTableLoading(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: marketplaces } = await supabase.from("marketplaces").select("id").eq("user_id", user.id);
+      if (!marketplaces?.length) {
+        setReviews([]);
+        setIsTableLoading(false);
+        return;
+      }
+      const marketplaceIds = marketplaces.map((m) => m.id);
+
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      // ✅ OPTIMIZATION: Count separately without INNER JOIN to avoid timeout
+      // First get count with simple query (no joins)
+      let countQuery = supabase
+        .from("reviews")
+        .select("id", { count: "exact", head: true })
+        .in("marketplace_id", marketplaceIds);
+
+      if (statusFilter === "unanswered") {
+        countQuery = countQuery.eq("segment", "unanswered");
+      } else if (statusFilter === "pending") {
+        countQuery = countQuery.eq("segment", "pending");
+      } else if (statusFilter === "archived") {
+        countQuery = countQuery.eq("segment", "archived");
+      }
+
+      if (ratingFilter !== "all") {
+        countQuery = countQuery.eq("rating", parseInt(ratingFilter, 10));
+      }
+
+      const { count } = await countQuery;
+
+      // Then get data with INNER JOIN (no count to avoid timeout)
+      let query = supabase
+        .from("reviews")
+        .select(
+          `*,
+     products!inner(name, offer_id, image_url, marketplace_id),
+     replies(id, content, status, created_at, tone)`,
+        )
+        .in("products.marketplace_id", marketplaceIds);
+
+      // ✅ Фильтр по segment на основе URL параметра
+      if (statusFilter === "unanswered") {
+        query = query.eq("segment", "unanswered");
+      } else if (statusFilter === "pending") {
+        query = query.eq("segment", "pending");
+      } else if (statusFilter === "archived") {
+        query = query.eq("segment", "archived");
+      }
+
+      // Фильтр по рейтингу
+      if (ratingFilter !== "all") {
+        query = query.eq("rating", parseInt(ratingFilter, 10));
+      }
+
+      // Поиск теперь обрабатывается на клиенте, чтобы поведение было как в разделе "Вопросы"
+      // и не зависело от особенностей фильтрации по связанной таблице products.
+      // Здесь дополнительных условий по searchQuery не добавляем.
+
+      const { data, error } = await query.order("review_date", { ascending: false }).range(from, to);
+
+      if (error) {
+        throw error;
+      }
+
+      setReviews((data || []) as ReviewWithDetails[]);
+      setTotalReviews(count || 0);
+    } catch (error) {
+      console.error("Fetch error:", error);
+      toast({ title: "Ошибка", description: "Не удалось загрузить отзывы", variant: "destructive" });
+    } finally {
+      setIsTableLoading(false);
+    }
+  };
+
+  const fetchQuestions = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: marketplaces } = await supabase.from("marketplaces").select("id").eq("user_id", user.id);
+      if (!marketplaces?.length) return;
+
+      const { data, count } = await supabase
+        .from("questions")
+        .select(`*, products!inner(name, marketplace_id)`, { count: "exact" })
+        .in(
+          "products.marketplace_id",
+          marketplaces.map((m) => m.id),
+        )
+        .order("question_date", { ascending: false })
+        .limit(100);
+
+      setTotalQuestions(count || 0);
+      setQuestions((data || []).map((q: any) => ({ ...q, products: q.products || { name: "Товар" } })));
+    } catch (e) {
+      console.error("Fetch questions error:", e);
+    }
+  };
+
+  // Клиентская фильтрация, как в разделе "Вопросы покупателей"
+  const filteredReviews = reviews.filter((review) => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+
+    const productName = (getProductName(review) || "").toLowerCase();
+    const article = (getProductArticle(review) || "").toLowerCase();
+    const text = (review.text || "").toLowerCase();
+    const advantages = (review.advantages || "").toLowerCase();
+    const disadvantages = (review.disadvantages || "").toLowerCase();
+    const author = (review.author_name || "").toLowerCase();
+
+    return (
+      productName.includes(q) ||
+      article.includes(q) ||
+      text.includes(q) ||
+      advantages.includes(q) ||
+      disadvantages.includes(q) ||
+      author.includes(q)
+    );
   });
 
-  // Загружаем общие метрики
-  const { data: metrics, isLoading: metricsLoading } = useQuery({
-    queryKey: ["reviews-metrics", marketplaces],
-    queryFn: async () => {
-      if (!marketplaces || marketplaces.length === 0) return null;
+  const handleSelectReview = (id: string, selected: boolean) => {
+    if (selected) setSelectedReviewsIds((prev) => [...prev, id]);
+    else setSelectedReviewsIds((prev) => prev.filter((item) => item !== id));
+  };
 
-      const marketplaceIds = marketplaces.map((m) => m.id);
-      const now = new Date();
-      const date7DaysAgo = subDays(now, 7);
-      const date30DaysAgo = subDays(now, 30);
+  const handleSelectAllReviews = (selected: boolean) => {
+    if (selected) {
+      const idsOnPage = reviews.map((r) => r.id);
+      setSelectedReviewsIds(Array.from(new Set([...selectedReviewsIds, ...idsOnPage])));
+    } else {
+      setSelectedReviewsIds([]);
+    }
+  };
 
-      // Всего отзывов за 7 и 30 дней (используем count и фильтр deleted_at как в дашборде)
-      const { count: reviews7DaysCount } = await supabase
-        .from("reviews")
-        .select("id, products!inner(marketplace_id)", { count: "exact", head: true })
-        .in("products.marketplace_id", marketplaceIds)
-        .gte("review_date", date7DaysAgo.toISOString())
-        .is("deleted_at", null);
+  const checkExistingReply = async (reviewId: string): Promise<boolean> => {
+    try {
+      const { data: existingReplies, error } = await supabase
+        .from("replies")
+        .select("id, status")
+        .eq("review_id", reviewId)
+        .in("status", ["scheduled", "publishing", "published"]);
 
-      const { count: reviews30DaysCount } = await supabase
-        .from("reviews")
-        .select("id, products!inner(marketplace_id)", { count: "exact", head: true })
-        .in("products.marketplace_id", marketplaceIds)
-        .gte("review_date", date30DaysAgo.toISOString())
-        .is("deleted_at", null);
+      if (error) {
+        console.error(`❌ Ошибка проверки для ${reviewId}:`, error);
+        return false;
+      }
 
-      // Распределение по рейтингам за 30 дней (с фильтром deleted_at)
-      const { data: allReviews30Days } = await supabase
-        .from("reviews")
-        .select("rating, products!inner(marketplace_id)")
-        .in("products.marketplace_id", marketplaceIds)
-        .gte("review_date", date30DaysAgo.toISOString())
-        .is("deleted_at", null);
+      const hasReply = existingReplies && existingReplies.length > 0;
+      if (hasReply) {
+        console.log(`✋ Reply для ${reviewId} уже существует`);
+      }
+      return hasReply;
+    } catch (e) {
+      console.error("Ошибка checkExistingReply:", e);
+      return false;
+    }
+  };
 
-      // Негативные отзывы за 7 дней (для расчета доли)
-      const { count: negative7DaysCount } = await supabase
-        .from("reviews")
-        .select("id, products!inner(marketplace_id)", { count: "exact", head: true })
-        .in("products.marketplace_id", marketplaceIds)
-        .lte("rating", 3)
-        .gte("review_date", date7DaysAgo.toISOString())
-        .is("deleted_at", null);
+  // Массовая отправка - отправляет существующие черновики или генерирует новые
+  const handleBulkSend = async () => {
+    if (selectedReviewsIds.length === 0) return;
+    setIsLoading(true);
 
-      const ratingDistribution = [1, 2, 3, 4, 5].map((rating) => ({
-        rating,
-        count: allReviews30Days?.filter((r) => r.rating === rating).length || 0,
-      }));
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No user");
 
-      const totalRating = allReviews30Days?.reduce((sum, r) => sum + r.rating, 0) || 0;
-      const averageRating = allReviews30Days?.length > 0 ? totalRating / allReviews30Days.length : 0;
+      let successCount = 0;
+      let skippedCount = 0;
+      let errorCount = 0;
 
-      // Доля негативных за 7 дней
-      const negativeShare7Days = reviews7DaysCount > 0 
-        ? ((negative7DaysCount || 0) / reviews7DaysCount) * 100 
-        : 0;
+      console.log(`[BulkSend] 🚀 Начинаем отправку ${selectedReviewsIds.length} отзывов`);
 
-      return {
-        total7Days: reviews7DaysCount || 0,
-        total30Days: reviews30DaysCount || 0,
-        ratingDistribution,
-        averageRating: Math.round(averageRating * 10) / 10,
-        negativeShare7Days: Math.round(negativeShare7Days * 10) / 10,
-        negativeCount7Days: negative7DaysCount || 0,
-      } as ReviewMetrics;
-    },
-    enabled: !!marketplaces && marketplaces.length > 0,
-  });
+      // 1. Получаем все черновики для выбранных отзывов
+      const { data: drafts, error: draftsError } = await supabase
+        .from("replies")
+        .select("id, review_id, content, status")
+        .in("review_id", selectedReviewsIds)
+        .eq("status", "drafted");
 
-  // Загружаем сводку по товарам
-  const { data: productSummaries, isLoading: summariesLoading } = useQuery({
-    queryKey: ["product-review-summaries", marketplaces],
-    queryFn: async () => {
-      if (!marketplaces || marketplaces.length === 0) return [];
+      if (draftsError) {
+        console.error("❌ Ошибка загрузки черновиков:", draftsError);
+        toast({ title: "Ошибка", description: "Не удалось загрузить черновики", variant: "destructive" });
+        setIsLoading(false);
+        return;
+      }
 
-      const marketplaceIds = marketplaces.map((m) => m.id);
-      const now = new Date();
-      const weekAgo = subDays(now, 7);
-      const fourWeeksAgo = subDays(now, 28);
+      const draftsByReviewId: Record<string, { id: string; content: string }> = {};
+      for (const draft of drafts || []) {
+        if (draft.review_id) {
+          draftsByReviewId[draft.review_id] = { id: draft.id, content: draft.content };
+        }
+      }
 
-      // Получаем все отзывы с товарами (с фильтром deleted_at как в дашборде)
-      const { data: reviews } = await supabase
-        .from("reviews")
-        .select(`
-          id,
-          product_id,
-          rating,
-          review_date,
-          products!inner(id, name, image_url, marketplace_id)
-        `)
-        .in("products.marketplace_id", marketplaceIds)
-        .is("deleted_at", null);
+      // 2. Получаем marketplace_id для отзывов без черновиков
+      const reviewsWithoutDrafts = selectedReviewsIds.filter(id => !draftsByReviewId[id]);
+      
+      let marketplaceByReviewId: Record<string, string | null> = {};
+      
+      if (reviewsWithoutDrafts.length > 0) {
+        const { data: reviewRows } = await supabase
+          .from("reviews")
+          .select("id, products!inner(marketplace_id)")
+          .in("id", reviewsWithoutDrafts);
 
-      if (!reviews) return [];
+        for (const row of reviewRows || []) {
+          const mpId = (row as any).products?.marketplace_id ?? null;
+          marketplaceByReviewId[row.id as string] = mpId;
+        }
+      }
 
-      // Группируем по товарам
-      const productMap = new Map<string, {
-        productId: string;
-        productName: string;
-        productImage: string | null;
-        reviews: { rating: number; reviewDate: string }[];
-      }>();
-
-      reviews.forEach((review: any) => {
-        const productId = review.product_id;
-        const product = review.products;
-
-        if (!productMap.has(productId)) {
-          productMap.set(productId, {
-            productId,
-            productName: product.name || "Без названия",
-            productImage: product.image_url,
-            reviews: [],
-          });
+      // 3. Обрабатываем каждый выбранный отзыв
+      for (const reviewId of selectedReviewsIds) {
+        // Проверяем, нет ли уже отправленного ответа
+        const hasScheduled = await checkExistingReply(reviewId);
+        if (hasScheduled) {
+          console.log(`⏭️ Skip ${reviewId}: уже запланирован/отправлен`);
+          skippedCount++;
+          continue;
         }
 
-        productMap.get(productId)!.reviews.push({
-          rating: review.rating,
-          reviewDate: review.review_date,
-        });
-      });
+        try {
+          const existingDraft = draftsByReviewId[reviewId];
 
-      // Вычисляем метрики для каждого товара
-      const summaries: ProductReviewSummary[] = [];
+          if (existingDraft) {
+            // Обновляем существующий черновик на scheduled
+            const { error: updateError } = await supabase
+              .from("replies")
+              .update({
+                status: "scheduled",
+                scheduled_at: new Date().toISOString(),
+                user_id: user.id,
+              })
+              .eq("id", existingDraft.id);
 
-      productMap.forEach((data) => {
-        const totalReviews = data.reviews.length;
-        const totalRating = data.reviews.reduce((sum, r) => sum + r.rating, 0);
-        const averageRating = totalReviews > 0 ? totalRating / totalReviews : 0;
+            if (updateError) {
+              console.error(`❌ Ошибка обновления черновика для ${reviewId}:`, updateError);
+              errorCount++;
+            } else {
+              console.log(`✅ Черновик отправлен для ${reviewId}`);
+              successCount++;
+            }
+          } else {
+            // Нет черновика - генерируем и сразу отправляем
+            const marketplaceId = marketplaceByReviewId[reviewId];
+            
+            // Получаем данные отзыва для определения рейтинга
+            const { data: reviewData } = await supabase
+              .from("reviews")
+              .select("rating")
+              .eq("id", reviewId)
+              .single();
 
-        const negativeReviews = data.reviews.filter((r) => r.rating <= 3);
-        const negativeCount = negativeReviews.length;
-        const negativeShare = totalReviews > 0 ? (negativeCount / totalReviews) * 100 : 0;
+            let replyContent: string;
+            let replyMode = "semi_auto";
 
-        const negativeLastWeek = negativeReviews.filter(
-          (r) => new Date(r.reviewDate) >= weekAgo
-        ).length;
+            if (replyMethod === "template") {
+              // Используем шаблон
+              const { data: templates, error: templateError } = await supabase
+                .from("reply_templates")
+                .select("id, content, use_count")
+                .eq("user_id", user.id)
+                .or(`rating.eq.${reviewData?.rating || 5},rating.is.null`)
+                .limit(100);
 
-        // Проверка на аномалию (x3 от нормы за последние 4 недели)
-        const negativeLast4Weeks = negativeReviews.filter(
-          (r) => new Date(r.reviewDate) >= fourWeeksAgo
-        ).length;
-        const avgNegativePerWeek = negativeLast4Weeks / 4;
-        const isAnomaly = avgNegativePerWeek > 0 && negativeLastWeek >= avgNegativePerWeek * 3;
-        const anomalyMultiplier = avgNegativePerWeek > 0
-          ? Math.round((negativeLastWeek / avgNegativePerWeek) * 10) / 10
-          : null;
-
-        summaries.push({
-          productId: data.productId,
-          productName: data.productName,
-          productImage: data.productImage,
-          totalReviews,
-          averageRating: Math.round(averageRating * 10) / 10,
-          negativeCount,
-          negativeShare: Math.round(negativeShare * 10) / 10,
-          negativeLastWeek,
-          isAnomaly,
-          anomalyMultiplier,
-        });
-      });
-
-      return summaries;
-    },
-    enabled: !!marketplaces && marketplaces.length > 0,
-  });
-
-  // Фильтруем и сортируем сводку
-  const filteredSummaries = productSummaries
-    ?.filter((s) => {
-      if (filterNegativeOnly && s.negativeCount === 0) return false;
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        return s.productName.toLowerCase().includes(query);
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      if (sortBy === "negativeShare") {
-        return b.negativeShare - a.negativeShare;
-      }
-      return b.negativeCount - a.negativeCount;
-    }) || [];
-
-  // Загружаем негативные отзывы для выбранного товара
-  const { data: negativeReviewsData, isLoading: negativeLoading } = useQuery({
-    queryKey: ["negative-reviews", selectedProductId],
-    queryFn: async () => {
-      if (!selectedProductId) return null;
-
-      const { data: reviews } = await supabase
-        .from("reviews")
-        .select("id, text, advantages, disadvantages, rating, author_name, review_date")
-        .eq("product_id", selectedProductId)
-        .lte("rating", 3)
-        .is("deleted_at", null)
-        .order("review_date", { ascending: false })
-        .limit(50);
-
-      if (!reviews || reviews.length === 0) return null;
-
-      // Простая кластеризация по ключевым словам
-      const clusters: NegativeReviewCluster[] = [
-        { theme: "Качество товара", count: 0, examples: [] },
-        { theme: "Упаковка", count: 0, examples: [] },
-        { theme: "Доставка", count: 0, examples: [] },
-        { theme: "Размер/Характеристики", count: 0, examples: [] },
-        { theme: "Описание/Фото", count: 0, examples: [] },
-        { theme: "Другое", count: 0, examples: [] },
-      ];
-
-      const keywords = {
-        "Качество товара": ["качество", "брак", "дефект", "некачественный", "поломка", "сломался"],
-        "Упаковка": ["упаковка", "упакован", "поврежден", "коробка", "пленка"],
-        "Доставка": ["доставка", "доставили", "курьер", "почта", "транспортировка"],
-        "Размер/Характеристики": ["размер", "маленький", "большой", "не подошел", "характеристики"],
-        "Описание/Фото": ["фото", "описание", "не соответствует", "не так", "другое"],
-      };
-
-      reviews.forEach((review) => {
-        const text = `${review.text || ""} ${review.disadvantages || ""}`.toLowerCase();
-        let matched = false;
-
-        for (const [theme, words] of Object.entries(keywords)) {
-          if (words.some((word) => text.includes(word))) {
-            const cluster = clusters.find((c) => c.theme === theme);
-            if (cluster) {
-              cluster.count++;
-              if (cluster.examples.length < 3 && review.text) {
-                cluster.examples.push(review.text.substring(0, 100));
+              if (templateError || !templates || templates.length === 0) {
+                console.error(`❌ Нет шаблонов для рейтинга ${reviewData?.rating}:`, templateError);
+                errorCount++;
+                continue;
               }
-              matched = true;
-              break;
+
+              // Выбираем случайный шаблон
+              const randomTemplate = templates[Math.floor(Math.random() * templates.length)];
+              replyContent = randomTemplate.content;
+
+              // Увеличиваем счётчик использования
+              await supabase
+                .from("reply_templates")
+                .update({ use_count: (randomTemplate.use_count || 0) + 1 })
+                .eq("id", randomTemplate.id);
+
+              console.log(`✅ Использован шаблон для ${reviewId}`);
+            } else {
+              // Генерируем через ИИ
+              const { data: aiData, error: aiError } = await supabase.functions.invoke("generate-reply", {
+                body: { reviewId, tone: replyTone, response_length: responseLength },
+              });
+
+              if (aiError || !aiData?.reply) {
+                console.error(`❌ AI error для ${reviewId}:`, aiError);
+                errorCount++;
+                continue;
+              }
+
+              replyContent = aiData.reply;
+            }
+
+            const { error: saveError } = await supabase.from("replies").insert({
+              review_id: reviewId,
+              content: replyContent,
+              tone: replyTone,
+              mode: replyMode,
+              status: "scheduled",
+              scheduled_at: new Date().toISOString(),
+              user_id: user.id,
+              marketplace_id: marketplaceId,
+            });
+
+            if (saveError) {
+              console.error(`❌ Ошибка сохранения для ${reviewId}:`, saveError);
+              errorCount++;
+            } else {
+              console.log(`✅ ${replyMethod === "template" ? "Шаблон" : "ИИ-ответ"} отправлен для ${reviewId}`);
+              successCount++;
             }
           }
-        }
 
-        if (!matched) {
-          clusters[clusters.length - 1].count++;
-          if (clusters[clusters.length - 1].examples.length < 3 && review.text) {
-            clusters[clusters.length - 1].examples.push(review.text.substring(0, 100));
-          }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        } catch (e) {
+          console.error(`❌ Критическая ошибка для ${reviewId}:`, e);
+          errorCount++;
         }
+      }
+
+      const messages = [];
+      if (successCount > 0) messages.push(`Отправлено: ${successCount}`);
+      if (skippedCount > 0) messages.push(`Пропущено: ${skippedCount}`);
+      if (errorCount > 0) messages.push(`Ошибок: ${errorCount}`);
+
+      toast({
+        title: "Готово",
+        description: messages.join(", "),
+        variant: errorCount > 0 ? "destructive" : "default",
       });
 
-      // Генерируем рекомендации
-      const topCluster = clusters
-        .filter((c) => c.theme !== "Другое")
-        .sort((a, b) => b.count - a.count)[0];
-
-      const recommendations: AIRecommendations = {
-        summary: topCluster
-          ? `Основная проблема: ${topCluster.theme} (${topCluster.count} упоминаний).`
-          : "Негативные отзывы распределены равномерно по разным категориям.",
-        actions: topCluster
-          ? [
-              `Улучшить ${topCluster.theme.toLowerCase()}: проанализировать отзывы и внести изменения.`,
-              "Обновить описание товара с учетом частых замечаний.",
-              "Связаться с поставщиком для обсуждения улучшений.",
-            ]
-          : [
-              "Провести детальный анализ всех негативных отзывов.",
-              "Улучшить общее качество товара и сервиса.",
-            ],
-      };
-
-      return {
-        clusters: clusters.filter((c) => c.count > 0),
-        recommendations,
-        totalNegative: reviews.length,
-        reviews: reviews.map((r) => ({
-          id: r.id,
-          text: r.text || "",
-          advantages: r.advantages || "",
-          disadvantages: r.disadvantages || "",
-          rating: r.rating,
-          author_name: r.author_name || "",
-          review_date: r.review_date || "",
-        })),
-      };
-    },
-    enabled: !!selectedProductId,
-  });
-
-  // Загружаем информацию о выбранном товаре отдельно
-  const { data: selectedProductInfo } = useQuery({
-    queryKey: ["selected-product-info", selectedProductId],
-    queryFn: async () => {
-      if (!selectedProductId) return null;
-      const { data } = await supabase
-        .from("products")
-        .select("id, name, image_url")
-        .eq("id", selectedProductId)
-        .single();
-      return data ? { productId: data.id, productName: data.name || "Без названия", productImage: data.image_url } : null;
-    },
-    enabled: !!selectedProductId,
-  });
-
-  const selectedProduct = selectedProductInfo;
-
-  // Автоматическая прокрутка к блоку деталей при выборе товара
-  useEffect(() => {
-    if (selectedProductId && detailsBlockRef.current) {
-      setTimeout(() => {
-        detailsBlockRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 100);
+      setSelectedReviewsIds([]);
+      fetchReviews();
+      window.dispatchEvent(new Event("reviews-updated"));
+    } catch (e) {
+      console.error("Bulk send error:", e);
+      toast({ title: "Ошибка", description: "Сбой отправки", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
     }
-  }, [selectedProductId]);
+  };
+
+  const handleReply = async () => {
+    if (!selectedItem || !replyText.trim()) return;
+    setIsLoading(true);
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("No user");
+
+      const isReview = "rating" in selectedItem;
+      const marketplaceId = (selectedItem as any).products?.marketplace_id;
+
+      const itemIdField = isReview ? "review_id" : "question_id";
+      const { data: existingReplies } = await supabase
+        .from("replies")
+        .select("id, status")
+        .eq(itemIdField, selectedItem.id)
+        .in("status", ["scheduled", "publishing", "published"]);
+
+      if (existingReplies && existingReplies.length > 0) {
+        toast({
+          title: "Внимание",
+          description: `Ответ уже существует (статус: ${existingReplies[0].status})`,
+          variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      let error;
+      
+      // Если есть существующий черновик - обновляем его
+      if (existingDraftId) {
+        const { error: updateError } = await supabase
+          .from("replies")
+          .update({
+            content: replyText,
+            tone: replyTone,
+            status: "scheduled",
+            scheduled_at: scheduleMode === "now" ? new Date().toISOString() : new Date(scheduledDateTime).toISOString(),
+            user_id: user.id,
+          })
+          .eq("id", existingDraftId);
+        error = updateError;
+      } else {
+        // Создаём новый ответ
+        const replyData: any = {
+          content: replyText,
+          tone: replyTone,
+          mode: "manual",
+          user_id: user.id,
+          status: "scheduled",
+          scheduled_at: scheduleMode === "now" ? new Date().toISOString() : new Date(scheduledDateTime).toISOString(),
+          marketplace_id: marketplaceId,
+        };
+
+        if (isReview) replyData.review_id = selectedItem.id;
+        else replyData.question_id = selectedItem.id;
+
+        const { error: insertError } = await supabase.from("replies").insert(replyData);
+        error = insertError;
+      }
+
+      if (error) {
+        console.error("Reply error:", error);
+        toast({ title: "Ошибка", description: error.message || "Не удалось создать ответ", variant: "destructive" });
+      } else {
+        toast({ title: "Успешно", description: "Ответ добавлен в очередь" });
+        setSelectedItem(null);
+        setReplyText("");
+        setExistingDraftId(null);
+        fetchReviews();
+        window.dispatchEvent(new Event("reviews-updated"));
+      }
+    } catch (e) {
+      console.error("Reply error:", e);
+      toast({ title: "Ошибка", description: "Произошла ошибка", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGenerateReply = async () => {
+    if (!selectedItem) return;
+    setIsGenerating(true);
+    const isReview = "rating" in selectedItem;
+
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-reply", {
+        body: {
+          [isReview ? "reviewId" : "questionId"]: selectedItem.id,
+          tone: replyTone,
+          response_length: responseLength,
+        },
+      });
+      if (error) throw error;
+      setReplyText(data.reply);
+      toast({ title: "Готово", description: "Ответ сгенерирован" });
+    } catch (error) {
+      console.error("Generate reply error:", error);
+      toast({ title: "Ошибка генерации", variant: "destructive" });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   return (
-    <div className="space-y-6">
-      {/* Общие метрики */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Отзывов за 7 дней</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{metrics?.total7Days || 0}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              За 30 дней: {metrics?.total30Days || 0}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Распределение по рейтингам</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-1">
-              {metrics?.ratingDistribution.map((dist) => (
-                <div key={dist.rating} className="flex items-center gap-2 text-sm">
-                  <div className="flex items-center gap-1 w-12">
-                    <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                    <span>{dist.rating}</span>
-                  </div>
-                  <div className="flex-1 bg-muted rounded-full h-2">
-                    <div
-                      className="bg-yellow-400 h-2 rounded-full"
-                      style={{
-                        width: `${metrics.total30Days > 0 ? (dist.count / metrics.total30Days) * 100 : 0}%`,
-                      }}
-                    />
-                  </div>
-                  <span className="text-xs text-muted-foreground w-8">{dist.count}</span>
+    <div className="min-h-screen bg-gray-50/50 pb-20">
+      <div className="container mx-auto p-6 space-y-6">
+        <div className="flex flex-col gap-3">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-bold text-gray-900">Отзывы и вопросы</h1>
+              <HelpIcon content="Раздел для управления отзывами и вопросами покупателей.\n\nСтатусы отзывов:\n• Не отвечено - новые отзывы без ответов\n• Ожидают публикации - ответы созданы и отправляются\n• Архив - отзывы с опубликованными ответами\n\nВы можете:\n• Выбрать несколько отзывов и отправить ответы массово\n• Открыть отзыв и ответить вручную\n• Использовать ИИ для генерации ответа\n• Запустить автоматическую генерацию ответов" />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={triggerAutoGenerate}
+                disabled={isGenerating}
+              >
+                <Sparkles className={`w-4 h-4 mr-2 ${isGenerating ? "animate-spin" : ""}`} />
+                {isGenerating ? "Генерация..." : "Автогенерация ответов"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  fetchReviews();
+                  fetchQuestions();
+                  updatePublishingStatus();
+                }}
+                disabled={isTableLoading}
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${isTableLoading ? "animate-spin" : ""}`} />
+                Обновить
+              </Button>
+            </div>
+          </div>
+        </div>
+        
+        {/* ✅ Статус-бар процесса автоматической отправки */}
+        {(scheduledCount > 0 || publishingCount > 0 || lastGenerationTime) && (
+          <Alert className="bg-blue-50 border-blue-200">
+            <AlertDescription className="flex items-center gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-blue-600" />
+                <span className="font-medium text-blue-900">Автоматическая отправка:</span>
+              </div>
+              {scheduledCount > 0 && (
+                <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-white">
+                  <span className="flex items-center gap-1">
+                    <Send className="w-3 h-3" />
+                    {scheduledCount} в очереди
+                  </span>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+              )}
+              {publishingCount > 0 && (
+                <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-white">
+                  <span className="flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    {publishingCount} отправляется
+                  </span>
+                </div>
+              )}
+              {lastGenerationTime && (
+                <span className="text-blue-700 text-xs ml-auto">
+                  Последняя генерация: {lastGenerationTime.toLocaleTimeString('ru-RU')}
+                </span>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Средний рейтинг магазина</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold flex items-center gap-2">
-              <Star className="h-5 w-5 fill-yellow-400 text-yellow-400" />
-              {(metrics?.averageRating ?? 0).toFixed(1)}
-            </div>
-          </CardContent>
-        </Card>
+        <Tabs defaultValue="reviews" className="space-y-6">
+          <TabsList className="bg-white border">
+            <TabsTrigger value="reviews">Отзывы</TabsTrigger>
+            <TabsTrigger value="questions">Вопросы</TabsTrigger>
+          </TabsList>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Доля негативных (1-3⭐)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-destructive">
-              {(metrics?.negativeShare7Days ?? 0).toFixed(1)}%
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {metrics?.negativeCount7Days || 0} из {metrics?.total7Days || 0} отзывов
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Таблица по товарам */}
-      {!selectedProductId && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Сводка по товарам (Отзывы)</CardTitle>
-            <CardDescription>Анализ отзывов по каждому товару</CardDescription>
-          </CardHeader>
-          <CardContent>
-          <div className="space-y-4">
-            {/* Фильтры */}
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <TabsContent value="reviews" className="space-y-4">
+            {/* Поиск, фильтры и пагинация над таблицей */}
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="relative w-full md:max-w-md">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Поиск по товару..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-8"
+                    placeholder="Поиск по товару или артикулу..."
+                    className="pl-10 h-9"
                   />
                 </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Оценка:</span>
+                  <HelpIcon content="Фильтр по рейтингу отзывов (1-5 звёзд). Выберите конкретный рейтинг или 'Все' для отображения всех отзывов." />
+                  <Select value={ratingFilter} onValueChange={setRatingFilter}>
+                    <SelectTrigger className="w-[130px] h-9">
+                      <SelectValue placeholder="Все" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Все</SelectItem>
+                      <SelectItem value="5">5 ★</SelectItem>
+                      <SelectItem value="4">4 ★</SelectItem>
+                      <SelectItem value="3">3 ★</SelectItem>
+                      <SelectItem value="2">2 ★</SelectItem>
+                      <SelectItem value="1">1 ★</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
-                <SelectTrigger className="w-[200px]">
+
+              {/* Пагинация и количество сверху */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span>Показывать по:</span>
+                  <Select value={pageSize.toString()} onValueChange={(v) => setPageSize(Number(v))}>
+                    <SelectTrigger className="w-[70px] h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="20">20</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                      <SelectItem value="100">100</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="ml-4">Всего: {totalReviews}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <div className="text-sm font-medium px-3">Стр. {page}</div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => p + 1)}
+                    disabled={filteredReviews.length < pageSize}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {isTableLoading ? (
+              <div className="flex justify-center py-20 bg-white rounded-lg border">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              <ReviewsTable
+                reviews={filteredReviews}
+                onReviewClick={(r) => setSelectedItem(r)}
+                selectedReviews={selectedReviewsIds}
+                onSelectReview={handleSelectReview}
+                onSelectAll={handleSelectAllReviews}
+              />
+            )}
+
+            {/* Пагинация снизу */}
+            <div className="flex items-center justify-end py-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <div className="text-sm font-medium px-3">Стр. {page}</div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={filteredReviews.length < pageSize}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="questions">
+            <div className="p-12 text-center text-muted-foreground bg-white rounded-lg border">
+              Раздел вопросов в разработке
+            </div>
+          </TabsContent>
+        </Tabs>
+
+        {selectedReviewsIds.length > 0 && (
+          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-zinc-900 text-white shadow-xl rounded-full px-6 py-3 flex items-center gap-4 z-50">
+            <span className="font-medium whitespace-nowrap">Выбрано: {selectedReviewsIds.length}</span>
+
+            <div className="flex items-center gap-2">
+              <Select value={replyMethod} onValueChange={(v: "template" | "ai") => setReplyMethod(v)}>
+                <SelectTrigger className="w-[180px] h-8 bg-white text-black">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="negativeShare">По доле негативных</SelectItem>
-                  <SelectItem value="negativeCount">По количеству негативных</SelectItem>
+                  <SelectItem value="template">Отправить шаблон</SelectItem>
+                  <SelectItem value="ai">Отправить ответ ИИ</SelectItem>
                 </SelectContent>
               </Select>
-              <Button
-                variant={filterNegativeOnly ? "default" : "outline"}
-                onClick={() => setFilterNegativeOnly(!filterNegativeOnly)}
-              >
-                Только с негативными
-              </Button>
+              <HelpIcon content={replyMethod === "template" 
+                ? "Отзывы будут заполнены случайными шаблонами из вашей базы шаблонов и отправлены.\n\nШаблоны выбираются случайно для каждого рейтинга отзыва."
+                : "Ответы будут сгенерированы через ИИ и отправлены.\n\nДлина ответа:\n• Краткий - до 200 символов\n• Обычный - до 400 символов"} />
             </div>
 
-            {/* Таблица */}
-            {summariesLoading ? (
-              <div className="text-center py-8 text-muted-foreground">Загрузка...</div>
-            ) : (
-              <div className="border rounded-lg">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Товар</TableHead>
-                      <TableHead className="text-center">Всего отзывов</TableHead>
-                      <TableHead className="text-center">Средний рейтинг</TableHead>
-                      <TableHead className="text-center">Негативных (1-3⭐)</TableHead>
-                      <TableHead className="text-center">Доля негативных</TableHead>
-                      <TableHead className="text-center">Негативных за неделю</TableHead>
-                      <TableHead className="text-center">Аномалия</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredSummaries.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                          Нет данных
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredSummaries.map((summary) => (
-                        <TableRow
-                          key={summary.productId}
-                          className={`cursor-pointer hover:bg-muted/50 transition-colors ${
-                            selectedProductId === summary.productId ? "bg-muted" : ""
-                          }`}
-                          onClick={() => {
-                            console.log("Клик по товару:", summary.productId, summary.productName);
-                            setSelectedProductId(summary.productId);
-                          }}
-                        >
-                          <TableCell>
-                            <div className="flex items-center gap-3">
-                              {summary.productImage ? (
-                                <img
-                                  src={summary.productImage}
-                                  alt={summary.productName}
-                                  className="w-10 h-10 object-cover rounded"
-                                />
-                              ) : (
-                                <div className="w-10 h-10 bg-muted rounded flex items-center justify-center">
-                                  <Star className="h-5 w-5 text-muted-foreground" />
-                                </div>
-                              )}
-                              <div>
-                                <div className="font-medium">{summary.productName}</div>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-center">{summary.totalReviews}</TableCell>
-                          <TableCell className="text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                              {summary.averageRating}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-center">{summary.negativeCount}</TableCell>
-                          <TableCell className="text-center">
-                            {summary.negativeCount > 0 ? (
-                              <Badge
-                                variant={
-                                  summary.negativeShare > 20
-                                    ? "destructive"
-                                    : summary.negativeShare > 10
-                                      ? "secondary"
-                                      : "outline"
-                                }
-                                className="cursor-pointer hover:opacity-80 transition-opacity"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedProductId(summary.productId);
-                                }}
-                              >
-                                {summary.negativeShare}%
-                              </Badge>
-                            ) : (
-                              <span className="text-muted-foreground">0%</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-center">{summary.negativeLastWeek}</TableCell>
-                          <TableCell className="text-center">
-                            {summary.isAnomaly ? (
-                              <Badge variant="destructive" className="gap-1">
-                                <TrendingDown className="h-3 w-3" />
-                                x{summary.anomalyMultiplier}
-                              </Badge>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
+            {replyMethod === "ai" && (
+              <div className="flex items-center gap-2">
+                <Select value={responseLength} onValueChange={(v: "short" | "normal") => setResponseLength(v)}>
+                  <SelectTrigger className="w-[140px] h-8 bg-white text-black">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="short">Краткий</SelectItem>
+                    <SelectItem value="normal">Обычный</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             )}
+
+            <Button
+              size="sm"
+              className="bg-white text-black hover:bg-gray-200 border-none"
+              onClick={handleBulkSend}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Sparkles className="w-4 h-4 mr-2 text-purple-600" />
+              )}
+              {isLoading ? "Обработка..." : "Отправить"}
+            </Button>
+
+            <button
+              className="text-gray-400 hover:text-white text-sm font-medium"
+              onClick={() => setSelectedReviewsIds([])}
+            >
+              Отмена
+            </button>
           </div>
-        </CardContent>
-        </Card>
-      )}
+        )}
 
-      {/* Блок негативных отзывов с ИИ-рекомендациями */}
-      {selectedProductId && (
-        <div ref={detailsBlockRef}>
-          <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex-1">
-                <CardTitle className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5 text-destructive" />
-                  Негативные отзывы (1-3⭐) + ИИ-рекомендации
-                </CardTitle>
-                <CardDescription>
-                  {selectedProduct?.productName || "Загрузка..."} — анализ причин негативных отзывов
-                </CardDescription>
+        <Dialog open={!!selectedItem} onOpenChange={() => setSelectedItem(null)}>
+          <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>
+                {selectedItem && "rating" in selectedItem ? "Ответ на отзыв" : "Ответ на вопрос"}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="grid md:grid-cols-2 gap-6 overflow-y-auto flex-1 p-1">
+              <div className="space-y-4">
+                <div className="p-4 bg-secondary/20 rounded-lg space-y-3">
+                  <div className="font-medium">{selectedItem?.products.name}</div>
+                  {selectedItem && "rating" in selectedItem && (
+                    <div className="flex gap-1">
+                      {[...Array(5)].map((_, i) => (
+                        <span key={i} className={i < selectedItem.rating ? "text-yellow-400" : "text-gray-300"}>
+                          ★
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-sm">{selectedItem?.text || "Без текста"}</p>
+                </div>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setSelectedProductId(null)}
-                className="ml-4"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
+              <div className="space-y-4">
+                <div className="flex gap-2 items-center">
+                  <Select value={responseLength} onValueChange={(v: "short" | "normal") => setResponseLength(v)}>
+                    <SelectTrigger className="w-[140px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="short">Краткий</SelectItem>
+                      <SelectItem value="normal">Обычный</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button variant="outline" onClick={handleGenerateReply} disabled={isGenerating} className="flex-1">
+                    {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Сгенерировать AI"}
+                  </Button>
+                </div>
+                <Textarea
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  rows={10}
+                  placeholder="Ваш ответ..."
+                />
+              </div>
             </div>
-          </CardHeader>
-          <CardContent>
-            {negativeLoading ? (
-              <div className="text-center py-8 text-muted-foreground">Анализ отзывов...</div>
-            ) : negativeReviewsData ? (
-              <div className="space-y-6">
-                {/* Список негативных отзывов */}
-                <div>
-                  <h3 className="font-semibold mb-3">
-                    Список негативных отзывов ({negativeReviewsData.totalNegative})
-                  </h3>
-                  <div className="space-y-3 max-h-96 overflow-y-auto">
-                    {negativeReviewsData.reviews?.map((review) => (
-                      <Card key={review.id} className="p-4">
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <Badge variant="destructive">⭐ {review.rating}</Badge>
-                              <span className="text-sm font-medium">{review.author_name}</span>
-                            </div>
-                            <span className="text-xs text-muted-foreground">
-                              {new Date(review.review_date).toLocaleDateString("ru-RU")}
-                            </span>
-                          </div>
-                          {review.text && (
-                            <p className="text-sm">{review.text}</p>
-                          )}
-                          {review.advantages && (
-                            <div>
-                              <span className="text-xs font-medium text-green-600">Плюсы: </span>
-                              <span className="text-sm">{review.advantages}</span>
-                            </div>
-                          )}
-                          {review.disadvantages && (
-                            <div>
-                              <span className="text-xs font-medium text-red-600">Минусы: </span>
-                              <span className="text-sm">{review.disadvantages}</span>
-                            </div>
-                          )}
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Кластеризация причин */}
-                <div>
-                  <h3 className="font-semibold mb-3">Причины негативных отзывов</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {negativeReviewsData.clusters.map((cluster) => (
-                      <Card key={cluster.theme}>
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-sm">{cluster.theme}</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold mb-2">{cluster.count}</div>
-                          {cluster.examples.length > 0 && (
-                            <div className="space-y-1 text-xs text-muted-foreground">
-                              {cluster.examples.map((example, idx) => (
-                                <div key={idx} className="italic">
-                                  "{example}..."
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </div>
-
-                {/* ИИ-рекомендации */}
-                <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Sparkles className="h-5 w-5 text-primary" />
-                      ИИ-рекомендации
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <h4 className="font-semibold mb-2">Краткая сводка</h4>
-                      <p className="text-sm text-muted-foreground">
-                        {negativeReviewsData.recommendations.summary}
-                      </p>
-                    </div>
-                    <div>
-                      <h4 className="font-semibold mb-2">Рекомендуемые действия</h4>
-                      <ul className="space-y-2">
-                        {negativeReviewsData.recommendations.actions.map((action, idx) => (
-                          <li key={idx} className="flex items-start gap-2 text-sm">
-                            <span className="text-primary mt-1">•</span>
-                            <span>{action}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => onNavigateToDiagnostics(selectedProductId)}
-                  >
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    Полная диагностика товара
-                  </Button>
-                  <Button variant="ghost" onClick={() => setSelectedProductId(null)}>
-                    Скрыть
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                Нет негативных отзывов для этого товара
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        </div>
-      )}
+            <DialogFooter>
+              <Button onClick={handleReply} disabled={isLoading || !replyText.trim()}>
+                {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                Отправить
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
   );
 };
+
+export default Reviews;
