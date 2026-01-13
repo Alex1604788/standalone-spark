@@ -1,3 +1,4 @@
+// VERSION: 2026-01-12-v2 - Optimize query: filter by reviews.marketplace_id directly, not through products join
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -286,17 +287,37 @@ const Reviews = () => {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      // ✅ Используем inner join для products (как было), но считаем по reviews напрямую
-      // Это исправит несоответствие счетчиков
+      // ✅ OPTIMIZATION: Count separately without INNER JOIN to avoid timeout
+      // First get count with simple query (no joins)
+      let countQuery = supabase
+        .from("reviews")
+        .select("id", { count: "exact", head: true })
+        .in("marketplace_id", marketplaceIds);
+
+      if (statusFilter === "unanswered") {
+        countQuery = countQuery.eq("segment", "unanswered");
+      } else if (statusFilter === "pending") {
+        countQuery = countQuery.eq("segment", "pending");
+      } else if (statusFilter === "archived") {
+        countQuery = countQuery.eq("segment", "archived");
+      }
+
+      if (ratingFilter !== "all") {
+        countQuery = countQuery.eq("rating", parseInt(ratingFilter, 10));
+      }
+
+      const { count } = await countQuery;
+
+      // Then get data with LEFT JOIN (no count to avoid timeout)
+      // Filter by reviews.marketplace_id directly, not through products join
       let query = supabase
         .from("reviews")
         .select(
           `*,
-     products!inner(name, offer_id, image_url, marketplace_id),
+     products(name, offer_id, image_url, marketplace_id),
      replies(id, content, status, created_at, tone)`,
-          { count: "exact" },
         )
-        .in("products.marketplace_id", marketplaceIds);
+        .in("marketplace_id", marketplaceIds);
 
       // ✅ Фильтр по segment на основе URL параметра
       if (statusFilter === "unanswered") {
@@ -316,7 +337,7 @@ const Reviews = () => {
       // и не зависело от особенностей фильтрации по связанной таблице products.
       // Здесь дополнительных условий по searchQuery не добавляем.
 
-      const { data, error, count } = await query.order("review_date", { ascending: false }).range(from, to);
+      const { data, error } = await query.order("review_date", { ascending: false }).range(from, to);
 
       if (error) {
         throw error;
