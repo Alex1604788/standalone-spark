@@ -9,7 +9,7 @@ BEGIN
   SELECT id INTO v_marketplace_id
   FROM marketplaces
   WHERE user_id = '34458753-5070-4f35-86a2-3e8ccbec6e38'
-    AND marketplace_type = 'ozon'
+    AND type = 'ozon'
   LIMIT 1;
 
   IF v_marketplace_id IS NOT NULL THEN
