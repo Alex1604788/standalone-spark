@@ -1,11 +1,17 @@
 /**
  * OZON Performance API Sync Function
- * Version: 3.0.7-model-orders-support
- * Date: 2026-01-08
+ * Version: 3.0.8-fix-ozon-api-limit
+ * Date: 2026-01-12
  * Deployment: Auto-deploy только из claude/** веток (main отключен)
- * Last deployed: 2026-01-08 (pending)
+ * Last deployed: 2026-01-12 (pending)
  *
- * FIXES:
+ * FIXES в 3.0.8:
+ * - КРИТИЧЕСКИЙ ФИХ: Увеличена пауза между кампаниями с 3 до 90 секунд
+ * - Это исправляет ошибку "Превышен лимит активных запросов (максимум 1)"
+ * - OZON API разрешает только 1 активный запрос, polling занимает ~75 сек
+ * - Теперь гарантируется завершение предыдущего запроса перед началом следующего
+ *
+ * PREVIOUS FIXES:
  * - Auto-continue теперь завершает предыдущую sync_history запись (не накапливает in_progress)
  * - Добавлен retry для OZON API лимита "Превышен лимит активных запросов" (30-60s delay)
  *
@@ -44,7 +50,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import JSZip from "npm:jszip@3.10.1";
 
 // ВЕРСИЯ Edge Function - обновляется при каждом изменении
-const EDGE_FUNCTION_VERSION = "3.0.7-model-orders-support";
+const EDGE_FUNCTION_VERSION = "3.0.8-fix-ozon-api-limit";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -864,8 +870,9 @@ serve(async (req) => {
         }
 
         // ВАЖНО: Пауза между кампаниями чтобы не превысить лимит активных запросов OZON (максимум 1)
-        // Даем OZON API время закрыть предыдущий запрос перед началом нового
-        await new Promise(resolve => setTimeout(resolve, 3000));  // 3 секунды между кампаниями
+        // Даем OZON API время полностью завершить предыдущий запрос (включая polling ~75 сек)
+        // FIX: Увеличено с 3 до 90 секунд чтобы гарантировать завершение polling предыдущей кампании
+        await new Promise(resolve => setTimeout(resolve, 90000));  // 90 секунд между кампаниями
       }
     }
 

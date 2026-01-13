@@ -156,7 +156,7 @@ const PromotionAnalytics = () => {
 
       // Сначала проверяем, есть ли вообще данные для этого marketplace
       const { data: checkData, error: checkError } = await supabase
-        .from("ozon_performance_daily")
+        .from("ozon_performance_summary")
         .select("marketplace_id, stat_date")
         .eq("marketplace_id", marketplace.id)
         .limit(1);
@@ -165,15 +165,15 @@ const PromotionAnalytics = () => {
 
       // Проверяем все marketplace_id в таблице для сравнения
       const { data: allMarketplaces } = await supabase
-        .from("ozon_performance_daily")
+        .from("ozon_performance_summary")
         .select("marketplace_id")
         .limit(10);
       console.log("🔍 Все marketplace_id в таблице (первые 10):", allMarketplaces?.map((m: any) => m.marketplace_id));
       console.log("🔍 Ищем marketplace_id:", marketplace.id, "в списке:", allMarketplaces?.some((m: any) => m.marketplace_id === marketplace.id));
 
-      // Упрощаем запрос - убираем join с products, загрузим их отдельно если нужно
+      // Используем VIEW ozon_performance_summary для автоматического суммирования orders + orders_model и revenue + revenue_model
       const { data: performanceData, error} = await supabase
-        .from("ozon_performance_daily")
+        .from("ozon_performance_summary")
         .select(`
           campaign_id,
           campaign_name,
@@ -186,10 +186,8 @@ const PromotionAnalytics = () => {
           add_to_cart,
           add_to_cart_conversion,
           favorites,
-          orders,
-          orders_model,
-          revenue,
-          revenue_model,
+          total_orders,
+          total_revenue,
           ctr,
           cpc,
           conversion,
@@ -199,8 +197,7 @@ const PromotionAnalytics = () => {
         .eq("marketplace_id", marketplace.id)
         .gte("stat_date", format(dateRange.start, "yyyy-MM-dd"))
         .lte("stat_date", format(dateRange.end, "yyyy-MM-dd"))
-        .order("stat_date", { ascending: false })
-        .limit(100000);
+        .order("stat_date", { ascending: false });
 
       if (error) {
         console.error("❌ Ошибка загрузки данных продвижений:", error);
@@ -223,10 +220,10 @@ const PromotionAnalytics = () => {
       }
 
       if (!performanceData || performanceData.length === 0) {
-        console.log("⚠️ Нет данных в ozon_performance_daily для marketplace:", marketplace.id, "за период:", format(dateRange.start, "yyyy-MM-dd"), "-", format(dateRange.end, "yyyy-MM-dd"));
+        console.log("⚠️ Нет данных в ozon_performance_summary для marketplace:", marketplace.id, "за период:", format(dateRange.start, "yyyy-MM-dd"), "-", format(dateRange.end, "yyyy-MM-dd"));
         // Пробуем загрузить данные за больший период для проверки
         const { data: checkData } = await supabase
-          .from("ozon_performance_daily")
+          .from("ozon_performance_summary")
           .select("stat_date, marketplace_id")
           .eq("marketplace_id", marketplace.id)
           .order("stat_date", { ascending: false })
@@ -237,7 +234,7 @@ const PromotionAnalytics = () => {
           console.log("❌ Данных нет вообще для marketplace:", marketplace.id);
           // Проверяем все marketplace_id в таблице
           const { data: allMarketplaces } = await supabase
-            .from("ozon_performance_daily")
+            .from("ozon_performance_summary")
             .select("marketplace_id")
             .limit(10);
           console.log("🔍 Примеры marketplace_id в таблице:", allMarketplaces?.map((m: any) => m.marketplace_id));
@@ -297,8 +294,8 @@ const PromotionAnalytics = () => {
         campaign.total_clicks += Number(row.clicks || 0);
         campaign.total_add_to_cart += Number(row.add_to_cart || 0);
         campaign.total_favorites += Number(row.favorites || 0);
-        campaign.total_orders += Number(row.orders || 0) + Number(row.orders_model || 0);
-        campaign.total_revenue += Number(row.revenue || 0) + Number(row.revenue_model || 0);
+        campaign.total_orders += Number(row.total_orders || 0);
+        campaign.total_revenue += Number(row.total_revenue || 0);
 
         if (row.stat_date < campaign.date_range.min) {
           campaign.date_range.min = row.stat_date;
@@ -342,8 +339,8 @@ const PromotionAnalytics = () => {
         product.total_clicks += Number(row.clicks || 0);
         product.total_add_to_cart += Number(row.add_to_cart || 0);
         product.total_favorites += Number(row.favorites || 0);
-        product.total_orders += Number(row.orders || 0) + Number(row.orders_model || 0);
-        product.total_revenue += Number(row.revenue || 0) + Number(row.revenue_model || 0);
+        product.total_orders += Number(row.total_orders || 0);
+        product.total_revenue += Number(row.total_revenue || 0);
 
         if (row.stat_date < product.date_range.min) {
           product.date_range.min = row.stat_date;
@@ -701,7 +698,7 @@ const PromotionAnalytics = () => {
                       Период: <span className="font-medium">{format(dateRange.start, "dd.MM.yyyy", { locale: ru })}</span> - <span className="font-medium">{format(dateRange.end, "dd.MM.yyyy", { locale: ru })}</span>
                     </p>
                     <p className="text-xs">
-                      Попробуйте изменить период в фильтрах выше или убедитесь, что данные по продвижениям загружены в таблицу ozon_performance_daily
+                      Попробуйте изменить период в фильтрах выше или убедитесь, что данные по продвижениям загружены в таблицу ozon_performance_summary
                     </p>
                     <Button
                       variant="outline"

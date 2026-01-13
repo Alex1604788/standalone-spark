@@ -3438,6 +3438,104 @@ export type Database = {
           },
         ]
       }
+      ozon_performance_summary: {
+        Row: {
+          id: string
+          marketplace_id: string
+          stat_date: string
+          sku: string
+          offer_id: string | null
+          campaign_id: string
+          campaign_name: string | null
+          campaign_type: string | null
+          money_spent: number | null
+          views: number | null
+          clicks: number | null
+          orders: number | null
+          orders_model: number | null
+          revenue: number | null
+          revenue_model: number | null
+          add_to_cart: number | null
+          avg_bill: number | null
+          total_orders: number | null
+          total_revenue: number | null
+          ctr: number | null
+          cpc: number | null
+          conversion: number | null
+          drr: number | null
+          roi: number | null
+          avg_order_value: number | null
+          imported_at: string
+          import_batch_id: string | null
+        }
+        Insert: {
+          id?: string
+          marketplace_id: string
+          stat_date: string
+          sku: string
+          offer_id?: string | null
+          campaign_id: string
+          campaign_name?: string | null
+          campaign_type?: string | null
+          money_spent?: number | null
+          views?: number | null
+          clicks?: number | null
+          orders?: number | null
+          orders_model?: number | null
+          revenue?: number | null
+          revenue_model?: number | null
+          add_to_cart?: number | null
+          avg_bill?: number | null
+          total_orders?: number | null
+          total_revenue?: number | null
+          ctr?: number | null
+          cpc?: number | null
+          conversion?: number | null
+          drr?: number | null
+          roi?: number | null
+          avg_order_value?: number | null
+          imported_at?: string
+          import_batch_id?: string | null
+        }
+        Update: {
+          id?: string
+          marketplace_id?: string
+          stat_date?: string
+          sku?: string
+          offer_id?: string | null
+          campaign_id?: string
+          campaign_name?: string | null
+          campaign_type?: string | null
+          money_spent?: number | null
+          views?: number | null
+          clicks?: number | null
+          orders?: number | null
+          orders_model?: number | null
+          revenue?: number | null
+          revenue_model?: number | null
+          add_to_cart?: number | null
+          avg_bill?: number | null
+          total_orders?: number | null
+          total_revenue?: number | null
+          ctr?: number | null
+          cpc?: number | null
+          conversion?: number | null
+          drr?: number | null
+          roi?: number | null
+          avg_order_value?: number | null
+          imported_at?: string
+          import_batch_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ozon_performance_daily_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       promotion_costs_aggregated: {
         Row: {
           avg_conversion: number | null
