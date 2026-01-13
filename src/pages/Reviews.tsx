@@ -1,4 +1,4 @@
-// VERSION: 2026-01-12-v2 - Optimize query: filter by reviews.marketplace_id directly, not through products join
+// VERSION: 2026-01-13-v3 - Fix counters: use 'id' instead of '*' to avoid cache
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -179,24 +179,21 @@ const Reviews = () => {
     if (!marketplaces || marketplaces.length === 0) return;
     const marketplaceIds = marketplaces.map((m) => m.id);
 
-    // ⚡ Быстрые подсчёты: используем planned count (без точного сканирования)
-    const { count: scheduled, error: scheduledErr } = await supabase
+    // Подсчитываем scheduled ответы
+    const { count: scheduled } = await supabase
       .from("replies")
-      .select("id", { count: "planned", head: true })
+      .select("id", { count: "exact", head: true })
       .in("marketplace_id", marketplaceIds)
       .eq("status", "scheduled")
       .is("deleted_at", null);
 
-    if (scheduledErr) console.warn("[updatePublishingStatus] scheduled count error:", scheduledErr);
-
-    const { count: publishing, error: publishingErr } = await supabase
+    // Подсчитываем publishing ответы
+    const { count: publishing } = await supabase
       .from("replies")
-      .select("id", { count: "planned", head: true })
+      .select("id", { count: "exact", head: true })
       .in("marketplace_id", marketplaceIds)
       .eq("status", "publishing")
       .is("deleted_at", null);
-
-    if (publishingErr) console.warn("[updatePublishingStatus] publishing count error:", publishingErr);
 
     setScheduledCount(scheduled || 0);
     setPublishingCount(publishing || 0);
@@ -290,38 +287,12 @@ const Reviews = () => {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      // ✅ OPTIMIZATION v3: Avoid expensive count=exact on large joined queries.
-      // Step 1: fetch IDs for the current page (fast, uses index on (marketplace_id, segment, review_date))
-      let idsQuery = supabase
-        .from("reviews")
-        .select("id")
-        .in("marketplace_id", marketplaceIds)
-        .is("deleted_at", null);
-
-      if (statusFilter === "unanswered") {
-        idsQuery = idsQuery.eq("segment", "unanswered");
-      } else if (statusFilter === "pending") {
-        idsQuery = idsQuery.eq("segment", "pending");
-      } else if (statusFilter === "archived") {
-        idsQuery = idsQuery.eq("segment", "archived");
-      }
-
-      if (ratingFilter !== "all") {
-        idsQuery = idsQuery.eq("rating", parseInt(ratingFilter, 10));
-      }
-
-      const { data: idsData, error: idsError } = await idsQuery
-        .order("review_date", { ascending: false })
-        .range(from, to);
-
-      if (idsError) throw idsError;
-
-      // Step 1b: fetch total count cheaply (planned count; no join; no order)
+      // ✅ OPTIMIZATION: Count separately without INNER JOIN to avoid timeout
+      // First get count with simple query (no joins)
       let countQuery = supabase
         .from("reviews")
-        .select("id", { count: "planned", head: true })
-        .in("marketplace_id", marketplaceIds)
-        .is("deleted_at", null);
+        .select("id", { count: "exact", head: true })
+        .in("marketplace_id", marketplaceIds);
 
       if (statusFilter === "unanswered") {
         countQuery = countQuery.eq("segment", "unanswered");
@@ -337,49 +308,42 @@ const Reviews = () => {
 
       const { count } = await countQuery;
 
-      if (!idsData || idsData.length === 0) {
-        setReviews([]);
-        setTotalReviews(count || 0);
-        setIsTableLoading(false);
-        return;
-      }
-
-      const reviewIds = idsData.map((r) => r.id);
-
-      // Step 2: Fetch reviews + products only (joins with replies can explode and hit statement_timeout)
-      const { data: reviewsData, error: reviewsError } = await supabase
+      // Then get data with LEFT JOIN (no count to avoid timeout)
+      // Filter by reviews.marketplace_id directly, not through products join
+      let query = supabase
         .from("reviews")
-        .select(`*, products(name, offer_id, image_url, marketplace_id)`)
-        .in("id", reviewIds)
-        .order("review_date", { ascending: false });
+        .select(
+          `*,
+     products(name, offer_id, image_url, marketplace_id),
+     replies(id, content, status, created_at, tone)`,
+        )
+        .in("marketplace_id", marketplaceIds);
 
-      if (reviewsError) throw reviewsError;
-
-      // Step 3: Fetch replies separately (fast) and attach to reviews
-      const { data: repliesData, error: repliesError } = await supabase
-        .from("replies")
-        .select("id, review_id, content, status, created_at, tone")
-        .in("review_id", reviewIds)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false });
-
-      if (repliesError) throw repliesError;
-
-      const repliesByReviewId = new Map<string, any[]>();
-      for (const r of repliesData || []) {
-        const key = r.review_id as string;
-        const arr = repliesByReviewId.get(key) || [];
-        // держим максимум 3 последних, чтобы не раздувать payload
-        if (arr.length < 3) arr.push(r);
-        repliesByReviewId.set(key, arr);
+      // ✅ Фильтр по segment на основе URL параметра
+      if (statusFilter === "unanswered") {
+        query = query.eq("segment", "unanswered");
+      } else if (statusFilter === "pending") {
+        query = query.eq("segment", "pending");
+      } else if (statusFilter === "archived") {
+        query = query.eq("segment", "archived");
       }
 
-      const merged = (reviewsData || []).map((rev: any) => ({
-        ...rev,
-        replies: repliesByReviewId.get(rev.id) || [],
-      }));
+      // Фильтр по рейтингу
+      if (ratingFilter !== "all") {
+        query = query.eq("rating", parseInt(ratingFilter, 10));
+      }
 
-      setReviews(merged as ReviewWithDetails[]);
+      // Поиск теперь обрабатывается на клиенте, чтобы поведение было как в разделе "Вопросы"
+      // и не зависело от особенностей фильтрации по связанной таблице products.
+      // Здесь дополнительных условий по searchQuery не добавляем.
+
+      const { data, error } = await query.order("review_date", { ascending: false }).range(from, to);
+
+      if (error) {
+        throw error;
+      }
+
+      setReviews((data || []) as ReviewWithDetails[]);
       setTotalReviews(count || 0);
     } catch (error) {
       console.error("Fetch error:", error);
@@ -398,24 +362,17 @@ const Reviews = () => {
       const { data: marketplaces } = await supabase.from("marketplaces").select("id").eq("user_id", user.id);
       if (!marketplaces?.length) return;
 
-      const marketplaceIds = marketplaces.map((m) => m.id);
-
-      // ⚡ Избегаем count=exact (может упираться в statement_timeout)
-      const { count: questionsCount } = await supabase
+      const { data, count } = await supabase
         .from("questions")
-        .select("id", { count: "planned", head: true })
-        .in("marketplace_id", marketplaceIds)
-        .is("deleted_at", null);
-
-      const { data } = await supabase
-        .from("questions")
-        .select(`*, products!inner(name, marketplace_id)`)
-        .in("marketplace_id", marketplaceIds)
-        .is("deleted_at", null)
+        .select(`*, products!inner(name, marketplace_id)`, { count: "exact" })
+        .in(
+          "products.marketplace_id",
+          marketplaces.map((m) => m.id),
+        )
         .order("question_date", { ascending: false })
         .limit(100);
 
-      setTotalQuestions(questionsCount || 0);
+      setTotalQuestions(count || 0);
       setQuestions((data || []).map((q: any) => ({ ...q, products: q.products || { name: "Товар" } })));
     } catch (e) {
       console.error("Fetch questions error:", e);
