@@ -32,7 +32,14 @@ interface Question {
   replies?: any[];
 }
 
-const Reviews = () => {
+type AnalyticsReviewsFilter = "all" | "negative" | "unanswered" | "pending" | "archived";
+
+interface AnalyticsReviewsProps {
+  initialFilter?: AnalyticsReviewsFilter;
+  onNavigateToDiagnostics?: (productId: string) => void;
+}
+
+const AnalyticsReviews = ({ initialFilter = "unanswered" }: AnalyticsReviewsProps) => {
   const { status } = useParams<{ status: string }>();
   const [reviews, setReviews] = useState<ReviewWithDetails[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -44,7 +51,7 @@ const Reviews = () => {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [ratingFilter, setRatingFilter] = useState<string>("all");
-  const statusFilter = status || "unanswered";
+  const statusFilter: AnalyticsReviewsFilter = (status as AnalyticsReviewsFilter) || initialFilter;
 
   const [selectedItem, setSelectedItem] = useState<ReviewWithDetails | Question | null>(null);
   const [selectedReviewsIds, setSelectedReviewsIds] = useState<string[]>([]);
@@ -1038,4 +1045,5 @@ const Reviews = () => {
   );
 };
 
-export default Reviews;
+export { AnalyticsReviews };
+export default AnalyticsReviews;
