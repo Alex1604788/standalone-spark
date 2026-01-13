@@ -197,8 +197,7 @@ const PromotionAnalytics = () => {
         .eq("marketplace_id", marketplace.id)
         .gte("stat_date", format(dateRange.start, "yyyy-MM-dd"))
         .lte("stat_date", format(dateRange.end, "yyyy-MM-dd"))
-        .order("stat_date", { ascending: false })
-        .limit(100000);
+        .order("stat_date", { ascending: false });
 
       if (error) {
         console.error("❌ Ошибка загрузки данных продвижений:", error);
