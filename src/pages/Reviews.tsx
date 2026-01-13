@@ -291,7 +291,7 @@ const Reviews = () => {
       let countQuery = supabase
         .from("reviews")
         .select("id", { count: "exact", head: true })
-        .eq("marketplace_id", marketplaceIds[0]);
+        .in("marketplace_id", marketplaceIds);
 
       if (statusFilter === "unanswered") {
         countQuery = countQuery.eq("segment", "unanswered");
