@@ -1,4 +1,4 @@
-// VERSION: 2026-01-12-v2 - Optimize query: filter by reviews.marketplace_id directly, not through products join
+// VERSION: 2026-01-13-v3 - Fix counters: use 'id' instead of '*' to avoid cache
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -182,7 +182,7 @@ const Reviews = () => {
     // Подсчитываем scheduled ответы
     const { count: scheduled } = await supabase
       .from("replies")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true })
       .in("marketplace_id", marketplaceIds)
       .eq("status", "scheduled")
       .is("deleted_at", null);
@@ -190,7 +190,7 @@ const Reviews = () => {
     // Подсчитываем publishing ответы
     const { count: publishing } = await supabase
       .from("replies")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true })
       .in("marketplace_id", marketplaceIds)
       .eq("status", "publishing")
       .is("deleted_at", null);
