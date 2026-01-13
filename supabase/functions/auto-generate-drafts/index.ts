@@ -49,13 +49,15 @@ serve(async (req) => {
     } | null = null;
 
     if (marketplace_id) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("marketplace_settings")
         .select("reply_length, reviews_mode_1, reviews_mode_2, reviews_mode_3, reviews_mode_4, reviews_mode_5, questions_mode, use_templates_1, use_templates_2, use_templates_3, use_templates_4, use_templates_5")
         .eq("marketplace_id", marketplace_id)
         .single();
-      
+
+      console.log(`[auto-generate-drafts] Settings query result:`, { data, error });
       settings = data;
+      console.log(`[auto-generate-drafts] Loaded settings:`, settings);
     }
 
     const replyLength = settings?.reply_length || response_length;
