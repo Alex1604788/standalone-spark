@@ -1,3 +1,4 @@
+// VERSION: 2026-01-12-v1 - Fix reviews loading with all marketplaces in count query
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
