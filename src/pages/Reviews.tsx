@@ -287,12 +287,13 @@ const Reviews = () => {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      // ✅ OPTIMIZATION v2: Use marketplace_id filter first (indexed), apply range BEFORE joins
-      // Step 1: Get review IDs with simple filtered query (fast, uses index)
+      // ✅ OPTIMIZATION v3: Avoid expensive count=exact on large joined queries.
+      // Step 1: fetch IDs for the current page (fast, uses index on (marketplace_id, segment, review_date))
       let idsQuery = supabase
         .from("reviews")
-        .select("id", { count: "exact" })
-        .in("marketplace_id", marketplaceIds);
+        .select("id")
+        .in("marketplace_id", marketplaceIds)
+        .is("deleted_at", null);
 
       if (statusFilter === "unanswered") {
         idsQuery = idsQuery.eq("segment", "unanswered");
@@ -306,13 +307,33 @@ const Reviews = () => {
         idsQuery = idsQuery.eq("rating", parseInt(ratingFilter, 10));
       }
 
-      const { data: idsData, count, error: idsError } = await idsQuery
+      const { data: idsData, error: idsError } = await idsQuery
         .order("review_date", { ascending: false })
         .range(from, to);
 
       if (idsError) throw idsError;
 
-      // If no reviews found, set empty array
+      // Step 1b: fetch total count cheaply (planned count; no join; no order)
+      let countQuery = supabase
+        .from("reviews")
+        .select("id", { count: "planned", head: true })
+        .in("marketplace_id", marketplaceIds)
+        .is("deleted_at", null);
+
+      if (statusFilter === "unanswered") {
+        countQuery = countQuery.eq("segment", "unanswered");
+      } else if (statusFilter === "pending") {
+        countQuery = countQuery.eq("segment", "pending");
+      } else if (statusFilter === "archived") {
+        countQuery = countQuery.eq("segment", "archived");
+      }
+
+      if (ratingFilter !== "all") {
+        countQuery = countQuery.eq("rating", parseInt(ratingFilter, 10));
+      }
+
+      const { count } = await countQuery;
+
       if (!idsData || idsData.length === 0) {
         setReviews([]);
         setTotalReviews(count || 0);
@@ -320,9 +341,9 @@ const Reviews = () => {
         return;
       }
 
-      // Step 2: Fetch full data only for the limited set of IDs (fast, small set)
+      // Step 2: Fetch full data only for the limited set of IDs (small set -> no timeout)
       const reviewIds = idsData.map((r) => r.id);
-      
+
       const { data, error } = await supabase
         .from("reviews")
         .select(
@@ -333,9 +354,7 @@ const Reviews = () => {
         .in("id", reviewIds)
         .order("review_date", { ascending: false });
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       setReviews((data || []) as ReviewWithDetails[]);
       setTotalReviews(count || 0);
