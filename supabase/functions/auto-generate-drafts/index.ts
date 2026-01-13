@@ -130,9 +130,10 @@ serve(async (req) => {
       reviewsQuery = reviewsQuery.eq("marketplace_id", marketplace_id);
     }
 
-    // ✅ Увеличиваем лимит для обработки большего количества отзывов за раз
-    // Для шаблонов это будет очень быстро, для ИИ - с задержками
-    const { data: reviews, error: reviewsError } = await reviewsQuery.limit(200);
+    // ✅ Ограничиваем до 30 отзывов за раз чтобы избежать таймаута Edge Function (2 минуты)
+    // С учетом AI запросов: 30 отзывов * 2 сек = 60 сек (безопасно)
+    // CRON будет вызывать функцию каждые 10 минут для обработки следующей партии
+    const { data: reviews, error: reviewsError } = await reviewsQuery.limit(30);
 
     if (reviewsError) {
       console.error("Error fetching reviews:", reviewsError);
