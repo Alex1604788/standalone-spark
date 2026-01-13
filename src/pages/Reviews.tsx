@@ -1,4 +1,4 @@
-// VERSION: 2026-01-12-v1 - Fix reviews loading with all marketplaces in count query
+// VERSION: 2026-01-12-v2 - Optimize query: filter by reviews.marketplace_id directly, not through products join
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -308,15 +308,16 @@ const Reviews = () => {
 
       const { count } = await countQuery;
 
-      // Then get data with INNER JOIN (no count to avoid timeout)
+      // Then get data with LEFT JOIN (no count to avoid timeout)
+      // Filter by reviews.marketplace_id directly, not through products join
       let query = supabase
         .from("reviews")
         .select(
           `*,
-     products!inner(name, offer_id, image_url, marketplace_id),
+     products(name, offer_id, image_url, marketplace_id),
      replies(id, content, status, created_at, tone)`,
         )
-        .in("products.marketplace_id", marketplaceIds);
+        .in("marketplace_id", marketplaceIds);
 
       // ✅ Фильтр по segment на основе URL параметра
       if (statusFilter === "unanswered") {
