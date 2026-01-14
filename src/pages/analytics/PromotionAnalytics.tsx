@@ -1,3 +1,15 @@
+/**
+ * АНАЛИТИКА РЕКЛАМНЫХ КАМПАНИЙ (OZON PERFORMANCE API)
+ *
+ * ⚠️ ВАЖНО: Это НЕ Аналитика Акций!
+ *
+ * Этот файл: Аналитика эффективности рекламных кампаний OZON Performance
+ * Маршрут: /app/analytics/promotion
+ *
+ * Другой файл: PromotionsAnalytics.tsx - это аналитика акций и скидок магазина (заглушка)
+ * Маршрут: /app/analytics/promotions
+ */
+
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
