@@ -122,11 +122,14 @@ serve(async (req) => {
     };
 
     // Get unanswered reviews (segment = 'unanswered' means no drafts exist)
+    // ✅ PRIORITY: Sort by rating DESC to process 5-star and 4-star reviews first (auto mode)
+    // This ensures positive reviews in auto mode get processed before negative ones in semi mode
     let reviewsQuery = supabase
       .from("reviews")
       .select("id, text, advantages, disadvantages, rating, marketplace_id, products(name, marketplace_id)")
       .eq("segment", "unanswered")
-      .is("deleted_at", null);
+      .is("deleted_at", null)
+      .order("rating", { ascending: false });  // 5★ → 4★ → 3★ → 2★ → 1★
 
     if (marketplace_id) {
       reviewsQuery = reviewsQuery.eq("marketplace_id", marketplace_id);
@@ -135,7 +138,7 @@ serve(async (req) => {
     // ✅ Ограничиваем до 30 отзывов за раз чтобы избежать таймаута Edge Function (2 минуты)
     // С учетом AI запросов: 30 отзывов * 2 сек = 60 сек (безопасно)
     // CRON будет вызывать функцию каждые 10 минут для обработки следующей партии
-    const { data: reviews, error: reviewsError } = await reviewsQuery.limit(30);
+    const { data: reviews, error: reviewsError} = await reviewsQuery.limit(30);
 
     if (reviewsError) {
       console.error("Error fetching reviews:", reviewsError);
