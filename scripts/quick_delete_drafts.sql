@@ -1,8 +1,12 @@
--- Quick delete of drafted replies with triggers disabled
+-- Quick delete of drafted replies with user triggers disabled
 -- Run this in Supabase SQL Editor
 
--- Disable triggers temporarily
-ALTER TABLE replies DISABLE TRIGGER ALL;
+-- Disable only user triggers (not system FK triggers)
+ALTER TABLE replies DISABLE TRIGGER log_replies_changes;
+ALTER TABLE replies DISABLE TRIGGER reply_changes_update_review_segment;
+ALTER TABLE replies DISABLE TRIGGER trigger_update_review_segment_on_reply_change;
+ALTER TABLE replies DISABLE TRIGGER update_review_segment_on_reply_change;
+ALTER TABLE replies DISABLE TRIGGER update_replies_updated_at;
 
 -- Delete drafted replies
 UPDATE replies
@@ -12,7 +16,11 @@ WHERE marketplace_id = '84b1d0f5-6750-407c-9b04-28c051972162'
   AND deleted_at IS NULL;
 
 -- Re-enable triggers
-ALTER TABLE replies ENABLE TRIGGER ALL;
+ALTER TABLE replies ENABLE TRIGGER log_replies_changes;
+ALTER TABLE replies ENABLE TRIGGER reply_changes_update_review_segment;
+ALTER TABLE replies ENABLE TRIGGER trigger_update_review_segment_on_reply_change;
+ALTER TABLE replies ENABLE TRIGGER update_review_segment_on_reply_change;
+ALTER TABLE replies ENABLE TRIGGER update_replies_updated_at;
 
 -- Update review segments manually for affected reviews
 UPDATE reviews r
