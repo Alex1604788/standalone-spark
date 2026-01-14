@@ -1,7 +1,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { BarChart3, Megaphone, Zap, TrendingUp, DollarSign } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { BarChart3, Megaphone, Zap, TrendingUp, DollarSign, Filter } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useState } from "react";
@@ -18,12 +21,31 @@ interface CampaignData {
 
 const PromotionAnalytics = () => {
   const [marketplaceId, setMarketplaceId] = useState<string | null>(null);
+
+  // Загружаем сохраненный период или используем значения по умолчанию
+  const getInitialDate = (key: string, defaultDaysAgo: number = 0) => {
+    const saved = localStorage.getItem(`promotion-analytics-${key}`);
+    if (saved) return saved;
+    return new Date(Date.now() - defaultDaysAgo * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split('T')[0];
+  };
+
   const [startDate, setStartDate] = useState<string>(
-    new Date(Date.now() - 62 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    getInitialDate('startDate', 62)
   );
   const [endDate, setEndDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
+    getInitialDate('endDate', 0)
   );
+
+  // Сохраняем период при изменении
+  useEffect(() => {
+    localStorage.setItem('promotion-analytics-startDate', startDate);
+  }, [startDate]);
+
+  useEffect(() => {
+    localStorage.setItem('promotion-analytics-endDate', endDate);
+  }, [endDate]);
 
   // Получаем marketplace_id текущего пользователя
   useEffect(() => {
@@ -46,20 +68,22 @@ const PromotionAnalytics = () => {
     fetchMarketplace();
   }, []);
 
-  // Запрос к таблице ozon_performance_daily с ПРАВИЛЬНЫМ суммированием orders + orders_model
-  const { data: campaigns, isLoading } = useQuery({
+  // Запрос к VIEW ozon_performance_summary с уже агрегированными данными
+  const { data: campaigns, isLoading, error: queryError } = useQuery({
     queryKey: ['promotion-campaigns', marketplaceId, startDate, endDate],
     queryFn: async () => {
       if (!marketplaceId) return [];
 
+      console.log('✅ Получен marketplace_id:', marketplaceId);
+      console.log('📅 Период:', startDate, '-', endDate);
+
       const { data, error } = await supabase
-        .from('ozon_performance_daily')
+        .from('ozon_performance_summary')
         .select(`
           campaign_name,
           stat_date,
-          orders,
-          orders_model,
-          revenue,
+          total_orders,
+          total_revenue,
           money_spent,
           views,
           clicks
@@ -69,9 +93,17 @@ const PromotionAnalytics = () => {
         .lte('stat_date', endDate)
         .order('stat_date', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Ошибка загрузки данных:', error);
+        throw error;
+      }
 
-      // Группируем по кампаниям и суммируем orders + orders_model
+      console.log('✅ Загружено записей:', data?.length || 0);
+      if (data && data.length > 0) {
+        console.log('📊 Пример первой записи:', data[0]);
+      }
+
+      // Группируем по кампаниям (данные уже агрегированы в VIEW)
       const grouped = data.reduce((acc, row) => {
         const key = row.campaign_name || 'Без названия';
         if (!acc[key]) {
@@ -86,9 +118,9 @@ const PromotionAnalytics = () => {
           };
         }
 
-        // ВАЖНО: Суммируем orders + orders_model как в OZON Analytics
-        acc[key].total_orders += (row.orders || 0) + (row.orders_model || 0);
-        acc[key].total_revenue += row.revenue || 0;
+        // VIEW уже содержит total_orders (orders + orders_model)
+        acc[key].total_orders += row.total_orders || 0;
+        acc[key].total_revenue += row.total_revenue || 0;
         acc[key].promotion_cost += row.money_spent || 0;
         acc[key].total_views += row.views || 0;
         acc[key].total_clicks += row.clicks || 0;
@@ -99,6 +131,7 @@ const PromotionAnalytics = () => {
       return Object.values(grouped);
     },
     enabled: !!marketplaceId,
+    retry: 1,
   });
 
   return (
@@ -111,6 +144,131 @@ const PromotionAnalytics = () => {
         <p className="text-muted-foreground mt-2">
           Анализ эффективности продвижения товаров и маркетинговых кампаний
         </p>
+      </div>
+
+      {/* Фильтры */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Filter className="w-4 h-4" />
+            Фильтры
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4 items-end flex-wrap">
+            <div className="flex-1 min-w-[200px]">
+              <Label htmlFor="startDate">Период с</Label>
+              <Input
+                id="startDate"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+            </div>
+            <div className="flex-1 min-w-[200px]">
+              <Label htmlFor="endDate">по</Label>
+              <Input
+                id="endDate"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const today = new Date();
+                  const monthAgo = new Date(today);
+                  monthAgo.setMonth(monthAgo.getMonth() - 1);
+                  setStartDate(monthAgo.toISOString().split('T')[0]);
+                  setEndDate(today.toISOString().split('T')[0]);
+                }}
+              >
+                Последний месяц
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const today = new Date();
+                  const threeMonthsAgo = new Date(today);
+                  threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+                  setStartDate(threeMonthsAgo.toISOString().split('T')[0]);
+                  setEndDate(today.toISOString().split('T')[0]);
+                }}
+              >
+                Последние 3 месяца
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const today = new Date();
+                  const sixMonthsAgo = new Date(today);
+                  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+                  setStartDate(sixMonthsAgo.toISOString().split('T')[0]);
+                  setEndDate(today.toISOString().split('T')[0]);
+                }}
+              >
+                Последние 6 месяцев
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Общие метрики */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Общие расходы
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {campaigns?.reduce((sum, c) => sum + c.promotion_cost, 0).toLocaleString('ru-RU')} ₽
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              За выбранный период
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Общая выручка
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {campaigns?.reduce((sum, c) => sum + c.total_revenue, 0).toLocaleString('ru-RU')} ₽
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              От продвижения
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Общий ДРПР
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {campaigns
+                ? (
+                    (campaigns.reduce((sum, c) => sum + c.promotion_cost, 0) /
+                      campaigns.reduce((sum, c) => sum + c.total_revenue, 0)) *
+                    100
+                  ).toFixed(2)
+                : '0.00'}%
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Доля рекламных расходов
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       <Tabs defaultValue="campaigns" className="space-y-6">
@@ -137,15 +295,37 @@ const PromotionAnalytics = () => {
                 Рекламные кампании
               </CardTitle>
               <CardDescription>
-                Период: {startDate} - {endDate} (последние 62 дня)
+                Иерархический просмотр кампаний и товаров с метриками эффективности
                 <br />
                 <span className="text-xs text-muted-foreground">
-                  * Заказы = Обычные заказы + Заказы модели (как в OZON Analytics)
+                  Попробуйте изменить период в фильтрах выше или убедитесь, что данные по продвижению загружены в таблицу ozon_performance_summary
+                  <br />
+                  Расширить период до 180 дней
                 </span>
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {isLoading ? (
+              {queryError ? (
+                <div className="text-center py-12">
+                  <Megaphone className="w-16 h-16 mx-auto mb-4 opacity-50 text-destructive" />
+                  <p className="text-lg font-semibold text-destructive mb-2">Ошибка загрузки данных</p>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    {queryError.message.includes('relation') || queryError.message.includes('does not exist')
+                      ? 'VIEW ozon_performance_summary не найден в базе данных'
+                      : queryError.message}
+                  </p>
+                  {(queryError.message.includes('relation') || queryError.message.includes('does not exist')) && (
+                    <div className="bg-muted p-4 rounded-lg text-left max-w-2xl mx-auto">
+                      <p className="font-semibold mb-2">💡 Как исправить:</p>
+                      <ol className="text-sm space-y-1 list-decimal list-inside">
+                        <li>Откройте файл ИНСТРУКЦИЯ_ПРИМЕНЕНИЯ_VIEW_ПРОДВИЖЕНИЯ.md</li>
+                        <li>Следуйте инструкциям по применению VIEW</li>
+                        <li>После применения обновите страницу (Ctrl+F5)</li>
+                      </ol>
+                    </div>
+                  )}
+                </div>
+              ) : isLoading ? (
                 <div className="text-center py-8">Загрузка...</div>
               ) : campaigns && campaigns.length > 0 ? (
                 <Table>
