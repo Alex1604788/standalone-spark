@@ -1,4 +1,4 @@
-// VERSION: 2026-01-14-v4 - Prioritize 4-5 star reviews with rating DESC sort + reduce limit to 30
+// VERSION: 2026-01-15-v5 - Add detailed INSERT logging to debug why no replies are created
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -259,7 +259,7 @@ ${review.rating <= 2 ? "- Вежливо извиниться за негати�
         }
 
         // Create reply with appropriate status
-        const { error: insertError } = await supabase.from("replies").insert({
+        const insertData = {
           review_id: review.id,
           content: generatedReply,
           status: replyStatus,
@@ -267,17 +267,41 @@ ${review.rating <= 2 ? "- Вежливо извиниться за негати�
           user_id: user_id,
           marketplace_id: mpId,
           scheduled_at: replyStatus === "scheduled" ? new Date().toISOString() : null,
+        };
+
+        console.log(`[auto-generate-drafts] 🔍 Attempting INSERT for review ${review.id}:`, {
+          review_id: review.id,
+          status: replyStatus,
+          mode: replyMode,
+          user_id: user_id,
+          marketplace_id: mpId,
+          content_length: generatedReply?.length,
+        });
+
+        const { data: insertedData, error: insertError } = await supabase
+          .from("replies")
+          .insert(insertData)
+          .select();
+
+        console.log(`[auto-generate-drafts] 📊 INSERT result:`, {
+          review_id: review.id,
+          error: insertError,
+          data_returned: insertedData,
+          data_count: insertedData?.length || 0,
         });
 
         if (insertError) {
-          console.error(`[auto-generate-drafts] Insert error for review ${review.id}:`, insertError);
+          console.error(`[auto-generate-drafts] ❌ Insert ERROR for review ${review.id}:`, JSON.stringify(insertError, null, 2));
           errors.push(`Review ${review.id}: ${insertError.message}`);
+        } else if (!insertedData || insertedData.length === 0) {
+          console.error(`[auto-generate-drafts] ⚠️ INSERT succeeded but returned NO data for review ${review.id}`);
+          errors.push(`Review ${review.id}: INSERT returned no data`);
         } else {
           if (replyStatus === "scheduled") {
-            console.log(`[auto-generate-drafts] ⚡ Scheduled auto-reply for review ${review.id} (${useTemplates ? 'template' : 'AI'})`);
+            console.log(`[auto-generate-drafts] ⚡ Successfully created scheduled reply ${insertedData[0].id} for review ${review.id} (${useTemplates ? 'template' : 'AI'})`);
             totalScheduled++;
           } else {
-            console.log(`[auto-generate-drafts] ✅ Created draft for review ${review.id} (${useTemplates ? 'template' : 'AI'})`);
+            console.log(`[auto-generate-drafts] ✅ Successfully created draft ${insertedData[0].id} for review ${review.id} (${useTemplates ? 'template' : 'AI'})`);
             totalDrafts++;
           }
         }
