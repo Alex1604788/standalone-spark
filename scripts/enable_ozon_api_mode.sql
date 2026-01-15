@@ -18,12 +18,10 @@ BEGIN
   UPDATE marketplaces
   SET
     sync_mode = 'api',
-    sync_reviews = true,
     updated_at = NOW()
   WHERE id = v_marketplace_id;
 
   RAISE NOTICE '✅ Updated sync_mode to: api';
-  RAISE NOTICE '✅ Enabled sync_reviews';
 
   -- Verify
   SELECT sync_mode INTO v_current_mode
@@ -39,7 +37,6 @@ SELECT
   name,
   type,
   sync_mode,
-  sync_reviews,
   is_active
 FROM marketplaces
 WHERE id = '84b1d0f5-6750-407c-9b04-28c051972162';

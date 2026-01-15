@@ -31,11 +31,10 @@ BEGIN
   UPDATE marketplaces
   SET
     sync_mode = 'api',
-    sync_reviews = true,
     updated_at = NOW()
   WHERE id = v_marketplace_id;
 
-  RAISE NOTICE '   ✅ Enabled API mode + sync_reviews';
+  RAISE NOTICE '   ✅ Enabled API mode';
   RAISE NOTICE '';
 
   -- STEP 3: Reset any stuck publishing replies
@@ -74,6 +73,6 @@ WHERE marketplace_id = '84b1d0f5-6750-407c-9b04-28c051972162'
 GROUP BY segment
 ORDER BY segment;
 
-SELECT 'Marketplace settings' as info, sync_mode, sync_reviews
+SELECT 'Marketplace settings' as info, sync_mode
 FROM marketplaces
 WHERE id = '84b1d0f5-6750-407c-9b04-28c051972162';

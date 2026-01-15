@@ -36,8 +36,6 @@ SELECT
   name,
   type,
   sync_mode,
-  sync_reviews,
-  sync_chats,
   is_active,
   last_sync_at
 FROM marketplaces

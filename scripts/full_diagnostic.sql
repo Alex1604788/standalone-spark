@@ -22,8 +22,6 @@ SELECT
   name,
   type,
   sync_mode,
-  sync_reviews,
-  sync_chats,
   is_active
 FROM marketplaces
 WHERE id = '84b1d0f5-6750-407c-9b04-28c051972162';
