@@ -267,14 +267,7 @@ const PromotionAnalytics = () => {
           campaignId = String(row.campaign_id);
         }
 
-        const sku = row.sku || `__NULL_SKU_${Math.random()}__`;
-
-        // Пропускаем только записи без sku (критичное поле для группировки)
-        if (!row.sku || row.sku === "") {
-          console.warn("⚠️ Пропущена запись без sku:", row);
-          return;
-        }
-
+        // Создаем кампанию если её еще нет
         if (!campaignMap.has(campaignId)) {
           campaignMap.set(campaignId, {
             campaign_id: campaignId === "__NO_CAMPAIGN__" ? null : campaignId,
@@ -300,6 +293,7 @@ const PromotionAnalytics = () => {
           });
         }
 
+        // ✅ ВСЕГДА суммируем расходы и метрики на уровне кампании (даже без SKU)
         const campaign = campaignMap.get(campaignId)!;
         campaign.total_money_spent += Number(row.money_spent || 0);
         campaign.total_views += Number(row.views || 0);
@@ -316,11 +310,13 @@ const PromotionAnalytics = () => {
           campaign.date_range.max = row.stat_date;
         }
 
-        // Группируем по товарам (пропускаем если sku NULL)
-        if (!row.sku) {
+        // Группируем по товарам ТОЛЬКО если есть SKU
+        if (!row.sku || row.sku === "") {
+          // Записи без SKU учтены в общих метриках кампании, но не показываются как отдельные товары
           return;
         }
 
+        const sku = row.sku;
         let product = campaign.products.find((p) => p.sku === sku);
         if (!product) {
           product = {
