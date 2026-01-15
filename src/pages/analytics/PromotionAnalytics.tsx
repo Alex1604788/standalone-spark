@@ -254,14 +254,40 @@ const PromotionAnalytics = () => {
         return [];
       }
 
-      // Группируем по кампаниям
+      // =====================================================
+      // ИСПРАВЛЕНИЕ ДУБЛИРОВАНИЯ money_spent
+      // =====================================================
+      // Проблема: в OZON Performance API поле money_spent указывается на уровне кампании за день,
+      // а не отдельно для каждого товара. Если кампания продвигала 5 товаров в один день,
+      // то в базе будет 5 записей с ОДИНАКОВЫМ значением money_spent.
+      //
+      // Решение: Сначала дедуплицируем расходы по (campaign_id, stat_date),
+      // а остальные метрики (views, clicks, orders) суммируем по товарам как обычно.
+      // =====================================================
+
+      // ШАГ 1: Находим УНИКАЛЬНЫЕ расходы по (campaign_id, stat_date)
+      const campaignDailyExpenses = new Map<string, Map<string, number>>(); // campaign_id -> date -> money_spent
+
+      performanceData.forEach((row: any) => {
+        const campaignId = (!row.campaign_id || row.campaign_id === "") ? "__NO_CAMPAIGN__" : String(row.campaign_id);
+        const date = row.stat_date;
+
+        if (!campaignDailyExpenses.has(campaignId)) {
+          campaignDailyExpenses.set(campaignId, new Map());
+        }
+
+        const dailyMap = campaignDailyExpenses.get(campaignId)!;
+        // Берем максимальное значение на всякий случай (они должны быть одинаковые)
+        dailyMap.set(date, Math.max(dailyMap.get(date) || 0, Number(row.money_spent || 0)));
+      });
+
+      // ШАГ 2: Группируем по кампаниям и товарам
       const campaignMap = new Map<string, CampaignData>();
 
       performanceData.forEach((row: any) => {
         // Обрабатываем NULL значения: группируем записи без campaign_id в отдельную категорию
         let campaignId: string;
         if (!row.campaign_id || row.campaign_id === "") {
-          // Группируем все записи без campaign_id в одну категорию
           campaignId = "__NO_CAMPAIGN__";
         } else {
           campaignId = String(row.campaign_id);
@@ -275,7 +301,7 @@ const PromotionAnalytics = () => {
               ? "Без кампании"
               : (row.campaign_name || `Кампания ${campaignId}`),
             campaign_type: row.campaign_type,
-            total_money_spent: 0,
+            total_money_spent: 0, // Заполним позже из campaignDailyExpenses
             total_views: 0,
             total_clicks: 0,
             total_add_to_cart: 0,
@@ -293,9 +319,8 @@ const PromotionAnalytics = () => {
           });
         }
 
-        // ✅ ВСЕГДА суммируем расходы и метрики на уровне кампании (даже без SKU)
+        // ✅ Суммируем ТОЛЬКО метрики (НЕ money_spent!)
         const campaign = campaignMap.get(campaignId)!;
-        campaign.total_money_spent += Number(row.money_spent || 0);
         campaign.total_views += Number(row.views || 0);
         campaign.total_clicks += Number(row.clicks || 0);
         campaign.total_add_to_cart += Number(row.add_to_cart || 0);
@@ -342,7 +367,7 @@ const PromotionAnalytics = () => {
           campaign.products.push(product);
         }
 
-        product.total_money_spent += Number(row.money_spent || 0);
+        // Для товаров суммируем метрики (money_spent добавим пропорционально позже)
         product.total_views += Number(row.views || 0);
         product.total_clicks += Number(row.clicks || 0);
         product.total_add_to_cart += Number(row.add_to_cart || 0);
@@ -357,6 +382,31 @@ const PromotionAnalytics = () => {
           product.date_range.max = row.stat_date;
         }
         product.days_count++;
+      });
+
+      // ШАГ 3: Добавляем правильные расходы кампаний из дедуплицированных данных
+      console.log("💰 Дедуплицированные расходы по кампаниям:");
+      campaignDailyExpenses.forEach((dailyMap, campaignId) => {
+        const campaign = campaignMap.get(campaignId);
+        if (campaign) {
+          // Суммируем уникальные дневные расходы
+          const uniqueDailyExpenses = Array.from(dailyMap.values());
+          campaign.total_money_spent = uniqueDailyExpenses.reduce((sum, val) => sum + val, 0);
+
+          console.log(`  - ${campaign.campaign_name}:`, {
+            days: dailyMap.size,
+            dailyExpenses: uniqueDailyExpenses.slice(0, 5), // первые 5 дней для примера
+            total: campaign.total_money_spent
+          });
+
+          // Распределяем расходы кампании между товарами пропорционально их кликам
+          const totalClicks = campaign.total_clicks;
+          if (totalClicks > 0) {
+            campaign.products.forEach((product) => {
+              product.total_money_spent = (product.total_clicks / totalClicks) * campaign.total_money_spent;
+            });
+          }
+        }
       });
 
       // Загружаем информацию о продуктах по SKU
