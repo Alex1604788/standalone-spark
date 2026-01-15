@@ -1,3 +1,5 @@
+// VERSION: 2026-01-08-v2 - Enable OZON processing for API mode
+// BRANCH: claude/setup-ozon-cron-jobs-2qPjk
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.58.0';
 
 const corsHeaders = {
@@ -17,32 +19,22 @@ Deno.serve(async (req) => {
 
     console.log('Processing scheduled replies...');
 
-    // ✅ ИСПРАВЛЕНИЕ: Для Ozon публикация идет через расширение браузера, 
-    // поэтому process-scheduled-replies должен обрабатывать только НЕ-Ozon маркетплейсы
-    // Find all replies that should be published now (excluding Ozon)
-    const { data: allScheduledReplies, error: fetchError } = await supabase
+    // ✅ UPDATED: Now OZON can use API mode (Premium Plus) for automatic publishing
+    // Process all scheduled replies including OZON
+    const { data: scheduledReplies, error: fetchError } = await supabase
       .from('replies')
-      .select(`
-        id,
-        marketplace_id,
-        marketplace:marketplaces!inner(type)
-      `)
+      .select('id, marketplace_id')
       .eq('status', 'scheduled')
       .is('deleted_at', null)
       .lte('scheduled_at', new Date().toISOString())
       .order('scheduled_at', { ascending: true })
-      .limit(100); // Берем больше, потом отфильтруем
+      .limit(50);
 
     if (fetchError) {
       throw fetchError;
     }
 
-    // Фильтруем: исключаем Ozon (для него публикация через расширение)
-    const scheduledReplies = (allScheduledReplies || []).filter(
-      (reply: any) => reply.marketplace?.type !== 'ozon'
-    ).slice(0, 50); // Ограничиваем до 50
-
-    console.log(`Found ${scheduledReplies?.length || 0} replies to publish (excluding Ozon)`);
+    console.log(`Found ${scheduledReplies?.length || 0} replies to publish (including OZON API mode)`);
 
     if (!scheduledReplies || scheduledReplies.length === 0) {
       return new Response(

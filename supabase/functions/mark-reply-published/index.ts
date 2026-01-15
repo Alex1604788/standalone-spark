@@ -1,3 +1,5 @@
+// VERSION: 2026-01-08-v2 - Fix segment update after publishing reply
+// BRANCH: claude/setup-ozon-cron-jobs-2qPjk
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -83,11 +85,15 @@ serve(async (req) => {
         });
       }
 
-      // ✅ 4. Помечаем review/question как отвечено
+      // ✅ 4. Помечаем review/question как отвечено и перемещаем в архив
       if (reply.review_id) {
         const { error: reviewError } = await supabase
           .from("reviews")
-          .update({ is_answered: true })
+          .update({
+            is_answered: true,
+            segment: 'archived',
+            status: 'answered'
+          })
           .eq("id", reply.review_id);
 
         if (reviewError) {
@@ -98,7 +104,11 @@ serve(async (req) => {
       if (reply.question_id) {
         const { error: questionError } = await supabase
           .from("questions")
-          .update({ is_answered: true })
+          .update({
+            is_answered: true,
+            segment: 'archived',
+            status: 'answered'
+          })
           .eq("id", reply.question_id);
 
         if (questionError) {

@@ -1,4 +1,4 @@
-// VERSION: 2026-01-08-v2 - Fix OZON API response fields (sku matching)
+// VERSION: 2026-01-08-v6 - Set segment explicitly (fix display issue)
 // BRANCH: claude/setup-ozon-cron-jobs-2qPjk
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -11,6 +11,8 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
+  console.log('[sync-reviews-api] VERSION: 2026-01-08-v6 - Function started');
+
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders, status: 204 });
   }
@@ -24,19 +26,22 @@ serve(async (req) => {
 
   try {
     let { marketplace_id, ozon_seller_id, user_id, client_id, api_key, since } = await req.json();
+    console.log(`[sync-reviews-api] Received request for marketplace: ${marketplace_id}`);
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
-    // Resolve marketplace_id if not provided
+    // Resolve marketplace_id and get last sync date
+    let lastReviewsSync = null;
+
     if (!marketplace_id && ozon_seller_id && user_id) {
       console.log(`Resolving marketplace_id for user ${user_id}, seller ${ozon_seller_id}`);
 
       const { data: marketplace } = await supabase
         .from('marketplaces')
-        .select('id, api_key_encrypted, service_account_email')
+        .select('id, api_key_encrypted, service_account_email, last_reviews_sync_at')
         .eq('user_id', user_id)
         .eq('ozon_seller_id', ozon_seller_id)
         .maybeSingle();
@@ -51,6 +56,34 @@ serve(async (req) => {
       marketplace_id = marketplace.id;
       client_id = client_id || marketplace.service_account_email;
       api_key = api_key || marketplace.api_key_encrypted;
+      lastReviewsSync = marketplace.last_reviews_sync_at;
+    } else if (marketplace_id) {
+      // Get last sync date for existing marketplace_id
+      const { data: marketplace } = await supabase
+        .from('marketplaces')
+        .select('last_reviews_sync_at')
+        .eq('id', marketplace_id)
+        .maybeSingle();
+
+      lastReviewsSync = marketplace?.last_reviews_sync_at;
+    }
+
+    // Determine sync period:
+    // 1. If 'since' provided in request - use it (explicit override)
+    // 2. If last_reviews_sync_at exists - sync since last sync (automatic CRON)
+    // 3. Otherwise - last 7 days (manual first-time sync, ~3500 reviews)
+    if (!since) {
+      if (lastReviewsSync) {
+        since = lastReviewsSync;
+        console.log(`[sync-reviews-api] Incremental sync since: ${since}`);
+      } else {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        since = sevenDaysAgo.toISOString();
+        console.log(`[sync-reviews-api] First-time sync, fetching last 7 days since: ${since}`);
+      }
+    } else {
+      console.log(`[sync-reviews-api] Using provided since parameter: ${since}`);
     }
 
     if (!marketplace_id || !client_id || !api_key) {
@@ -131,7 +164,7 @@ serve(async (req) => {
       }
 
       const reviewsData = await reviewsResponse.json();
-      const reviews = reviewsData.result?.reviews || [];
+      const reviews = reviewsData.reviews || [];
 
       console.log(`Page ${page}: Found ${reviews.length} reviews`);
 
@@ -175,6 +208,7 @@ serve(async (req) => {
           }
 
           // Upsert review
+          const isAnswered = (review.comments_amount || 0) > 0;
           const { error: reviewError } = await supabase
             .from('reviews')
             .upsert({
@@ -189,8 +223,9 @@ serve(async (req) => {
               review_date: review.published_at || new Date().toISOString(),
               raw: review,
               inserted_at: new Date().toISOString(),
-              status: 'new',
-              is_answered: (review.comments_amount || 0) > 0,
+              status: isAnswered ? 'answered' : 'new',
+              is_answered: isAnswered,
+              segment: isAnswered ? 'archived' : 'unanswered',
             }, {
               onConflict: 'marketplace_id,external_id',
               ignoreDuplicates: false,
@@ -216,11 +251,12 @@ serve(async (req) => {
       }
     }
 
-    // Update marketplace status
+    // Update marketplace status and last_reviews_sync_at
     await supabase
       .from('marketplaces')
       .update({
         last_sync_at: new Date().toISOString(),
+        last_reviews_sync_at: new Date().toISOString(),
         last_sync_status: 'success',
         last_sync_error: null,
       })

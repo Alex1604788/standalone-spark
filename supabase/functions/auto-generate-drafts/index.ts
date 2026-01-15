@@ -1,3 +1,4 @@
+// VERSION: 2026-01-15-v6 - Add template selection logging to verify randomization works
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -49,13 +50,15 @@ serve(async (req) => {
     } | null = null;
 
     if (marketplace_id) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("marketplace_settings")
         .select("reply_length, reviews_mode_1, reviews_mode_2, reviews_mode_3, reviews_mode_4, reviews_mode_5, questions_mode, use_templates_1, use_templates_2, use_templates_3, use_templates_4, use_templates_5")
         .eq("marketplace_id", marketplace_id)
         .single();
-      
+
+      console.log(`[auto-generate-drafts] Settings query result:`, { data, error });
       settings = data;
+      console.log(`[auto-generate-drafts] Loaded settings:`, settings);
     }
 
     const replyLength = settings?.reply_length || response_length;
@@ -99,13 +102,18 @@ serve(async (req) => {
           .limit(100);
 
         if (error || !templates || templates.length === 0) {
-          console.log(`[auto-generate-drafts] No templates found for rating ${rating}`);
+          console.log(`[auto-generate-drafts] ⚠️ No templates found for rating ${rating}`);
           return null;
         }
 
+        console.log(`[auto-generate-drafts] 🎲 Found ${templates.length} templates for rating ${rating}`);
+
         // Выбираем случайный шаблон
-        const randomTemplate = templates[Math.floor(Math.random() * templates.length)];
-        
+        const randomIndex = Math.floor(Math.random() * templates.length);
+        const randomTemplate = templates[randomIndex];
+
+        console.log(`[auto-generate-drafts] 🎯 Selected template ${randomIndex + 1}/${templates.length} (ID: ${randomTemplate.id.substring(0, 8)}...)`);
+
         // Увеличиваем счётчик использования
         await supabase
           .from("reply_templates")
@@ -114,25 +122,29 @@ serve(async (req) => {
 
         return randomTemplate.content;
       } catch (e) {
-        console.error(`[auto-generate-drafts] Error getting template for rating ${rating}:`, e);
+        console.error(`[auto-generate-drafts] ❌ Error getting template for rating ${rating}:`, e);
         return null;
       }
     };
 
     // Get unanswered reviews (segment = 'unanswered' means no drafts exist)
+    // ✅ PRIORITY: Sort by rating DESC to process 5-star and 4-star reviews first (auto mode)
+    // This ensures positive reviews in auto mode get processed before negative ones in semi mode
     let reviewsQuery = supabase
       .from("reviews")
       .select("id, text, advantages, disadvantages, rating, marketplace_id, products(name, marketplace_id)")
       .eq("segment", "unanswered")
-      .is("deleted_at", null);
+      .is("deleted_at", null)
+      .order("rating", { ascending: false });  // 5★ → 4★ → 3★ → 2★ → 1★
 
     if (marketplace_id) {
       reviewsQuery = reviewsQuery.eq("marketplace_id", marketplace_id);
     }
 
-    // ✅ Увеличиваем лимит для обработки большего количества отзывов за раз
-    // Для шаблонов это будет очень быстро, для ИИ - с задержками
-    const { data: reviews, error: reviewsError } = await reviewsQuery.limit(200);
+    // ✅ Ограничиваем до 30 отзывов за раз чтобы избежать таймаута Edge Function (2 минуты)
+    // С учетом AI запросов: 30 отзывов * 2 сек = 60 сек (безопасно)
+    // CRON будет вызывать функцию каждые 10 минут для обработки следующей партии
+    const { data: reviews, error: reviewsError} = await reviewsQuery.limit(30);
 
     if (reviewsError) {
       console.error("Error fetching reviews:", reviewsError);
@@ -252,7 +264,7 @@ ${review.rating <= 2 ? "- Вежливо извиниться за негати�
         }
 
         // Create reply with appropriate status
-        const { error: insertError } = await supabase.from("replies").insert({
+        const insertData = {
           review_id: review.id,
           content: generatedReply,
           status: replyStatus,
@@ -260,17 +272,41 @@ ${review.rating <= 2 ? "- Вежливо извиниться за негати�
           user_id: user_id,
           marketplace_id: mpId,
           scheduled_at: replyStatus === "scheduled" ? new Date().toISOString() : null,
+        };
+
+        console.log(`[auto-generate-drafts] 🔍 Attempting INSERT for review ${review.id}:`, {
+          review_id: review.id,
+          status: replyStatus,
+          mode: replyMode,
+          user_id: user_id,
+          marketplace_id: mpId,
+          content_length: generatedReply?.length,
+        });
+
+        const { data: insertedData, error: insertError } = await supabase
+          .from("replies")
+          .insert(insertData)
+          .select();
+
+        console.log(`[auto-generate-drafts] 📊 INSERT result:`, {
+          review_id: review.id,
+          error: insertError,
+          data_returned: insertedData,
+          data_count: insertedData?.length || 0,
         });
 
         if (insertError) {
-          console.error(`[auto-generate-drafts] Insert error for review ${review.id}:`, insertError);
+          console.error(`[auto-generate-drafts] ❌ Insert ERROR for review ${review.id}:`, JSON.stringify(insertError, null, 2));
           errors.push(`Review ${review.id}: ${insertError.message}`);
+        } else if (!insertedData || insertedData.length === 0) {
+          console.error(`[auto-generate-drafts] ⚠️ INSERT succeeded but returned NO data for review ${review.id}`);
+          errors.push(`Review ${review.id}: INSERT returned no data`);
         } else {
           if (replyStatus === "scheduled") {
-            console.log(`[auto-generate-drafts] ⚡ Scheduled auto-reply for review ${review.id} (${useTemplates ? 'template' : 'AI'})`);
+            console.log(`[auto-generate-drafts] ⚡ Successfully created scheduled reply ${insertedData[0].id} for review ${review.id} (${useTemplates ? 'template' : 'AI'})`);
             totalScheduled++;
           } else {
-            console.log(`[auto-generate-drafts] ✅ Created draft for review ${review.id} (${useTemplates ? 'template' : 'AI'})`);
+            console.log(`[auto-generate-drafts] ✅ Successfully created draft ${insertedData[0].id} for review ${review.id} (${useTemplates ? 'template' : 'AI'})`);
             totalDrafts++;
           }
         }

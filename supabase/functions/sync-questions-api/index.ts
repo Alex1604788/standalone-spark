@@ -1,4 +1,4 @@
-// VERSION: 2026-01-08-v1 - Fixed env vars (SUPABASE_URL)
+// VERSION: 2026-01-08-v2 - Limited pagination (10 pages manual, 5 auto)
 // BRANCH: claude/setup-ozon-cron-jobs-2qPjk
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -11,6 +11,8 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
+  console.log('[sync-questions-api] VERSION: 2026-01-08-v2 - Function started');
+
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders, status: 204 });
   }
@@ -24,19 +26,22 @@ serve(async (req) => {
 
   try {
     let { marketplace_id, ozon_seller_id, user_id, client_id, api_key } = await req.json();
+    console.log(`[sync-questions-api] Received request for marketplace: ${marketplace_id}`);
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
-    // Resolve marketplace_id if not provided
+    // Resolve marketplace_id and get last sync date
+    let lastQuestionsSync = null;
+
     if (!marketplace_id && ozon_seller_id && user_id) {
       console.log(`[sync-questions-api] Resolving marketplace_id for user ${user_id}, seller ${ozon_seller_id}`);
 
       const { data: marketplace } = await supabase
         .from('marketplaces')
-        .select('id, api_key_encrypted, service_account_email')
+        .select('id, api_key_encrypted, service_account_email, last_questions_sync_at')
         .eq('user_id', user_id)
         .eq('ozon_seller_id', ozon_seller_id)
         .maybeSingle();
@@ -51,7 +56,23 @@ serve(async (req) => {
       marketplace_id = marketplace.id;
       client_id = client_id || marketplace.service_account_email;
       api_key = api_key || marketplace.api_key_encrypted;
+      lastQuestionsSync = marketplace.last_questions_sync_at;
+    } else if (marketplace_id) {
+      // Get last sync date for existing marketplace_id
+      const { data: marketplace } = await supabase
+        .from('marketplaces')
+        .select('last_questions_sync_at')
+        .eq('id', marketplace_id)
+        .maybeSingle();
+
+      lastQuestionsSync = marketplace?.last_questions_sync_at;
     }
+
+    // Determine max pages based on sync history:
+    // - First-time sync (manual): limit to 10 pages (~recent questions)
+    // - Incremental sync (auto): stop on duplicate or max 5 pages
+    const maxPages = lastQuestionsSync ? 5 : 10;
+    console.log(`[sync-questions-api] Sync mode: ${lastQuestionsSync ? 'incremental' : 'first-time'}, max pages: ${maxPages}`);
 
     if (!marketplace_id || !client_id || !api_key) {
       return new Response(
@@ -95,10 +116,12 @@ serve(async (req) => {
     let totalQuestions = 0;
     let hasMore = true;
     let lastId = '';
+    let pagesProcessed = 0;
 
     // Fetch questions from OZON API
-    while (hasMore) {
-      console.log(`[sync-questions-api] Fetching questions, last_id: ${lastId || 'first page'}`);
+    while (hasMore && pagesProcessed < maxPages) {
+      pagesProcessed++;
+      console.log(`[sync-questions-api] Fetching questions page ${pagesProcessed}/${maxPages}, last_id: ${lastId || 'first page'}`);
 
       const questionsResponse = await fetch('https://api-seller.ozon.ru/v1/question/list', {
         method: 'POST',

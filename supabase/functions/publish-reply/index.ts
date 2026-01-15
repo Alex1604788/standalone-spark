@@ -1,3 +1,5 @@
+// VERSION: 2026-01-08-v8 - Fix SKU check for OZON reviews (SKU only needed for questions)
+// BRANCH: claude/setup-ozon-cron-jobs-2qPjk
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.58.0";
 
 const corsHeaders = {
@@ -143,14 +145,8 @@ Deno.serve(async (req) => {
 
           const cred = ozonCreds[0];
 
-          // Get product SKU for OZON API
-          const product = reply.review?.product || reply.question?.product;
-          if (!product || !product.sku) {
-            throw new Error("Product SKU not found for OZON API");
-          }
-
           if (reply.review_id) {
-            // Publish review comment
+            // Publish review comment (SKU not needed)
             success = await publishToOzonReview(
               cred.client_id,
               cred.client_secret,
@@ -158,7 +154,12 @@ Deno.serve(async (req) => {
               reply.content,
             );
           } else if (reply.question_id) {
-            // Publish question answer
+            // Publish question answer (SKU required)
+            const product = reply.question?.product;
+            if (!product || !product.sku) {
+              throw new Error("Product SKU not found for OZON question API");
+            }
+
             success = await publishToOzonQuestion(
               cred.client_id,
               cred.client_secret,
@@ -202,11 +203,19 @@ Deno.serve(async (req) => {
         })
         .eq("id", reply_id);
 
-      // Update is_answered flag
+      // Update is_answered flag and segment to archived
       if (reply.review_id) {
-        await supabase.from("reviews").update({ is_answered: true }).eq("id", reply.review_id);
+        await supabase.from("reviews").update({
+          is_answered: true,
+          segment: 'archived',
+          status: 'answered'
+        }).eq("id", reply.review_id);
       } else if (reply.question_id) {
-        await supabase.from("questions").update({ is_answered: true }).eq("id", reply.question_id);
+        await supabase.from("questions").update({
+          is_answered: true,
+          segment: 'archived',
+          status: 'answered'
+        }).eq("id", reply.question_id);
       }
 
       return new Response(JSON.stringify({ success: true }), {
