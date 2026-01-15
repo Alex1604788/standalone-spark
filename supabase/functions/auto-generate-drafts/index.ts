@@ -1,4 +1,4 @@
-// VERSION: 2026-01-15-v5 - Add detailed INSERT logging to debug why no replies are created
+// VERSION: 2026-01-15-v6 - Add template selection logging to verify randomization works
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -102,13 +102,18 @@ serve(async (req) => {
           .limit(100);
 
         if (error || !templates || templates.length === 0) {
-          console.log(`[auto-generate-drafts] No templates found for rating ${rating}`);
+          console.log(`[auto-generate-drafts] ⚠️ No templates found for rating ${rating}`);
           return null;
         }
 
+        console.log(`[auto-generate-drafts] 🎲 Found ${templates.length} templates for rating ${rating}`);
+
         // Выбираем случайный шаблон
-        const randomTemplate = templates[Math.floor(Math.random() * templates.length)];
-        
+        const randomIndex = Math.floor(Math.random() * templates.length);
+        const randomTemplate = templates[randomIndex];
+
+        console.log(`[auto-generate-drafts] 🎯 Selected template ${randomIndex + 1}/${templates.length} (ID: ${randomTemplate.id.substring(0, 8)}...)`);
+
         // Увеличиваем счётчик использования
         await supabase
           .from("reply_templates")
@@ -117,7 +122,7 @@ serve(async (req) => {
 
         return randomTemplate.content;
       } catch (e) {
-        console.error(`[auto-generate-drafts] Error getting template for rating ${rating}:`, e);
+        console.error(`[auto-generate-drafts] ❌ Error getting template for rating ${rating}:`, e);
         return null;
       }
     };
