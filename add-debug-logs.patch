@@ -1,0 +1,76 @@
+--- a/src/pages/analytics/PromotionAnalytics.tsx
++++ b/src/pages/analytics/PromotionAnalytics.tsx
+@@ -265,6 +265,10 @@ const PromotionAnalytics = () => {
+       // а остальные метрики (views, clicks, orders) суммируем по товарам как обычно.
+       // =====================================================
+
++      console.log("🔍 НАЧАЛО ДЕДУПЛИКАЦИИ");
++      console.log("📊 Всего записей для обработки:", performanceData.length);
++      console.log("📅 Период:", format(dateRange.start, "yyyy-MM-dd"), "-", format(dateRange.end, "yyyy-MM-dd"));
++
+       // ШАГ 1: Находим УНИКАЛЬНЫЕ расходы по (campaign_id, stat_date)
+       const campaignDailyExpenses = new Map<string, Map<string, number>>(); // campaign_id -> date -> money_spent
+
+@@ -281,6 +285,17 @@ const PromotionAnalytics = () => {
+         dailyMap.set(date, Math.max(dailyMap.get(date) || 0, Number(row.money_spent || 0)));
+       });
+
++      // ОТЛАДКА: Показываем что получилось после дедупликации
++      console.log("🔍 После дедупликации по дням:");
++      campaignDailyExpenses.forEach((dailyMap, campaignId) => {
++        const daysCount = dailyMap.size;
++        const expenses = Array.from(dailyMap.values());
++        const total = expenses.reduce((sum, val) => sum + val, 0);
++        console.log(`  Campaign ${campaignId}: ${daysCount} дней, сумма = ${total.toFixed(2)} ₽`);
++        if (daysCount < 10) {
++          console.log(`    Даты:`, Array.from(dailyMap.keys()).sort());
++        }
++      });
++
+       // ШАГ 2: Группируем по кампаниям и товарам
+       const campaignMap = new Map<string, CampaignData>();
+
+@@ -387,6 +402,7 @@ const PromotionAnalytics = () => {
+       // ШАГ 3: Добавляем правильные расходы кампаний из дедуплицированных данных
+       console.log("💰 Дедуплицированные расходы по кампаниям:");
+       campaignDailyExpenses.forEach((dailyMap, campaignId) => {
++        console.log(`  🔍 Обрабатываем campaign_id: ${campaignId}, дней: ${dailyMap.size}`);
+         const campaign = campaignMap.get(campaignId);
+         if (campaign) {
+           // Суммируем уникальные дневные расходы
+@@ -398,6 +414,8 @@ const PromotionAnalytics = () => {
+             dailyExpenses: uniqueDailyExpenses.slice(0, 5), // первые 5 дней для примера
+             total: campaign.total_money_spent
+           });
++        } else {
++          console.warn(`  ⚠️ Кампания ${campaignId} не найдена в campaignMap!`);
+         }
+       });
+
+@@ -605,6 +623,17 @@ const PromotionAnalytics = () => {
+   };
+
+   // Вычисляем общие метрики ОТ ВСЕХ КАМПАНИЙ за выбранный период (не от отфильтрованных)
++  console.log("🔍 АГРЕГАЦИЯ ИТОГОВЫХ МЕТРИК");
++  console.log("📊 Кампаний для агрегации:", campaignsData?.length || 0);
++  if (campaignsData && campaignsData.length > 0) {
++    console.log("📊 Примеры кампаний:");
++    campaignsData.slice(0, 3).forEach(c => {
++      console.log(`  - ${c.campaign_name}: ${c.total_money_spent.toFixed(2)} ₽`);
++    });
++    const sumTest = campaignsData.reduce((sum, c) => sum + c.total_money_spent, 0);
++    console.log("📊 Сумма по всем кампаниям (тест):", sumTest.toFixed(2), "₽");
++  }
++
+   const totalMetrics = campaignsData
+     ? campaignsData.reduce(
+         (acc, campaign) => {
+@@ -615,6 +644,8 @@ const PromotionAnalytics = () => {
+         { totalSpent: 0, totalRevenue: 0 }
+       )
+     : { totalSpent: 0, totalRevenue: 0 };
++
++  console.log("💰 ИТОГОВЫЕ МЕТРИКИ:", { totalSpent: totalMetrics.totalSpent.toFixed(2) + " ₽", totalRevenue: totalMetrics.totalRevenue.toFixed(2) + " ₽" });
+
+   const totalDRR = totalMetrics.totalRevenue > 0
+     ? (totalMetrics.totalSpent / totalMetrics.totalRevenue) * 100

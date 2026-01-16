@@ -8,7 +8,11 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node test-deduplication-logic.test.js",
+    "test:dedup": "node test-deduplication-logic.test.js",
+    "diagnostic": "node diagnostic-suite.mjs",
+    "check": "bash check-system.sh"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
