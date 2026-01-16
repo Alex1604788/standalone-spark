@@ -154,7 +154,7 @@ const PromotionAnalytics = () => {
     },
   });
 
-  // Загружаем данные по кампаниям используя SQL-функцию для агрегации
+  // Загружаем данные по кампаниям
   const { data: campaignsData, isLoading } = useQuery({
     queryKey: ["promotions-campaigns", marketplace?.id, dateRange],
     queryFn: async () => {
@@ -163,161 +163,333 @@ const PromotionAnalytics = () => {
         return [];
       }
 
-      console.log("🔍 Запрос агрегированных данных для marketplace:", marketplace.id);
+      console.log("🔍 Запрос данных для marketplace:", marketplace.id);
       console.log("📅 Период:", format(dateRange.start, "yyyy-MM-dd"), "-", format(dateRange.end, "yyyy-MM-dd"));
 
-      // Используем SQL-функцию для получения агрегированных данных по кампаниям
-      const { data: campaignsAggregated, error } = await supabase
-        .rpc("get_campaign_performance_aggregated", {
-          p_marketplace_id: marketplace.id,
-          p_start_date: format(dateRange.start, "yyyy-MM-dd"),
-          p_end_date: format(dateRange.end, "yyyy-MM-dd"),
-        });
+      // Сначала проверяем, есть ли вообще данные для этого marketplace
+      const { data: checkData, error: checkError } = await supabase
+        .from("ozon_performance_summary")
+        .select("marketplace_id, stat_date")
+        .eq("marketplace_id", marketplace.id)
+        .limit(1);
+      
+      console.log("🔍 Проверка наличия данных:", { checkData, checkError });
+
+      // Проверяем все marketplace_id в таблице для сравнения
+      const { data: allMarketplaces } = await supabase
+        .from("ozon_performance_summary")
+        .select("marketplace_id")
+        .limit(10);
+      console.log("🔍 Все marketplace_id в таблице (первые 10):", allMarketplaces?.map((m: any) => m.marketplace_id));
+      console.log("🔍 Ищем marketplace_id:", marketplace.id, "в списке:", allMarketplaces?.some((m: any) => m.marketplace_id === marketplace.id));
+
+      // Используем VIEW ozon_performance_summary для автоматического суммирования orders + orders_model и revenue + revenue_model
+      const { data: performanceData, error} = await supabase
+        .from("ozon_performance_summary")
+        .select(`
+          campaign_id,
+          campaign_name,
+          campaign_type,
+          sku,
+          offer_id,
+          money_spent,
+          views,
+          clicks,
+          add_to_cart,
+          add_to_cart_conversion,
+          favorites,
+          total_orders,
+          total_revenue,
+          ctr,
+          cpc,
+          conversion,
+          drr,
+          stat_date
+        `)
+        .eq("marketplace_id", marketplace.id)
+        .gte("stat_date", format(dateRange.start, "yyyy-MM-dd"))
+        .lte("stat_date", format(dateRange.end, "yyyy-MM-dd"))
+        .order("stat_date", { ascending: false });
 
       if (error) {
-        console.error("❌ Ошибка загрузки агрегированных данных:", error);
+        console.error("❌ Ошибка загрузки данных продвижений:", error);
         throw error;
       }
+      
+      console.log("✅ Загружено записей:", performanceData?.length || 0);
+      if (performanceData && performanceData.length > 0) {
+        console.log("📊 Пример первой записи:", performanceData[0]);
+        // Проверяем количество записей с NULL campaign_id
+        const nullCampaignCount = performanceData.filter((r: any) => !r.campaign_id || r.campaign_id === "").length;
+        const nullCampaignNameCount = performanceData.filter((r: any) => !r.campaign_name).length;
+        const nullSkuCount = performanceData.filter((r: any) => !r.sku || r.sku === "").length;
+        console.log("📊 Статистика NULL значений:", {
+          nullCampaignId: nullCampaignCount,
+          nullCampaignName: nullCampaignNameCount,
+          nullSku: nullSkuCount,
+          total: performanceData.length
+        });
+      }
 
-      console.log("✅ Загружено кампаний:", campaignsAggregated?.length || 0);
-
-      if (!campaignsAggregated || campaignsAggregated.length === 0) {
-        console.log("⚠️ Нет данных для marketplace:", marketplace.id, "за период:", format(dateRange.start, "yyyy-MM-dd"), "-", format(dateRange.end, "yyyy-MM-dd"));
+      if (!performanceData || performanceData.length === 0) {
+        console.log("⚠️ Нет данных в ozon_performance_summary для marketplace:", marketplace.id, "за период:", format(dateRange.start, "yyyy-MM-dd"), "-", format(dateRange.end, "yyyy-MM-dd"));
+        // Пробуем загрузить данные за больший период для проверки
+        const { data: checkData } = await supabase
+          .from("ozon_performance_summary")
+          .select("stat_date, marketplace_id")
+          .eq("marketplace_id", marketplace.id)
+          .order("stat_date", { ascending: false })
+          .limit(5);
+        if (checkData && checkData.length > 0) {
+          console.log("✅ Найдены данные в других периодах. Примеры дат:", checkData.map((d: any) => d.stat_date));
+        } else {
+          console.log("❌ Данных нет вообще для marketplace:", marketplace.id);
+          // Проверяем все marketplace_id в таблице
+          const { data: allMarketplaces } = await supabase
+            .from("ozon_performance_summary")
+            .select("marketplace_id")
+            .limit(10);
+          console.log("🔍 Примеры marketplace_id в таблице:", allMarketplaces?.map((m: any) => m.marketplace_id));
+        }
         return [];
       }
 
-      console.log("📊 Пример первой кампании:", campaignsAggregated[0]);
+      // =====================================================
+      // ИСПРАВЛЕНИЕ ДУБЛИРОВАНИЯ money_spent
+      // =====================================================
+      // Проблема: в OZON Performance API поле money_spent указывается на уровне кампании за день,
+      // а не отдельно для каждого товара. Если кампания продвигала 5 товаров в один день,
+      // то в базе будет 5 записей с ОДИНАКОВЫМ значением money_spent.
+      //
+      // Решение: Сначала дедуплицируем расходы по (campaign_id, stat_date),
+      // а остальные метрики (views, clicks, orders) суммируем по товарам как обычно.
+      // =====================================================
 
-      // Преобразуем агрегированные данные из SQL в формат CampaignData
+      // ШАГ 1: Находим УНИКАЛЬНЫЕ расходы по (campaign_id, stat_date)
+      const campaignDailyExpenses = new Map<string, Map<string, number>>(); // campaign_id -> date -> money_spent
+
+      performanceData.forEach((row: any) => {
+        const campaignId = (!row.campaign_id || row.campaign_id === "") ? "__NO_CAMPAIGN__" : String(row.campaign_id);
+        const date = row.stat_date;
+
+        if (!campaignDailyExpenses.has(campaignId)) {
+          campaignDailyExpenses.set(campaignId, new Map());
+        }
+
+        const dailyMap = campaignDailyExpenses.get(campaignId)!;
+        // Берем максимальное значение на всякий случай (они должны быть одинаковые)
+        dailyMap.set(date, Math.max(dailyMap.get(date) || 0, Number(row.money_spent || 0)));
+      });
+
+      // ШАГ 2: Группируем по кампаниям и товарам
       const campaignMap = new Map<string, CampaignData>();
 
-      for (const row of campaignsAggregated) {
-        const campaignId = row.campaign_id || "__NO_CAMPAIGN__";
+      performanceData.forEach((row: any) => {
+        // Обрабатываем NULL значения: группируем записи без campaign_id в отдельную категорию
+        let campaignId: string;
+        if (!row.campaign_id || row.campaign_id === "") {
+          campaignId = "__NO_CAMPAIGN__";
+        } else {
+          campaignId = String(row.campaign_id);
+        }
 
-        campaignMap.set(campaignId, {
-          campaign_id: row.campaign_id,
-          campaign_name: row.campaign_name || "Кампания без названия",
-          campaign_type: row.campaign_type,
-          total_money_spent: Number(row.total_money_spent || 0),
-          total_views: Number(row.total_views || 0),
-          total_clicks: Number(row.total_clicks || 0),
-          total_add_to_cart: Number(row.total_add_to_cart || 0),
-          total_favorites: Number(row.total_favorites || 0),
-          total_orders: Number(row.total_orders || 0),
-          total_revenue: Number(row.total_revenue || 0),
-          avg_ctr: Number(row.avg_ctr || 0),
-          avg_cpc: Number(row.avg_cpc || 0),
-          avg_add_to_cart_conversion: Number(row.avg_add_to_cart_conversion || 0),
-          avg_conversion: Number(row.avg_conversion || 0),
-          avg_drr: Number(row.avg_drr || 0),
-          date_range: {
-            min: row.min_date || format(dateRange.start, "yyyy-MM-dd"),
-            max: row.max_date || format(dateRange.end, "yyyy-MM-dd")
-          },
-          sku_count: Number(row.sku_count || 0),
-          products: [], // Будет загружено отдельно при раскрытии кампании
-        });
+        // Создаем кампанию если её еще нет
+        if (!campaignMap.has(campaignId)) {
+          campaignMap.set(campaignId, {
+            campaign_id: campaignId === "__NO_CAMPAIGN__" ? null : campaignId,
+            campaign_name: campaignId === "__NO_CAMPAIGN__"
+              ? "Без кампании"
+              : (row.campaign_name || `Кампания ${campaignId}`),
+            campaign_type: row.campaign_type,
+            total_money_spent: 0, // Заполним позже из campaignDailyExpenses
+            total_views: 0,
+            total_clicks: 0,
+            total_add_to_cart: 0,
+            total_favorites: 0,
+            total_orders: 0,
+            total_revenue: 0,
+            avg_ctr: 0,
+            avg_cpc: 0,
+            avg_add_to_cart_conversion: 0,
+            avg_conversion: 0,
+            avg_drr: 0,
+            date_range: { min: row.stat_date, max: row.stat_date },
+            sku_count: 0,
+            products: [],
+          });
+        }
+
+        // ✅ Суммируем ТОЛЬКО метрики (НЕ money_spent!)
+        const campaign = campaignMap.get(campaignId)!;
+        campaign.total_views += Number(row.views || 0);
+        campaign.total_clicks += Number(row.clicks || 0);
+        campaign.total_add_to_cart += Number(row.add_to_cart || 0);
+        campaign.total_favorites += Number(row.favorites || 0);
+        campaign.total_orders += Number(row.total_orders || 0);
+        campaign.total_revenue += Number(row.total_revenue || 0);
+
+        if (row.stat_date < campaign.date_range.min) {
+          campaign.date_range.min = row.stat_date;
+        }
+        if (row.stat_date > campaign.date_range.max) {
+          campaign.date_range.max = row.stat_date;
+        }
+
+        // Группируем по товарам ТОЛЬКО если есть SKU
+        if (!row.sku || row.sku === "") {
+          // Записи без SKU учтены в общих метриках кампании, но не показываются как отдельные товары
+          return;
+        }
+
+        const sku = row.sku;
+        let product = campaign.products.find((p) => p.sku === sku);
+        if (!product) {
+          product = {
+            sku,
+            offer_id: row.offer_id || null,
+            product_name: null, // Загрузим отдельно если нужно
+            product_image: null,
+            total_money_spent: 0,
+            total_views: 0,
+            total_clicks: 0,
+            total_add_to_cart: 0,
+            total_favorites: 0,
+            total_orders: 0,
+            total_revenue: 0,
+            avg_ctr: 0,
+            avg_cpc: 0,
+            avg_add_to_cart_conversion: 0,
+            avg_conversion: 0,
+            avg_drr: 0,
+            date_range: { min: row.stat_date, max: row.stat_date },
+            days_count: 0,
+          };
+          campaign.products.push(product);
+        }
+
+        // Для товаров суммируем метрики (money_spent добавим пропорционально позже)
+        product.total_views += Number(row.views || 0);
+        product.total_clicks += Number(row.clicks || 0);
+        product.total_add_to_cart += Number(row.add_to_cart || 0);
+        product.total_favorites += Number(row.favorites || 0);
+        product.total_orders += Number(row.total_orders || 0);
+        product.total_revenue += Number(row.total_revenue || 0);
+
+        if (row.stat_date < product.date_range.min) {
+          product.date_range.min = row.stat_date;
+        }
+        if (row.stat_date > product.date_range.max) {
+          product.date_range.max = row.stat_date;
+        }
+        product.days_count++;
+      });
+
+      // ШАГ 3: Добавляем правильные расходы кампаний из дедуплицированных данных
+      console.log("💰 Дедуплицированные расходы по кампаниям:");
+      campaignDailyExpenses.forEach((dailyMap, campaignId) => {
+        const campaign = campaignMap.get(campaignId);
+        if (campaign) {
+          // Суммируем уникальные дневные расходы
+          const uniqueDailyExpenses = Array.from(dailyMap.values());
+          campaign.total_money_spent = uniqueDailyExpenses.reduce((sum, val) => sum + val, 0);
+
+          console.log(`  - ${campaign.campaign_name}:`, {
+            days: dailyMap.size,
+            dailyExpenses: uniqueDailyExpenses.slice(0, 5), // первые 5 дней для примера
+            total: campaign.total_money_spent
+          });
+
+          // Распределяем расходы кампании между товарами пропорционально их кликам
+          const totalClicks = campaign.total_clicks;
+          if (totalClicks > 0) {
+            campaign.products.forEach((product) => {
+              product.total_money_spent = (product.total_clicks / totalClicks) * campaign.total_money_spent;
+            });
+          }
+        }
+      });
+
+      // Загружаем информацию о продуктах по SKU
+      const allSkus = Array.from(new Set(Array.from(campaignMap.values()).flatMap(c => c.products.map(p => p.sku))));
+      if (allSkus.length > 0) {
+        const { data: productsData } = await supabase
+          .from("products")
+          .select("id, name, image_url, sku, marketplace_id")
+          .eq("marketplace_id", marketplace.id)
+          .in("sku", allSkus);
+        
+        if (productsData) {
+          const productsMap = new Map(productsData.map(p => [p.sku, p]));
+          campaignMap.forEach((campaign) => {
+            campaign.products.forEach((product) => {
+              const productInfo = productsMap.get(product.sku);
+              if (productInfo) {
+                product.product_name = productInfo.name;
+                product.product_image = productInfo.image_url;
+              }
+            });
+          });
+        }
       }
 
-      console.log("✅ Обработано кампаний:", campaignMap.size);
-      console.log("💰 Примеры расходов по кампаниям:",
-        Array.from(campaignMap.values()).slice(0, 5).map(c => ({
-          name: c.campaign_name,
-          spent: c.total_money_spent,
-          products: c.sku_count
-        }))
+      // Вычисляем средние значения и обновляем счетчики
+      campaignMap.forEach((campaign) => {
+        campaign.sku_count = campaign.products.length;
+
+        if (campaign.total_views > 0) {
+          campaign.avg_ctr = (campaign.total_clicks / campaign.total_views) * 100;
+        }
+        if (campaign.total_clicks > 0) {
+          campaign.avg_cpc = campaign.total_money_spent / campaign.total_clicks;
+          campaign.avg_add_to_cart_conversion = (campaign.total_add_to_cart / campaign.total_clicks) * 100;
+          campaign.avg_conversion = (campaign.total_orders / campaign.total_clicks) * 100;
+        }
+        if (campaign.total_revenue > 0) {
+          campaign.avg_drr = (campaign.total_money_spent / campaign.total_revenue) * 100;
+        }
+
+        campaign.products.forEach((product) => {
+          if (product.total_views > 0) {
+            product.avg_ctr = (product.total_clicks / product.total_views) * 100;
+          }
+          if (product.total_clicks > 0) {
+            product.avg_cpc = product.total_money_spent / product.total_clicks;
+            product.avg_add_to_cart_conversion = (product.total_add_to_cart / product.total_clicks) * 100;
+            product.avg_conversion = (product.total_orders / product.total_clicks) * 100;
+          }
+          if (product.total_revenue > 0) {
+            product.avg_drr = (product.total_money_spent / product.total_revenue) * 100;
+          }
+        });
+      });
+
+      const campaigns = Array.from(campaignMap.values()).sort(
+        (a, b) => b.total_money_spent - a.total_money_spent
       );
 
-      // Возвращаем кампании (уже отсортированы по total_money_spent в SQL)
-      const campaigns = Array.from(campaignMap.values());
-
-      console.log("✅ Итого кампаний:", campaigns.length);
+      console.log("✅ Сгруппировано кампаний:", campaigns.length);
+      if (campaigns.length > 0) {
+        console.log("📊 Примеры кампаний:", campaigns.slice(0, 3).map(c => ({
+          id: c.campaign_id,
+          name: c.campaign_name,
+          products: c.products.length,
+          money: c.total_money_spent
+        })));
+      }
 
       return campaigns;
     },
     enabled: !!marketplace?.id,
   });
 
-  const toggleCampaign = async (campaignId: string) => {
+  const toggleCampaign = (campaignId: string) => {
     const newExpanded = new Set(expandedCampaigns);
-    const isExpanding = !newExpanded.has(campaignId);
-
     if (newExpanded.has(campaignId)) {
       newExpanded.delete(campaignId);
     } else {
       newExpanded.add(campaignId);
     }
     setExpandedCampaigns(newExpanded);
-
-    // Загружаем товары при раскрытии кампании
-    if (isExpanding && marketplace?.id) {
-      const campaign = campaignsData?.find(c => c.campaign_id === campaignId);
-      if (campaign && campaign.products.length === 0 && campaign.sku_count > 0) {
-        try {
-          console.log("🔍 Загрузка товаров для кампании:", campaignId);
-
-          const { data: productsData, error } = await supabase.rpc("get_product_performance_by_campaign", {
-            p_marketplace_id: marketplace.id,
-            p_campaign_id: campaignId,
-            p_start_date: format(dateRange.start, "yyyy-MM-dd"),
-            p_end_date: format(dateRange.end, "yyyy-MM-dd"),
-          });
-
-          if (error) {
-            console.error("❌ Ошибка загрузки товаров:", error);
-            return;
-          }
-
-          console.log("✅ Загружено товаров:", productsData?.length || 0);
-
-          if (productsData && productsData.length > 0) {
-            // Загружаем информацию о продуктах из таблицы products
-            const skus = productsData.map((p: any) => p.sku);
-            const { data: productInfo } = await supabase
-              .from("products")
-              .select("sku, name, image_url")
-              .eq("marketplace_id", marketplace.id)
-              .in("sku", skus);
-
-            const productInfoMap = new Map(productInfo?.map(p => [p.sku, p]) || []);
-
-            // Распределяем расходы пропорционально кликам
-            const totalClicks = productsData.reduce((sum: number, p: any) => sum + Number(p.total_clicks || 0), 0);
-
-            campaign.products = productsData.map((p: any) => {
-              const info = productInfoMap.get(p.sku);
-              const productClicks = Number(p.total_clicks || 0);
-              const productMoneySpent = totalClicks > 0
-                ? (productClicks / totalClicks) * campaign.total_money_spent
-                : 0;
-
-              return {
-                sku: p.sku,
-                offer_id: p.offer_id,
-                product_name: info?.name || null,
-                product_image: info?.image_url || null,
-                total_money_spent: productMoneySpent,
-                total_views: Number(p.total_views || 0),
-                total_clicks: Number(p.total_clicks || 0),
-                total_add_to_cart: Number(p.total_add_to_cart || 0),
-                total_favorites: Number(p.total_favorites || 0),
-                total_orders: Number(p.total_orders || 0),
-                total_revenue: Number(p.total_revenue || 0),
-                avg_ctr: Number(p.avg_ctr || 0),
-                avg_cpc: productClicks > 0 ? productMoneySpent / productClicks : 0,
-                avg_add_to_cart_conversion: Number(p.avg_add_to_cart_conversion || 0),
-                avg_conversion: Number(p.avg_conversion || 0),
-                avg_drr: Number(p.total_revenue) > 0 ? (productMoneySpent / Number(p.total_revenue)) * 100 : 0,
-                date_range: { min: p.min_date, max: p.max_date },
-                days_count: Number(p.days_count || 0),
-              };
-            });
-          }
-        } catch (error) {
-          console.error("❌ Ошибка при загрузке товаров:", error);
-        }
-      }
-    }
   };
 
   const toggleProduct = (key: string) => {
