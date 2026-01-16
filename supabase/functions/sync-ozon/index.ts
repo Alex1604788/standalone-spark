@@ -1,6 +1,6 @@
 /**
  * sync-ozon: Синхронизирует отзывы и вопросы из Ozon API
- * VERSION: 2026-01-16-v1 - Add support for date filtering via days_back parameter
+ * VERSION: 2026-01-16-v2 - Fix duplicate replies: don't reset is_answered if published reply exists
  *
  * ВАЖНО: Товары должны быть синхронизированы ЗАРАНЕЕ через sync-products!
  * Если товар не найден - отзыв/вопрос будет пропущен с warning.
@@ -10,6 +10,11 @@
  * - days_back: (опционально) Количество дней назад для фильтрации данных.
  *              Если указано, загружаются только данные за последние N дней.
  *              Если не указано, загружаются все данные.
+ *
+ * ИСПРАВЛЕНО:
+ * - Не сбрасываем is_answered в false для отзывов/вопросов с published replies,
+ *   даже если OZON API еще не показывает comments_amount > 0
+ * - Это предотвращает повторную генерацию и публикацию ответов
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.58.0";
 
@@ -228,6 +233,29 @@ Deno.serve(async (req) => {
       errors: [] as string[],
     };
 
+    // 🔒 ЗАЩИТА: Получаем external_id всех отзывов с published replies
+    // Это нужно чтобы не сбрасывать is_answered в false после публикации
+    const { data: publishedReplies } = await supabase
+      .from("replies")
+      .select("review_id")
+      .eq("status", "published")
+      .not("review_id", "is", null);
+
+    const publishedReviewIds = new Set(
+      publishedReplies?.map(r => r.review_id).filter(Boolean) || []
+    );
+
+    const { data: reviewsWithPublished } = await supabase
+      .from("reviews")
+      .select("external_id")
+      .eq("marketplace_id", marketplace_id)
+      .in("id", Array.from(publishedReviewIds));
+
+    const publishedReviewsSet = new Set(
+      reviewsWithPublished?.map(r => r.external_id) || []
+    );
+    console.log(`[sync-ozon] Found ${publishedReviewsSet.size} reviews with published replies`);
+
     // Sync reviews
     try {
       console.log("Syncing reviews...");
@@ -286,6 +314,11 @@ Deno.serve(async (req) => {
               continue;
             }
 
+            // 🔒 ЗАЩИТА: Если у отзыва есть published reply в БД, не сбрасываем is_answered в false
+            // Это предотвращает повторную генерацию ответов для уже опубликованных отзывов
+            const hasPublishedReply = publishedReviewsSet.has(review.id);
+            const isAnswered = hasPublishedReply || review.comments_amount > 0;
+
             const { error: reviewError } = await supabase.from("reviews").upsert(
               {
                 external_id: review.id,
@@ -296,7 +329,7 @@ Deno.serve(async (req) => {
                 disadvantages: review.disadvantages,
                 rating: review.rating,
                 review_date: review.published_at,
-                is_answered: review.comments_amount > 0,
+                is_answered: isAnswered,
               },
               {
                 onConflict: "external_id",
@@ -321,6 +354,28 @@ Deno.serve(async (req) => {
       const errorMessage = error instanceof Error ? error.message : String(error);
       syncStats.errors.push(`Reviews: ${errorMessage}`);
     }
+
+    // 🔒 ЗАЩИТА: Получаем external_id всех вопросов с published replies
+    const { data: publishedQuestionReplies } = await supabase
+      .from("replies")
+      .select("question_id")
+      .eq("status", "published")
+      .not("question_id", "is", null);
+
+    const publishedQuestionIds = new Set(
+      publishedQuestionReplies?.map(r => r.question_id).filter(Boolean) || []
+    );
+
+    const { data: questionsWithPublished } = await supabase
+      .from("questions")
+      .select("external_id")
+      .eq("marketplace_id", marketplace_id)
+      .in("id", Array.from(publishedQuestionIds));
+
+    const publishedQuestionsSet = new Set(
+      questionsWithPublished?.map(q => q.external_id) || []
+    );
+    console.log(`[sync-ozon] Found ${publishedQuestionsSet.size} questions with published replies`);
 
     // Sync questions
     try {
@@ -375,6 +430,10 @@ Deno.serve(async (req) => {
               continue;
             }
 
+            // 🔒 ЗАЩИТА: Если у вопроса есть published reply в БД, не сбрасываем is_answered в false
+            const hasPublishedQuestionReply = publishedQuestionsSet.has(question.id);
+            const isQuestionAnswered = hasPublishedQuestionReply || question.answers_count > 0;
+
             const { error: questionError } = await supabase.from("questions").upsert(
               {
                 external_id: question.id,
@@ -382,7 +441,7 @@ Deno.serve(async (req) => {
                 author_name: question.author_name,
                 text: question.text,
                 question_date: question.published_at,
-                is_answered: question.answers_count > 0,
+                is_answered: isQuestionAnswered,
               },
               {
                 onConflict: "external_id",
