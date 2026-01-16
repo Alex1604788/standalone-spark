@@ -215,7 +215,7 @@ const Reviews = () => {
     }
   };
 
-  // ✅ VERSION: 2026-01-15-v1 - Принудительная синхронизация отзывов и вопросов из OZON
+  // ✅ VERSION: 2026-01-16-v2 - Принудительная синхронизация отзывов и вопросов из OZON (за 7 дней)
   const triggerSync = async () => {
     setIsSyncing(true);
     try {
@@ -260,7 +260,8 @@ const Reviews = () => {
 
         const { data, error } = await supabase.functions.invoke("sync-ozon", {
           body: {
-            marketplace_id: mp.id
+            marketplace_id: mp.id,
+            days_back: 7  // Синхронизация за последние 7 дней
           }
         });
 

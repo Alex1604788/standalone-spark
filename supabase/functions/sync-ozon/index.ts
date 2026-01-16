@@ -1,8 +1,15 @@
 /**
  * sync-ozon: Синхронизирует отзывы и вопросы из Ozon API
- * 
+ * VERSION: 2026-01-16-v1 - Add support for date filtering via days_back parameter
+ *
  * ВАЖНО: Товары должны быть синхронизированы ЗАРАНЕЕ через sync-products!
  * Если товар не найден - отзыв/вопрос будет пропущен с warning.
+ *
+ * Параметры:
+ * - marketplace_id: ID маркетплейса
+ * - days_back: (опционально) Количество дней назад для фильтрации данных.
+ *              Если указано, загружаются только данные за последние N дней.
+ *              Если не указано, загружаются все данные.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.58.0";
 
@@ -47,7 +54,7 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { marketplace_id, action, clientId: providedClientId, apiKey: providedApiKey } = await req.json();
+    const { marketplace_id, action, clientId: providedClientId, apiKey: providedApiKey, days_back } = await req.json();
 
     // Verification mode - check API credentials
     if (action === "verify") {
@@ -203,6 +210,17 @@ Deno.serve(async (req) => {
       "Content-Type": "application/json",
     };
 
+    // Calculate since date if days_back is provided
+    let sinceDate: string | null = null;
+    if (days_back && days_back > 0) {
+      const date = new Date();
+      date.setDate(date.getDate() - days_back);
+      sinceDate = date.toISOString();
+      console.log(`Filtering data since: ${sinceDate} (${days_back} days back)`);
+    } else {
+      console.log("No date filter - syncing all data");
+    }
+
     let syncStats = {
       reviews_synced: 0,
       questions_synced: 0,
@@ -218,15 +236,22 @@ Deno.serve(async (req) => {
       let prevLastId = null as string | null;
 
       while (hasNext) {
+        const requestBody: any = {
+          last_id: lastId,
+          limit: 100,
+          sort_dir: "DESC",
+          status: "ALL",
+        };
+
+        // Add since filter if provided
+        if (sinceDate) {
+          requestBody.filter = { since: sinceDate };
+        }
+
         const reviewsResponse = await fetch("https://api-seller.ozon.ru/v1/review/list", {
           method: "POST",
           headers,
-          body: JSON.stringify({
-            last_id: lastId,
-            limit: 100,
-            sort_dir: "DESC",
-            status: "ALL",
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!reviewsResponse.ok) {
@@ -305,11 +330,18 @@ Deno.serve(async (req) => {
       let prevLastId = null as string | null;
 
       while (hasMore) {
+        const questionFilter: any = { status: "ALL" };
+
+        // Add since filter if provided
+        if (sinceDate) {
+          questionFilter.since = sinceDate;
+        }
+
         const questionsResponse = await fetch("https://api-seller.ozon.ru/v1/question/list", {
           method: "POST",
           headers,
           body: JSON.stringify({
-            filter: { status: "ALL" },
+            filter: questionFilter,
             last_id: lastId,
           }),
         });
