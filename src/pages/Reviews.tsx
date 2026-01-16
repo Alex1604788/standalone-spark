@@ -99,14 +99,63 @@ const Reviews = () => {
       }
 
       console.log("[Reviews] Triggering auto-generate drafts for", marketplaces.length, "marketplaces");
-      
+
       toast({
         title: "Запуск генерации...",
         description: "Создаём ответы на неотвеченные отзывы согласно настройкам",
       });
 
+      // ✅ VERSION: 2026-01-15-v2 - Переводим drafted и failed ответы в scheduled
+      let totalReactivated = 0;
+      console.log("[Reviews] Processing drafted/failed replies for", marketplaces.length, "marketplaces");
+
+      for (const mp of marketplaces) {
+        // Находим все drafted и failed ответы для этого маркетплейса
+        const { data: repliesNeedingResend, error: repliesError } = await supabase
+          .from("replies")
+          .select("id, status")
+          .eq("marketplace_id", mp.id)
+          .in("status", ["drafted", "failed"])
+          .is("deleted_at", null);
+
+        if (repliesError) {
+          console.error("[Reviews] Error fetching drafted/failed replies:", repliesError);
+          continue;
+        }
+
+        if (repliesNeedingResend && repliesNeedingResend.length > 0) {
+          console.log(`[Reviews] Found ${repliesNeedingResend.length} drafted/failed replies to reactivate for marketplace ${mp.id}`);
+
+          // Переводим все drafted и failed в scheduled
+          const { error: updateError } = await supabase
+            .from("replies")
+            .update({
+              status: "scheduled",
+              scheduled_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq("marketplace_id", mp.id)
+            .in("status", ["drafted", "failed"])
+            .is("deleted_at", null);
+
+          if (updateError) {
+            console.error("[Reviews] Error updating replies to scheduled:", updateError);
+          } else {
+            totalReactivated += repliesNeedingResend.length;
+            console.log(`[Reviews] Successfully reactivated ${repliesNeedingResend.length} replies`);
+          }
+        }
+      }
+
+      if (totalReactivated > 0) {
+        toast({
+          title: "Ответы переведены в отправку",
+          description: `${totalReactivated} черновиков и ошибочных ответов отправлено в очередь`,
+        });
+      }
+
       let totalGenerated = 0;
-      let totalScheduled = 0;
+      let totalScheduled = totalReactivated; // Начинаем с уже реактивированных
       let totalDrafted = 0;
 
       // Запускаем генерацию для каждого маркетплейса
