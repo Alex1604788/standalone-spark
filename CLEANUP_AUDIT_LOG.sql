@@ -1,7 +1,7 @@
 -- =====================================================
 -- ОЧИСТКА AUDIT_LOG СТАРШЕ 7 ДНЕЙ
 -- =====================================================
--- Удаляет логи батчами по 10k записей
+-- Удаляет логи батчами по 2k записей (10 батчей = 20k за раз)
 
 DO $$
 DECLARE
@@ -10,7 +10,7 @@ DECLARE
   v_rows_deleted INT;
   v_cutoff_date TIMESTAMPTZ;
   v_start_time TIMESTAMP;
-  v_max_batches INT := 50; -- Максимум 50 батчей за раз = 250k записей
+  v_max_batches INT := 10; -- Максимум 10 батчей за раз = 20k записей
 BEGIN
   v_start_time := clock_timestamp();
   v_cutoff_date := NOW() - INTERVAL '7 days';
@@ -29,7 +29,7 @@ BEGIN
       FROM public.audit_log
       WHERE created_at < v_cutoff_date
       ORDER BY created_at ASC
-      LIMIT 5000
+      LIMIT 2000
     );
 
     GET DIAGNOSTICS v_rows_deleted = ROW_COUNT;
@@ -37,8 +37,8 @@ BEGIN
 
     v_deleted_total := v_deleted_total + v_rows_deleted;
 
-    -- Показываем прогресс каждые 10 батчей
-    IF v_batch_num % 10 = 0 THEN
+    -- Показываем прогресс каждые 5 батчей
+    IF v_batch_num % 5 = 0 THEN
       RAISE NOTICE '   Батч %: удалено % | Всего: % | Время: %s',
         v_batch_num, v_rows_deleted, v_deleted_total,
         ROUND(EXTRACT(EPOCH FROM (clock_timestamp() - v_start_time)), 1);
@@ -57,10 +57,6 @@ BEGIN
   IF v_batch_num >= v_max_batches THEN
     RAISE NOTICE '⚠️  Достигнут лимит батчей. Запустите скрипт ещё раз для продолжения.';
   END IF;
-
-  -- ANALYZE для обновления статистики
-  EXECUTE 'ANALYZE public.audit_log';
-  RAISE NOTICE '✅ ANALYZE выполнен';
 END $$;
 
 -- Показываем результат
