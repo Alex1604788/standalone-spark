@@ -10,6 +10,7 @@ DECLARE
   v_rows_deleted INT;
   v_cutoff_date TIMESTAMPTZ;
   v_start_time TIMESTAMP;
+  v_max_batches INT := 50; -- Максимум 50 батчей за раз = 250k записей
 BEGIN
   v_start_time := clock_timestamp();
   v_cutoff_date := NOW() - INTERVAL '7 days';
@@ -28,7 +29,7 @@ BEGIN
       FROM public.audit_log
       WHERE created_at < v_cutoff_date
       ORDER BY created_at ASC
-      LIMIT 10000
+      LIMIT 5000
     );
 
     GET DIAGNOSTICS v_rows_deleted = ROW_COUNT;
@@ -43,12 +44,19 @@ BEGIN
         ROUND(EXTRACT(EPOCH FROM (clock_timestamp() - v_start_time)), 1);
     END IF;
 
-    PERFORM pg_sleep(0.1);
+    PERFORM pg_sleep(0.2);
+
+    -- Ограничиваем количество батчей за один запуск
+    EXIT WHEN v_batch_num >= v_max_batches;
   END LOOP;
 
   RAISE NOTICE '';
   RAISE NOTICE '✅ УДАЛЕНО: % записей за % батчей',
     v_deleted_total, v_batch_num;
+
+  IF v_batch_num >= v_max_batches THEN
+    RAISE NOTICE '⚠️  Достигнут лимит батчей. Запустите скрипт ещё раз для продолжения.';
+  END IF;
 
   -- ANALYZE для обновления статистики
   EXECUTE 'ANALYZE public.audit_log';
