@@ -220,7 +220,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'audit_log') THEN
     SELECT COUNT(*) INTO v_count
     FROM public.audit_log
-    WHERE timestamp < NOW() - INTERVAL '180 days';
+    WHERE created_at < NOW() - INTERVAL '180 days';
     RAISE NOTICE '   audit_log (>180 дней): % записей', v_count;
   END IF;
 
