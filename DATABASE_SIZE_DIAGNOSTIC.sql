@@ -143,18 +143,6 @@ SELECT
 FROM import_logs
 UNION ALL
 SELECT
-  'chats' as table_name,
-  COUNT(*) as row_count,
-  pg_size_pretty(pg_total_relation_size('public.chats')) as total_size
-FROM chats
-UNION ALL
-SELECT
-  'chat_messages' as table_name,
-  COUNT(*) as row_count,
-  pg_size_pretty(pg_total_relation_size('public.chat_messages')) as total_size
-FROM chat_messages
-UNION ALL
-SELECT
   'ozon_sync_history' as table_name,
   COUNT(*) as row_count,
   pg_size_pretty(pg_total_relation_size('public.ozon_sync_history')) as total_size
@@ -198,16 +186,16 @@ ORDER BY row_count DESC;
 SELECT
   'reviews - дубликаты' as check_name,
   COUNT(*) as total_reviews,
-  COUNT(DISTINCT (marketplace_id, review_id)) as unique_reviews,
-  COUNT(*) - COUNT(DISTINCT (marketplace_id, review_id)) as duplicates
+  COUNT(DISTINCT (product_id, external_id)) as unique_reviews,
+  COUNT(*) - COUNT(DISTINCT (product_id, external_id)) as duplicates
 FROM reviews;
 
 -- Дубликаты в products
 SELECT
   'products - дубликаты' as check_name,
   COUNT(*) as total_products,
-  COUNT(DISTINCT (marketplace_id, sku)) as unique_products,
-  COUNT(*) - COUNT(DISTINCT (marketplace_id, sku)) as duplicates
+  COUNT(DISTINCT (marketplace_id, external_id)) as unique_products,
+  COUNT(*) - COUNT(DISTINCT (marketplace_id, external_id)) as duplicates
 FROM products;
 
 -- Дубликаты в ozon_performance_daily
@@ -323,36 +311,24 @@ ORDER BY pg_total_relation_size(c.reltoastrelid) DESC;
 SELECT
   'reviews - топ 10 самых длинных текстов' as category,
   id,
-  LENGTH(review_text) as text_length,
-  pg_size_pretty(LENGTH(review_text)) as text_size,
+  LENGTH(text) as text_length,
+  pg_size_pretty(LENGTH(text)) as text_size,
   created_at
 FROM reviews
-WHERE review_text IS NOT NULL
-ORDER BY LENGTH(review_text) DESC
+WHERE text IS NOT NULL
+ORDER BY LENGTH(text) DESC
 LIMIT 10;
 
 -- Самые большие reply texts
 SELECT
   'replies - топ 10 самых длинных текстов' as category,
   id,
-  LENGTH(reply_text) as text_length,
-  pg_size_pretty(LENGTH(reply_text)) as text_size,
+  LENGTH(content) as text_length,
+  pg_size_pretty(LENGTH(content)) as text_size,
   created_at
 FROM replies
-WHERE reply_text IS NOT NULL
-ORDER BY LENGTH(reply_text) DESC
-LIMIT 10;
-
--- Самые большие chat messages
-SELECT
-  'chat_messages - топ 10 самых длинных сообщений' as category,
-  id,
-  LENGTH(message) as message_length,
-  pg_size_pretty(LENGTH(message)) as message_size,
-  created_at
-FROM chat_messages
-WHERE message IS NOT NULL
-ORDER BY LENGTH(message) DESC
+WHERE content IS NOT NULL
+ORDER BY LENGTH(content) DESC
 LIMIT 10;
 
 -- ШАГ 10: Dead tuples (неудаленные старые версии записей)
@@ -396,19 +372,6 @@ SELECT
   ) as estimated_size
 FROM ozon_performance_daily
 GROUP BY DATE_TRUNC('month', stat_date)
-ORDER BY month DESC
-LIMIT 12;
-
--- chat_messages по месяцам
-SELECT
-  'chat_messages' as table_name,
-  DATE_TRUNC('month', created_at) as month,
-  COUNT(*) as records,
-  pg_size_pretty(
-    COUNT(*) * (SELECT pg_total_relation_size('public.chat_messages') / NULLIF(COUNT(*), 0) FROM chat_messages)
-  ) as estimated_size
-FROM chat_messages
-GROUP BY DATE_TRUNC('month', created_at)
 ORDER BY month DESC
 LIMIT 12;
 
