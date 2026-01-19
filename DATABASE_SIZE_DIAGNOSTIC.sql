@@ -285,7 +285,7 @@ SELECT
     COUNT(*) * (SELECT pg_total_relation_size('public.ozon_sync_history') / NULLIF(COUNT(*), 0) FROM ozon_sync_history)
   ) as estimated_size
 FROM ozon_sync_history
-WHERE synced_at < NOW() - INTERVAL '90 days';
+WHERE started_at < NOW() - INTERVAL '90 days';
 
 -- ШАГ 8: Анализ TOAST (для больших текстовых полей)
 -- =====================================================

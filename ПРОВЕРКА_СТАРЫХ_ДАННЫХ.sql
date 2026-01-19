@@ -42,4 +42,4 @@ SELECT
   COUNT(*) as old_records,
   pg_size_pretty(pg_total_relation_size('public.ozon_sync_history')) as table_total_size
 FROM ozon_sync_history
-WHERE synced_at < NOW() - INTERVAL '90 days';
+WHERE started_at < NOW() - INTERVAL '90 days';

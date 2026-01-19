@@ -80,7 +80,7 @@ SELECT
   'ozon_sync_history (>90 дней)' as category,
   COUNT(*) as old_records
 FROM ozon_sync_history
-WHERE synced_at < NOW() - INTERVAL '90 days';
+WHERE started_at < NOW() - INTERVAL '90 days';
 
 -- 6. DEAD TUPLES (требуется VACUUM)
 SELECT
