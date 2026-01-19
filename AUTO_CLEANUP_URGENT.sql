@@ -52,15 +52,19 @@ BEGIN
 END;
 $$;
 
--- Удаляем старые cron jobs если есть
+-- Удаляем старые cron jobs (игнорируем ошибки если не существуют)
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'cleanup-audit-log-urgent') THEN
+  BEGIN
     PERFORM cron.unschedule('cleanup-audit-log-urgent');
-  END IF;
-  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'cleanup-audit-log-hourly') THEN
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+  BEGIN
     PERFORM cron.unschedule('cleanup-audit-log-hourly');
-  END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
 END $$;
 
 -- Создаём cron job: КАЖДУЮ МИНУТУ
@@ -72,14 +76,11 @@ SELECT cron.schedule(
   $$SELECT public.cleanup_audit_log_urgent();$$
 );
 
--- Проверка
-SELECT
-  jobname,
-  schedule,
-  active,
-  jobid
+-- Проверка (показываем последний созданный job)
+SELECT *
 FROM cron.job
-WHERE jobname = 'cleanup-audit-log-urgent';
+ORDER BY jobid DESC
+LIMIT 1;
 
 -- Показываем текущее состояние
 SELECT
@@ -99,7 +100,6 @@ FROM public.audit_log;
 --
 -- ПРОВЕРИТЬ ЧТО РАБОТАЕТ (через минуту):
 -- SELECT * FROM cron.job_run_details
--- WHERE jobname = 'cleanup-audit-log-urgent'
 -- ORDER BY start_time DESC LIMIT 5;
 --
 -- КОГДА БАЗА ОЧИСТИТСЯ:
