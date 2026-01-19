@@ -245,7 +245,7 @@ SELECT
     COUNT(*) * (SELECT pg_total_relation_size('public.audit_log') / NULLIF(COUNT(*), 0) FROM audit_log)
   ) as estimated_size
 FROM audit_log
-WHERE timestamp < NOW() - INTERVAL '180 days';
+WHERE created_at < NOW() - INTERVAL '180 days';
 
 -- Старые consent_logs
 SELECT
