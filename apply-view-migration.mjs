@@ -15,7 +15,7 @@ async function applyViewMigration() {
   try {
     // Читаем SQL из файла миграции
     console.log('\n1️⃣ Чтение файла миграции...');
-    const migrationSQL = readFileSync('./supabase/migrations/20260112000000_create_ozon_performance_summary_view.sql', 'utf8');
+    const migrationSQL = readFileSync('./supabase/migrations/20260115000000_create_ozon_performance_summary_view.sql', 'utf8');
     console.log('✅ Файл миграции прочитан');
 
     // Выполняем SQL
