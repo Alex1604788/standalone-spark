@@ -275,7 +275,7 @@ SELECT
     COUNT(*) * (SELECT pg_total_relation_size('public.import_logs') / NULLIF(COUNT(*), 0) FROM import_logs)
   ) as estimated_size
 FROM import_logs
-WHERE imported_at < NOW() - INTERVAL '90 days';
+WHERE created_at < NOW() - INTERVAL '90 days';
 
 -- Старые ozon_sync_history
 SELECT

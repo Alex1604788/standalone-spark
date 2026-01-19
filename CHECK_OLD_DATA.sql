@@ -32,7 +32,7 @@ SELECT
   COUNT(*) as old_records,
   pg_size_pretty(pg_total_relation_size('public.import_logs')) as table_total_size
 FROM import_logs
-WHERE imported_at < NOW() - INTERVAL '90 days';
+WHERE created_at < NOW() - INTERVAL '90 days';
 
 -- Старые ozon_sync_history (>90 дней)
 SELECT
