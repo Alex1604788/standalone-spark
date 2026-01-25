@@ -1,8 +1,20 @@
 /**
  * sync-ozon: Синхронизирует отзывы и вопросы из Ozon API
- * 
+ * VERSION: 2026-01-16-v2 - Fix duplicate replies: don't reset is_answered if published reply exists
+ *
  * ВАЖНО: Товары должны быть синхронизированы ЗАРАНЕЕ через sync-products!
  * Если товар не найден - отзыв/вопрос будет пропущен с warning.
+ *
+ * Параметры:
+ * - marketplace_id: ID маркетплейса
+ * - days_back: (опционально) Количество дней назад для фильтрации данных.
+ *              Если указано, загружаются только данные за последние N дней.
+ *              Если не указано, загружаются все данные.
+ *
+ * ИСПРАВЛЕНО:
+ * - Не сбрасываем is_answered в false для отзывов/вопросов с published replies,
+ *   даже если OZON API еще не показывает comments_amount > 0
+ * - Это предотвращает повторную генерацию и публикацию ответов
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.58.0";
 
@@ -47,7 +59,7 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { marketplace_id, action, clientId: providedClientId, apiKey: providedApiKey } = await req.json();
+    const { marketplace_id, action, clientId: providedClientId, apiKey: providedApiKey, days_back } = await req.json();
 
     // Verification mode - check API credentials
     if (action === "verify") {
@@ -169,32 +181,63 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (!marketplace.api_key_encrypted) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "API key not configured for this marketplace",
-        }),
-        { status: 400, headers: corsHeaders },
-      );
+    // Try to get credentials from multiple sources
+    let clientId: string | null = null;
+    let apiKey: string | null = null;
+
+    // 1. Try ozon_credentials table first (primary source)
+    const { data: ozonCreds } = await supabase
+      .from("ozon_credentials")
+      .select("client_id, api_key")
+      .eq("marketplace_id", marketplace_id)
+      .eq("status", "active")
+      .maybeSingle();
+
+    if (ozonCreds?.client_id && ozonCreds?.api_key) {
+      clientId = ozonCreds.client_id;
+      apiKey = ozonCreds.api_key;
+      console.log("[sync-ozon] Using credentials from ozon_credentials table");
     }
 
-    const apiKeyEncrypted = String(marketplace.api_key_encrypted);
-
-    if (!apiKeyEncrypted.includes(":")) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Invalid API key format. Expected format: ClientId:ApiKey",
-        }),
-        { status: 400, headers: corsHeaders },
-      );
-    }
-
-    const [clientId, apiKey] = apiKeyEncrypted.split(":");
-
+    // 2. If not found, try marketplace_api_credentials table
     if (!clientId || !apiKey) {
-      throw new Error("Invalid API key format. Expected: ClientId:ApiKey");
+      const { data: apiCreds } = await supabase
+        .from("marketplace_api_credentials")
+        .select("client_id, client_secret")
+        .eq("marketplace_id", marketplace_id)
+        .eq("api_type", "seller")
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (apiCreds?.client_id && apiCreds?.client_secret) {
+        clientId = apiCreds.client_id;
+        apiKey = apiCreds.client_secret;
+        console.log("[sync-ozon] Using credentials from marketplace_api_credentials table");
+      }
+    }
+
+    // 3. Fallback to api_key_encrypted field in marketplaces table
+    if (!clientId || !apiKey) {
+      if (marketplace.api_key_encrypted) {
+        const apiKeyEncrypted = String(marketplace.api_key_encrypted);
+        if (apiKeyEncrypted.includes(":")) {
+          const parts = apiKeyEncrypted.split(":");
+          clientId = parts[0];
+          apiKey = parts[1];
+          console.log("[sync-ozon] Using credentials from marketplaces.api_key_encrypted");
+        }
+      }
+    }
+
+    // If still no credentials found, return error
+    if (!clientId || !apiKey) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "API key not configured for this marketplace. Please add Ozon API credentials in settings.",
+        }),
+        { status: 400, headers: corsHeaders },
+      );
     }
 
     const headers = {
@@ -203,12 +246,46 @@ Deno.serve(async (req) => {
       "Content-Type": "application/json",
     };
 
+    // Calculate since date if days_back is provided
+    let sinceDate: string | null = null;
+    if (days_back && days_back > 0) {
+      const date = new Date();
+      date.setDate(date.getDate() - days_back);
+      sinceDate = date.toISOString();
+      console.log(`Filtering data since: ${sinceDate} (${days_back} days back)`);
+    } else {
+      console.log("No date filter - syncing all data");
+    }
+
     let syncStats = {
       reviews_synced: 0,
       questions_synced: 0,
       products_synced: 0,
       errors: [] as string[],
     };
+
+    // 🔒 ЗАЩИТА: Получаем external_id всех отзывов с published replies
+    // Это нужно чтобы не сбрасывать is_answered в false после публикации
+    const { data: publishedReplies } = await supabase
+      .from("replies")
+      .select("review_id")
+      .eq("status", "published")
+      .not("review_id", "is", null);
+
+    const publishedReviewIds = new Set(
+      publishedReplies?.map(r => r.review_id).filter(Boolean) || []
+    );
+
+    const { data: reviewsWithPublished } = await supabase
+      .from("reviews")
+      .select("external_id")
+      .eq("marketplace_id", marketplace_id)
+      .in("id", Array.from(publishedReviewIds));
+
+    const publishedReviewsSet = new Set(
+      reviewsWithPublished?.map(r => r.external_id) || []
+    );
+    console.log(`[sync-ozon] Found ${publishedReviewsSet.size} reviews with published replies`);
 
     // Sync reviews
     try {
@@ -218,15 +295,22 @@ Deno.serve(async (req) => {
       let prevLastId = null as string | null;
 
       while (hasNext) {
+        const requestBody: any = {
+          last_id: lastId,
+          limit: 100,
+          sort_dir: "DESC",
+          status: "ALL",
+        };
+
+        // Add since filter if provided
+        if (sinceDate) {
+          requestBody.filter = { since: sinceDate };
+        }
+
         const reviewsResponse = await fetch("https://api-seller.ozon.ru/v1/review/list", {
           method: "POST",
           headers,
-          body: JSON.stringify({
-            last_id: lastId,
-            limit: 100,
-            sort_dir: "DESC",
-            status: "ALL",
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!reviewsResponse.ok) {
@@ -261,6 +345,11 @@ Deno.serve(async (req) => {
               continue;
             }
 
+            // 🔒 ЗАЩИТА: Если у отзыва есть published reply в БД, не сбрасываем is_answered в false
+            // Это предотвращает повторную генерацию ответов для уже опубликованных отзывов
+            const hasPublishedReply = publishedReviewsSet.has(review.id);
+            const isAnswered = hasPublishedReply || review.comments_amount > 0;
+
             const { error: reviewError } = await supabase.from("reviews").upsert(
               {
                 external_id: review.id,
@@ -271,7 +360,7 @@ Deno.serve(async (req) => {
                 disadvantages: review.disadvantages,
                 rating: review.rating,
                 review_date: review.published_at,
-                is_answered: review.comments_amount > 0,
+                is_answered: isAnswered,
               },
               {
                 onConflict: "external_id",
@@ -297,6 +386,28 @@ Deno.serve(async (req) => {
       syncStats.errors.push(`Reviews: ${errorMessage}`);
     }
 
+    // 🔒 ЗАЩИТА: Получаем external_id всех вопросов с published replies
+    const { data: publishedQuestionReplies } = await supabase
+      .from("replies")
+      .select("question_id")
+      .eq("status", "published")
+      .not("question_id", "is", null);
+
+    const publishedQuestionIds = new Set(
+      publishedQuestionReplies?.map(r => r.question_id).filter(Boolean) || []
+    );
+
+    const { data: questionsWithPublished } = await supabase
+      .from("questions")
+      .select("external_id")
+      .eq("marketplace_id", marketplace_id)
+      .in("id", Array.from(publishedQuestionIds));
+
+    const publishedQuestionsSet = new Set(
+      questionsWithPublished?.map(q => q.external_id) || []
+    );
+    console.log(`[sync-ozon] Found ${publishedQuestionsSet.size} questions with published replies`);
+
     // Sync questions
     try {
       console.log("Syncing questions...");
@@ -305,11 +416,18 @@ Deno.serve(async (req) => {
       let prevLastId = null as string | null;
 
       while (hasMore) {
+        const questionFilter: any = { status: "ALL" };
+
+        // Add since filter if provided
+        if (sinceDate) {
+          questionFilter.since = sinceDate;
+        }
+
         const questionsResponse = await fetch("https://api-seller.ozon.ru/v1/question/list", {
           method: "POST",
           headers,
           body: JSON.stringify({
-            filter: { status: "ALL" },
+            filter: questionFilter,
             last_id: lastId,
           }),
         });
@@ -343,6 +461,10 @@ Deno.serve(async (req) => {
               continue;
             }
 
+            // 🔒 ЗАЩИТА: Если у вопроса есть published reply в БД, не сбрасываем is_answered в false
+            const hasPublishedQuestionReply = publishedQuestionsSet.has(question.id);
+            const isQuestionAnswered = hasPublishedQuestionReply || question.answers_count > 0;
+
             const { error: questionError } = await supabase.from("questions").upsert(
               {
                 external_id: question.id,
@@ -350,7 +472,7 @@ Deno.serve(async (req) => {
                 author_name: question.author_name,
                 text: question.text,
                 question_date: question.published_at,
-                is_answered: question.answers_count > 0,
+                is_answered: isQuestionAnswered,
               },
               {
                 onConflict: "external_id",
