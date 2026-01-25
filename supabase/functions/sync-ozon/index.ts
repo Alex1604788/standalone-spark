@@ -1,6 +1,6 @@
 /**
  * sync-ozon: Синхронизирует отзывы и вопросы из Ozon API
- * VERSION: 2026-01-25-v5
+ * VERSION: 2026-01-25-v6
  *
  * ВАЖНО: Товары должны быть синхронизированы ЗАРАНЕЕ через sync-products!
  * Если товар не найден - отзыв/вопрос будет пропущен с warning.
@@ -12,18 +12,19 @@
  *              Если не указано, загружаются все данные.
  *
  * CHANGELOG:
+ * v6 (2026-01-25):
+ * - FIX: Добавлен marketplace_id в upsert reviews (обязательное поле NOT NULL)
+ * - Исправлена ошибка "null value in column marketplace_id violates not-null constraint"
+ *
  * v5 (2026-01-25):
  * - FIX: Добавлен fallback "Аноним" для пустого author_name
  * - FIX: Добавлен fallback "" для пустого text в вопросах
- * - Предотвращает ошибки NOT NULL constraint при синхронизации
  *
  * v4 (2026-01-25):
  * - FIX: Поиск товаров по полю sku (артикул OZON) вместо external_id
- * - Теперь корректно находит товары по SKU от OZON API
  *
  * v2 (2026-01-16):
  * - FIX: Не сбрасываем is_answered в false для отзывов/вопросов с published replies
- * - Предотвращает повторную генерацию и публикацию дублирующихся ответов
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.58.0";
 
@@ -363,6 +364,7 @@ Deno.serve(async (req) => {
               {
                 external_id: review.id,
                 product_id: productId,
+                marketplace_id: marketplace_id,
                 author_name: review.author_name || "Аноним",
                 text: review.text || "",
                 advantages: review.advantages,
