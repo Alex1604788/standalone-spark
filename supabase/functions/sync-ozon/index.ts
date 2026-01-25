@@ -334,7 +334,7 @@ Deno.serve(async (req) => {
               .from("products")
               .select("id")
               .eq("marketplace_id", marketplace_id)
-              .eq("external_id", review.sku.toString())
+              .eq("offer_id", review.sku.toString())
               .maybeSingle();
 
             let productId = product?.id;
@@ -450,7 +450,7 @@ Deno.serve(async (req) => {
               .from("products")
               .select("id")
               .eq("marketplace_id", marketplace_id)
-              .eq("external_id", question.sku.toString())
+              .eq("offer_id", question.sku.toString())
               .maybeSingle();
 
             let productId = product?.id;
