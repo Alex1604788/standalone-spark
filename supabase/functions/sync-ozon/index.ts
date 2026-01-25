@@ -1,6 +1,6 @@
 /**
  * sync-ozon: Синхронизирует отзывы и вопросы из Ozon API
- * VERSION: 2026-01-25-v4
+ * VERSION: 2026-01-25-v5
  *
  * ВАЖНО: Товары должны быть синхронизированы ЗАРАНЕЕ через sync-products!
  * Если товар не найден - отзыв/вопрос будет пропущен с warning.
@@ -12,6 +12,11 @@
  *              Если не указано, загружаются все данные.
  *
  * CHANGELOG:
+ * v5 (2026-01-25):
+ * - FIX: Добавлен fallback "Аноним" для пустого author_name
+ * - FIX: Добавлен fallback "" для пустого text в вопросах
+ * - Предотвращает ошибки NOT NULL constraint при синхронизации
+ *
  * v4 (2026-01-25):
  * - FIX: Поиск товаров по полю sku (артикул OZON) вместо external_id
  * - Теперь корректно находит товары по SKU от OZON API
@@ -358,7 +363,7 @@ Deno.serve(async (req) => {
               {
                 external_id: review.id,
                 product_id: productId,
-                author_name: review.author_name,
+                author_name: review.author_name || "Аноним",
                 text: review.text || "",
                 advantages: review.advantages,
                 disadvantages: review.disadvantages,
@@ -473,8 +478,8 @@ Deno.serve(async (req) => {
               {
                 external_id: question.id,
                 product_id: productId,
-                author_name: question.author_name,
-                text: question.text,
+                author_name: question.author_name || "Аноним",
+                text: question.text || "",
                 question_date: question.published_at,
                 is_answered: isQuestionAnswered,
               },
