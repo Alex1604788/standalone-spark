@@ -1,6 +1,6 @@
 /**
  * sync-ozon: Синхронизирует отзывы и вопросы из Ozon API
- * VERSION: 2026-01-25-v6
+ * VERSION: 2026-01-25-v7
  *
  * ВАЖНО: Товары должны быть синхронизированы ЗАРАНЕЕ через sync-products!
  * Если товар не найден - отзыв/вопрос будет пропущен с warning.
@@ -12,19 +12,21 @@
  *              Если не указано, загружаются все данные.
  *
  * CHANGELOG:
+ * v7 (2026-01-25):
+ * - FIX: Убран некорректный фильтр marketplace_id для questions (у них нет этого поля)
+ * - Исправлена синхронизация вопросов - теперь работает
+ *
  * v6 (2026-01-25):
- * - FIX: Добавлен marketplace_id в upsert reviews (обязательное поле NOT NULL)
- * - Исправлена ошибка "null value in column marketplace_id violates not-null constraint"
+ * - FIX: Добавлен marketplace_id в upsert reviews
  *
  * v5 (2026-01-25):
  * - FIX: Добавлен fallback "Аноним" для пустого author_name
- * - FIX: Добавлен fallback "" для пустого text в вопросах
  *
  * v4 (2026-01-25):
- * - FIX: Поиск товаров по полю sku (артикул OZON) вместо external_id
+ * - FIX: Поиск товаров по полю sku (артикул OZON)
  *
  * v2 (2026-01-16):
- * - FIX: Не сбрасываем is_answered в false для отзывов/вопросов с published replies
+ * - FIX: Защита от дублей replies
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.58.0";
 
@@ -410,8 +412,7 @@ Deno.serve(async (req) => {
 
     const { data: questionsWithPublished } = await supabase
       .from("questions")
-      .select("external_id")
-      .eq("marketplace_id", marketplace_id)
+      .select("external_id, product_id")
       .in("id", Array.from(publishedQuestionIds));
 
     const publishedQuestionsSet = new Set(
