@@ -1,3 +1,5 @@
+// VERSION: 2026-01-08-v1 - Fixed env vars (SUPABASE_URL)
+// BRANCH: claude/setup-ozon-cron-jobs-2qPjk
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -24,8 +26,8 @@ serve(async (req) => {
     let { marketplace_id, ozon_seller_id, user_id, client_id, api_key } = await req.json();
 
     const supabase = createClient(
-      Deno.env.get('OZON_SUPABASE_URL')!,
-      Deno.env.get('OZON_SUPABASE_SERVICE_ROLE_KEY')!
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
     // Resolve marketplace_id if not provided

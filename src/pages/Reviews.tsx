@@ -1,3 +1,4 @@
+// VERSION: 2026-01-13-v3 - Fix counters: use 'id' instead of '*' to avoid cache
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -334,7 +335,7 @@ const Reviews = () => {
     // Подсчитываем scheduled ответы
     const { count: scheduled } = await supabase
       .from("replies")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true })
       .in("marketplace_id", marketplaceIds)
       .eq("status", "scheduled")
       .is("deleted_at", null);
@@ -342,7 +343,7 @@ const Reviews = () => {
     // Подсчитываем publishing ответы
     const { count: publishing } = await supabase
       .from("replies")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true })
       .in("marketplace_id", marketplaceIds)
       .eq("status", "publishing")
       .is("deleted_at", null);
@@ -439,17 +440,37 @@ const Reviews = () => {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      // ✅ Используем inner join для products (как было), но считаем по reviews напрямую
-      // Это исправит несоответствие счетчиков
+      // ✅ OPTIMIZATION: Count separately without INNER JOIN to avoid timeout
+      // First get count with simple query (no joins)
+      let countQuery = supabase
+        .from("reviews")
+        .select("id", { count: "exact", head: true })
+        .in("marketplace_id", marketplaceIds);
+
+      if (statusFilter === "unanswered") {
+        countQuery = countQuery.eq("segment", "unanswered");
+      } else if (statusFilter === "pending") {
+        countQuery = countQuery.eq("segment", "pending");
+      } else if (statusFilter === "archived") {
+        countQuery = countQuery.eq("segment", "archived");
+      }
+
+      if (ratingFilter !== "all") {
+        countQuery = countQuery.eq("rating", parseInt(ratingFilter, 10));
+      }
+
+      const { count } = await countQuery;
+
+      // Then get data with LEFT JOIN (no count to avoid timeout)
+      // Filter by reviews.marketplace_id directly, not through products join
       let query = supabase
         .from("reviews")
         .select(
           `*,
-     products!inner(name, offer_id, image_url, marketplace_id),
+     products(name, offer_id, image_url, marketplace_id),
      replies(id, content, status, created_at, tone)`,
-          { count: "exact" },
         )
-        .in("products.marketplace_id", marketplaceIds);
+        .in("marketplace_id", marketplaceIds);
 
       // ✅ Фильтр по segment на основе URL параметра
       if (statusFilter === "unanswered") {
@@ -469,7 +490,7 @@ const Reviews = () => {
       // и не зависело от особенностей фильтрации по связанной таблице products.
       // Здесь дополнительных условий по searchQuery не добавляем.
 
-      const { data, error, count } = await query.order("review_date", { ascending: false }).range(from, to);
+      const { data, error } = await query.order("review_date", { ascending: false }).range(from, to);
 
       if (error) {
         throw error;
@@ -870,12 +891,12 @@ const Reviews = () => {
     <div className="min-h-screen bg-gray-50/50 pb-20">
       <div className="container mx-auto p-6 space-y-6">
         <div className="flex flex-col gap-3">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col gap-3 lg:flex-row lg:justify-between lg:items-center">
             <div className="flex items-center gap-2">
               <h1 className="text-3xl font-bold text-gray-900">Отзывы и вопросы</h1>
               <HelpIcon content="Раздел для управления отзывами и вопросами покупателей.\n\nСтатусы отзывов:\n• Не отвечено - новые отзывы без ответов\n• Ожидают публикации - ответы созданы и отправляются\n• Архив - отзывы с опубликованными ответами\n\nВы можете:\n• Выбрать несколько отзывов и отправить ответы массово\n• Открыть отзыв и ответить вручную\n• Использовать ИИ для генерации ответа\n• Запустить автоматическую генерацию ответов" />
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
                 onClick={triggerAutoGenerate}
@@ -891,7 +912,7 @@ const Reviews = () => {
                 title="Загрузить новые отзывы и вопросы из OZON API за последние 7 дней"
               >
                 <Download className={`w-4 h-4 mr-2 ${isSyncing ? "animate-bounce" : ""}`} />
-                {isSyncing ? "Синхронизация..." : "Синхронизировать"}
+                {isSyncing ? "Синхронизация..." : "Синхронизация 7 дней"}
               </Button>
               <Button
                 variant="outline"
@@ -900,7 +921,7 @@ const Reviews = () => {
                 title="Полная синхронизация: загрузить отзывы и вопросы за последние 14 дней"
               >
                 <Download className={`w-4 h-4 mr-2 ${isSyncing ? "animate-bounce" : ""}`} />
-                {isSyncing ? "Синхронизация..." : "Синхронизация за 14 дней"}
+                {isSyncing ? "Синхронизация..." : "Синхронизация 14 дней"}
               </Button>
               <Button
                 variant="outline"

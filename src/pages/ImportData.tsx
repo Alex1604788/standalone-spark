@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Upload, Database, AlertCircle, Download } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -13,6 +12,8 @@ import { FileUploader, type ImportType } from "@/components/import/FileUploader"
 import { ImportHistory } from "@/components/import/ImportHistory";
 import { useQuery } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { subDays } from "date-fns";
 
 const ImportData = () => {
   const [importType, setImportType] = useState<ImportType>("accruals");
@@ -324,11 +325,6 @@ const ImportData = () => {
     if (error) throw error;
   };
 
-  const formatDate = (dateString: string) => {
-    if (!dateString) return "";
-    const date = new Date(dateString);
-    return date.toISOString().split("T")[0];
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
@@ -393,25 +389,18 @@ const ImportData = () => {
 
             {/* Период данных (для некоторых типов) */}
             {(importType === "accruals" || importType === "storage_costs") && (
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="period-start">Дата начала</Label>
-                  <Input
-                    id="period-start"
-                    type="date"
-                    value={formatDate(periodStart)}
-                    onChange={(e) => setPeriodStart(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="period-end">Дата окончания</Label>
-                  <Input
-                    id="period-end"
-                    type="date"
-                    value={formatDate(periodEnd)}
-                    onChange={(e) => setPeriodEnd(e.target.value)}
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label>Период данных</Label>
+                <DateRangePicker
+                  dateRange={{
+                    start: periodStart ? new Date(periodStart) : subDays(new Date(), 30),
+                    end: periodEnd ? new Date(periodEnd) : new Date(),
+                  }}
+                  onDateRangeChange={(range) => {
+                    setPeriodStart(range.start.toISOString().split("T")[0]);
+                    setPeriodEnd(range.end.toISOString().split("T")[0]);
+                  }}
+                />
               </div>
             )}
           </CardContent>

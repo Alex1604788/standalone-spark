@@ -25,3 +25,15 @@ dist-ssr
 
 # Git worktrees
 .worktrees/
+
+# Environment variables (contains secrets!)
+.env
+.env.local
+.env.production
+.temp/
+apply-*.mjs
+apply-*.cjs
+apply-*.js
+execute-sql.sh
+supabase/.temp/
+execute-view.mjs

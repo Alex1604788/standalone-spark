@@ -380,6 +380,118 @@ export type Database = {
           },
         ]
       }
+      chat_messages: {
+        Row: {
+          chat_id: string
+          created_at: string
+          id: string
+          image_urls: string[] | null
+          is_image: boolean | null
+          is_read: boolean | null
+          message_id: string
+          moderate_status: string | null
+          sender_name: string | null
+          sender_type: string
+          sent_at: string
+          text: string
+        }
+        Insert: {
+          chat_id: string
+          created_at?: string
+          id?: string
+          image_urls?: string[] | null
+          is_image?: boolean | null
+          is_read?: boolean | null
+          message_id: string
+          moderate_status?: string | null
+          sender_name?: string | null
+          sender_type: string
+          sent_at: string
+          text: string
+        }
+        Update: {
+          chat_id?: string
+          created_at?: string
+          id?: string
+          image_urls?: string[] | null
+          is_image?: boolean | null
+          is_read?: boolean | null
+          message_id?: string
+          moderate_status?: string | null
+          sender_name?: string | null
+          sender_type?: string
+          sent_at?: string
+          text?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_chat_id_fkey"
+            columns: ["chat_id"]
+            isOneToOne: false
+            referencedRelation: "chats"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chats: {
+        Row: {
+          chat_id: string
+          created_at: string
+          expires_at: string | null
+          id: string
+          last_message_at: string | null
+          last_message_from: string | null
+          last_message_text: string | null
+          marketplace_id: string
+          order_number: string | null
+          posting_number: string
+          product_sku: string | null
+          status: string | null
+          unread_count: number | null
+          updated_at: string
+        }
+        Insert: {
+          chat_id: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          last_message_at?: string | null
+          last_message_from?: string | null
+          last_message_text?: string | null
+          marketplace_id: string
+          order_number?: string | null
+          posting_number: string
+          product_sku?: string | null
+          status?: string | null
+          unread_count?: number | null
+          updated_at?: string
+        }
+        Update: {
+          chat_id?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          last_message_at?: string | null
+          last_message_from?: string | null
+          last_message_text?: string | null
+          marketplace_id?: string
+          order_number?: string | null
+          posting_number?: string
+          product_sku?: string | null
+          status?: string | null
+          unread_count?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chats_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cluster_warehouses: {
         Row: {
           cluster_id: string
@@ -918,8 +1030,11 @@ export type Database = {
           id: string
           is_active: boolean | null
           kill_switch_enabled: boolean | null
+          last_chats_sync_at: string | null
           last_check_at: string | null
           last_fallback_action_at: string | null
+          last_questions_sync_at: string | null
+          last_reviews_sync_at: string | null
           last_sync_at: string | null
           last_sync_count: number | null
           last_sync_error: string | null
@@ -932,6 +1047,7 @@ export type Database = {
           service_account_email: string | null
           session_expires_at: string | null
           session_token_encrypted: string | null
+          sync_mode: string | null
           type: Database["public"]["Enums"]["marketplace_type"]
           updated_at: string
           user_id: string
@@ -945,8 +1061,11 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           kill_switch_enabled?: boolean | null
+          last_chats_sync_at?: string | null
           last_check_at?: string | null
           last_fallback_action_at?: string | null
+          last_questions_sync_at?: string | null
+          last_reviews_sync_at?: string | null
           last_sync_at?: string | null
           last_sync_count?: number | null
           last_sync_error?: string | null
@@ -959,6 +1078,7 @@ export type Database = {
           service_account_email?: string | null
           session_expires_at?: string | null
           session_token_encrypted?: string | null
+          sync_mode?: string | null
           type: Database["public"]["Enums"]["marketplace_type"]
           updated_at?: string
           user_id: string
@@ -972,8 +1092,11 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           kill_switch_enabled?: boolean | null
+          last_chats_sync_at?: string | null
           last_check_at?: string | null
           last_fallback_action_at?: string | null
+          last_questions_sync_at?: string | null
+          last_reviews_sync_at?: string | null
           last_sync_at?: string | null
           last_sync_count?: number | null
           last_sync_error?: string | null
@@ -986,6 +1109,7 @@ export type Database = {
           service_account_email?: string | null
           session_expires_at?: string | null
           session_token_encrypted?: string | null
+          sync_mode?: string | null
           type?: Database["public"]["Enums"]["marketplace_type"]
           updated_at?: string
           user_id?: string
@@ -1314,6 +1438,7 @@ export type Database = {
           orders: number | null
           orders_model: number | null
           revenue: number | null
+          revenue_model: number | null
           sku: string
           stat_date: string
           views: number | null
@@ -1341,6 +1466,7 @@ export type Database = {
           orders?: number | null
           orders_model?: number | null
           revenue?: number | null
+          revenue_model?: number | null
           sku: string
           stat_date: string
           views?: number | null
@@ -1368,6 +1494,7 @@ export type Database = {
           orders?: number | null
           orders_model?: number | null
           revenue?: number | null
+          revenue_model?: number | null
           sku?: string
           stat_date?: string
           views?: number | null
@@ -3012,6 +3139,117 @@ export type Database = {
       }
     }
     Views: {
+      ozon_performance_summary: {
+        Row: {
+          add_to_cart: number | null
+          add_to_cart_conversion: number | null
+          avg_bill: number | null
+          avg_order_value: number | null
+          campaign_id: string | null
+          campaign_name: string | null
+          campaign_type: string | null
+          clicks: number | null
+          conversion: number | null
+          cpc: number | null
+          ctr: number | null
+          drr: number | null
+          favorites: number | null
+          id: string | null
+          import_batch_id: string | null
+          imported_at: string | null
+          marketplace_id: string | null
+          money_spent: number | null
+          offer_id: string | null
+          orders: number | null
+          orders_model: number | null
+          revenue: number | null
+          revenue_model: number | null
+          roi: number | null
+          sku: string | null
+          stat_date: string | null
+          total_orders: number | null
+          total_revenue: number | null
+          views: number | null
+        }
+        Insert: {
+          add_to_cart?: number | null
+          add_to_cart_conversion?: number | null
+          avg_bill?: number | null
+          avg_order_value?: never
+          campaign_id?: string | null
+          campaign_name?: string | null
+          campaign_type?: string | null
+          clicks?: number | null
+          conversion?: never
+          cpc?: never
+          ctr?: never
+          drr?: never
+          favorites?: number | null
+          id?: string | null
+          import_batch_id?: string | null
+          imported_at?: string | null
+          marketplace_id?: string | null
+          money_spent?: number | null
+          offer_id?: string | null
+          orders?: number | null
+          orders_model?: number | null
+          revenue?: number | null
+          revenue_model?: number | null
+          roi?: never
+          sku?: string | null
+          stat_date?: string | null
+          total_orders?: never
+          total_revenue?: never
+          views?: number | null
+        }
+        Update: {
+          add_to_cart?: number | null
+          add_to_cart_conversion?: number | null
+          avg_bill?: number | null
+          avg_order_value?: never
+          campaign_id?: string | null
+          campaign_name?: string | null
+          campaign_type?: string | null
+          clicks?: number | null
+          conversion?: never
+          cpc?: never
+          ctr?: never
+          drr?: never
+          favorites?: number | null
+          id?: string | null
+          import_batch_id?: string | null
+          imported_at?: string | null
+          marketplace_id?: string | null
+          money_spent?: number | null
+          offer_id?: string | null
+          orders?: number | null
+          orders_model?: number | null
+          revenue?: number | null
+          revenue_model?: number | null
+          roi?: never
+          sku?: string | null
+          stat_date?: string | null
+          total_orders?: never
+          total_revenue?: never
+          views?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ozon_performance_daily_import_batch_id_fkey"
+            columns: ["import_batch_id"]
+            isOneToOne: false
+            referencedRelation: "import_logs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ozon_performance_daily_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pick_list_view: {
         Row: {
           category: string | null
@@ -3258,6 +3496,64 @@ export type Database = {
         Args: { p_marketplace_id: string; p_rate_limit?: number }
         Returns: boolean
       }
+      cleanup_ai_reply_history: {
+        Args: never
+        Returns: {
+          batches_processed: number
+          deleted_count: number
+          total_time_ms: number
+        }[]
+      }
+      cleanup_audit_log_urgent: { Args: never; Returns: number }
+      cleanup_consent_logs: {
+        Args: never
+        Returns: {
+          batches_processed: number
+          deleted_count: number
+          total_time_ms: number
+        }[]
+      }
+      cleanup_cron_job_run_details: {
+        Args: never
+        Returns: {
+          batches_processed: number
+          deleted_count: number
+          total_time_ms: number
+        }[]
+      }
+      cleanup_fallback_action_logs: {
+        Args: never
+        Returns: {
+          batches_processed: number
+          deleted_count: number
+          total_time_ms: number
+        }[]
+      }
+      cleanup_import_logs: {
+        Args: never
+        Returns: {
+          batches_processed: number
+          deleted_count: number
+          total_time_ms: number
+        }[]
+      }
+      cleanup_logs_ai: {
+        Args: never
+        Returns: {
+          batches_processed: number
+          deleted_count: number
+          total_time_ms: number
+        }[]
+      }
+      cleanup_ozon_sync_history: {
+        Args: never
+        Returns: {
+          batches_processed: number
+          deleted_count: number
+          total_time_ms: number
+        }[]
+      }
+      delete_1k_drafted: { Args: never; Returns: number }
       find_offer_id_by_sku: {
         Args: { p_marketplace_id: string; p_sku: string }
         Returns: string
@@ -3302,6 +3598,10 @@ export type Database = {
           tags: string[]
           title: string
         }[]
+      }
+      get_marketplace_sync_mode: {
+        Args: { p_marketplace_id: string }
+        Returns: string
       }
       get_product_knowledge: {
         Args: { p_limit?: number; p_product_id: string }
@@ -3401,6 +3701,16 @@ export type Database = {
           source_type: string
           title: string
         }[]
+      }
+      trigger_ozon_daily_sync: { Args: never; Returns: undefined }
+      trigger_ozon_sync: {
+        Args: {
+          p_api_key: string
+          p_client_id: string
+          p_function_name: string
+          p_marketplace_id: string
+        }
+        Returns: undefined
       }
       update_analytics_metrics: { Args: never; Returns: undefined }
       update_api_token: {

@@ -1,0 +1,1044 @@
+Работа с отзывами
+Оставить комментарий на отзыв
+post
+/v1/review/comment/create
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus или Premium Pro.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+Request Body schema: application/json
+mark_review_as_processed	
+boolean
+Обновление статуса у отзыва:
+
+true — статус изменится на Processed.
+false — статус не изменится.
+parent_comment_id	
+string
+Идентификатор родительского комментария, на который вы отвечаете.
+
+review_id
+required
+string
+Идентификатор отзыва.
+
+text
+required
+string
+Текст комментария.
+
+Ответы
+200Комментарий создан
+Response Schema: application/json
+comment_id	
+string
+Идентификатор комментария.
+
+defaultОшибка
+Примеры запроса
+Content type
+application/json
+{
+"mark_review_as_processed": true,
+"parent_comment_id": "string",
+"review_id": "string",
+"text": "string"
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200default
+Content type
+application/json
+{
+"comment_id": "string"
+}
+
+Копировать
+Свернуть всё
+Удалить комментарий на отзыв
+post
+/v1/review/comment/delete
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus или Premium Pro.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+Request Body schema: application/json
+comment_id
+required
+string
+Идентификатор комментария.
+
+Ответы
+200Комментарий удалён
+Response Schema: application/json
+object
+defaultОшибка
+Примеры запроса
+Content type
+application/json
+{
+"comment_id": "string"
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200default
+Content type
+application/json
+{ }
+
+Копировать
+Свернуть всё
+Список комментариев на отзыв
+post
+/v1/review/comment/list
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus или Premium Pro.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+Метод возвращает информацию по комментариям на отзывы, которые прошли модерацию.
+
+Request Body schema: application/json
+limit
+required
+integer <int32>
+Ограничение значений в ответе. Минимум — 20. Максимум — 100.
+
+offset	
+integer <int32>
+Количество элементов, которое будет пропущено с начала списка в ответе. Например, если offset = 10, то ответ начнётся с 11-го найденного элемента.
+
+review_id
+required
+string
+Идентификатор отзыва.
+
+sort_dir	
+string
+Default: "ASC"
+Enum: "ASC" "DESC"
+Направление сортировки:
+
+ASC — по возрастанию,
+DESC — по убыванию.
+Ответы
+200Информация о комментариях на отзыв
+Response Schema: application/json
+comments	
+Array of objects
+Информация о комментарии.
+
+offset	
+integer <int32>
+Количество элементов в выдаче.
+
+defaultОшибка
+Примеры запроса
+Content type
+application/json
+{
+"limit": 100,
+"offset": 0,
+"review_id": "0187310a-97d9-dfcf-3039-82d809f0e233",
+"sort_dir": "ASC"
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200default
+Content type
+application/json
+{
+"comments": [
+{
+"id": "string",
+"is_official": true,
+"is_owner": true,
+"parent_comment_id": "string",
+"published_at": "2019-08-24T14:15:22Z",
+"text": "string"
+}
+],
+"offset": 0
+}
+
+Копировать
+Свернуть всё
+Изменить статус отзывов
+post
+/v1/review/change-status
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus или Premium Pro.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+Request Body schema: application/json
+review_ids
+required
+Array of strings
+Массив с идентификаторами отзывов от 1 до 100.
+
+status
+required
+string
+Статус отзыва:
+
+PROCESSED — обработанный,
+UNPROCESSED — необработанный.
+Ответы
+200Статус изменён
+Response Schema: application/json
+object
+defaultОшибка
+Примеры запроса
+Content type
+application/json
+{
+"review_ids": [
+"string"
+],
+"status": "string"
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200default
+Content type
+application/json
+{ }
+
+Копировать
+Свернуть всё
+Количество отзывов по статусам
+post
+/v1/review/count
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus или Premium Pro.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+Request Body schema: application/json
+object
+Ответы
+200Количество обработанных и необработанных отзывов
+Response Schema: application/json
+processed	
+integer <int32>
+Количество обработанных отзывов.
+
+total	
+integer <int32>
+Количество всех отзывов.
+
+unprocessed	
+integer <int32>
+Количество необработанных отзывов.
+
+defaultОшибка
+Примеры запроса
+Content type
+application/json
+{ }
+
+Копировать
+Свернуть всё
+Примеры ответа
+200default
+Content type
+application/json
+{
+"processed": 0,
+"total": 0,
+"unprocessed": 0
+}
+
+Копировать
+Свернуть всё
+Получить информацию об отзыве
+post
+/v1/review/info
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus или Premium Pro.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+Request Body schema: application/json
+review_id
+required
+string
+Идентификатор отзыва.
+
+Ответы
+200Информация об отзыве
+Response Schema: application/json
+comments_amount	
+integer <int32>
+Количество комментариев к отзыву.
+
+dislikes_amount	
+integer <int32>
+Количество дизлайков на отзыве.
+
+id	
+string
+Идентификатор отзыва.
+
+is_rating_participant	
+boolean
+true, если отзыв участвует в подсчёте рейтинга.
+
+likes_amount	
+integer <int32>
+Количество лайков на отзыве.
+
+order_status	
+string
+Статус заказа, на который покупатель оставил отзыв:
+
+DELIVERED — доставлен,
+CANCELLED — отменён.
+photos	
+Array of objects
+Информация об изображении.
+
+photos_amount	
+integer <int32>
+Количество изображений у отзыва.
+
+published_at	
+string <date-time>
+Дата публикации отзыва.
+
+rating	
+integer <int32>
+Оценка отзыва.
+
+sku	
+integer <int64>
+Идентификатор товара в системе Ozon — SKU.
+
+status	
+string
+Статус отзыва:
+
+UNPROCESSED — не обработан,
+PROCESSED — обработан.
+text	
+string
+Текст отзыва.
+
+videos	
+Array of objects
+Информация о видео.
+
+videos_amount	
+integer <int32>
+Количество видео у отзыва.
+
+defaultОшибка
+Примеры запроса
+Content type
+application/json
+{
+"review_id": "string"
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200default
+Content type
+application/json
+{
+"comments_amount": 0,
+"dislikes_amount": 0,
+"id": "string",
+"is_rating_participant": true,
+"likes_amount": 0,
+"order_status": "string",
+"photos": [
+{
+"height": 0,
+"url": "string",
+"width": 0
+}
+],
+"photos_amount": 0,
+"published_at": "2019-08-24T14:15:22Z",
+"rating": 0,
+"sku": 0,
+"status": "string",
+"text": "string",
+"videos": [
+{
+"height": 0,
+"preview_url": "string",
+"short_video_preview_url": "string",
+"url": "string",
+"width": 0
+}
+],
+"videos_amount": 0
+}
+
+Копировать
+Свернуть всё
+Получить список отзывов
+post
+/v1/review/list
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus или Premium Pro.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+Метод не возвращает параметры «Достоинства» и «Недостатки», если они есть в отзывах на товар. Эти параметры устарели, в новых отзывах их нет.
+
+Request Body schema: application/json
+last_id	
+string
+Идентификатор последнего отзыва на странице.
+
+limit
+required
+integer <int32>
+Количество отзывов в ответе. Минимум — 20, максимум — 100.
+
+sort_dir	
+string
+Направление сортировки:
+
+ASC — по возрастанию,
+DESC — по убыванию.
+status	
+string
+Статусы отзывов:
+
+ALL — все,
+UNPROCESSED — необработанные,
+PROCESSED — обработанные.
+Ответы
+200Список отзывов
+Response Schema: application/json
+has_next	
+boolean
+true, если в ответе вернули не все отзывы.
+
+last_id	
+string
+Идентификатор последнего отзыва на странице.
+
+reviews	
+Array of objects
+Информация об отзыве.
+
+defaultОшибка
+Примеры запроса
+Content type
+application/json
+{
+"last_id": "",
+"limit": 100,
+"sort_dir": "ASC",
+"status": "ALL"
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200default
+Content type
+application/json
+{
+"has_next": true,
+"last_id": "string",
+"reviews": [
+{
+"comments_amount": 0,
+"id": "string",
+"is_rating_participant": true,
+"order_status": "string",
+"photos_amount": 0,
+"published_at": "2019-08-24T14:15:22Z",
+"rating": 0,
+"sku": 0,
+"status": "string",
+"text": "string",
+"videos_amount": 0
+}
+]
+}
+
+Копировать
+Свернуть всё
+Работа с вопросами и ответами
+Создать ответ на вопрос
+post
+/v1/question/answer/create
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+header Parameters
+Client-Id
+required
+string
+Идентификатор клиента.
+
+Api-Key
+required
+string
+API-ключ.
+
+Request Body schema: application/json
+question_id
+required
+string
+Идентификатор вопроса.
+
+sku
+required
+int64
+Идентификатор товара в системе Ozon — SKU.
+
+text
+required
+string
+Текст ответа объёмом от 2 до 3000 символов.
+
+Ответы
+200Идентификатор ответа на вопрос
+Response Schema: application/json
+answer_id	
+string
+Идентификатор ответа на вопрос.
+
+defaultОшибка
+Примеры запроса
+Content type
+application/json
+{
+"question_id": "string",
+"sku": 0,
+"text": "string"
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200default
+Content type
+application/json
+{
+"answer_id": "0192e7ce-e12c-7a74-afc7-26e877799204"
+}
+
+Копировать
+Свернуть всё
+Удалить ответ на вопрос
+post
+/v1/question/answer/delete
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+header Parameters
+Client-Id
+required
+string
+Идентификатор клиента.
+
+Api-Key
+required
+string
+API-ключ.
+
+Request Body schema: application/json
+answer_id
+required
+string
+Идентификатор ответа.
+
+sku
+required
+int64
+Идентификатор товара в системе Ozon — SKU.
+
+Ответы
+200Ответ удалён
+Response Schema: application/json
+object
+Ответ удалён
+
+defaultОшибка
+Примеры запроса
+Content type
+application/json
+{
+"answer_id": "0192e7ce-e12c-7a74-afc7-26e877799204",
+"sku": 646399170
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200default
+Content type
+application/json
+{ }
+
+Копировать
+Свернуть всё
+Список ответов на вопрос
+post
+/v1/question/answer/list
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+header Parameters
+Client-Id
+required
+string
+Идентификатор клиента.
+
+Api-Key
+required
+string
+API-ключ.
+
+Request Body schema: application/json
+last_id	
+Идентификатор последнего значения на странице.
+
+Если запрос первый, оставьте поле пустым. Для следующих значений указывайте last_id из ответа предыдущего запроса.
+
+question_id
+required
+string
+Идентификатор вопроса.
+
+sku
+required
+int64
+Идентификатор товара в системе Ozon — SKU.
+
+Ответы
+200Список ответов на вопрос
+Response Schema: application/json
+answers	
+Array of objects
+Ответы.
+
+last_id	
+string
+Идентификатор последнего значения на странице.
+
+Чтобы получить следующие значения, передайте полученное значение в следующем запросе в параметре last_id.
+
+defaultОшибка
+Примеры запроса
+Content type
+application/json
+{
+"last_id": "",
+"question_id": "019228a7-91d8-76af-a73a-e989dfac7ac8",
+"sku": 646399170
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200default
+Content type
+application/json
+{
+"answers": [
+{
+"author_name": "string",
+"id": "string",
+"published_at": "2024-08-14T11:44:35.352Z",
+"question_id": "string",
+"sku": 646399170,
+"text": "string"
+}
+],
+"last_id": "string"
+}
+
+Копировать
+Свернуть всё
+Изменить статус вопросов
+post
+/v1/question/change-status
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+header Parameters
+Client-Id
+required
+string
+Идентификатор клиента.
+
+Api-Key
+required
+string
+API-ключ.
+
+Request Body schema: application/json
+question_ids
+required
+Array of strings
+Идентификаторы вопросов.
+
+status
+required
+string
+Статусы вопросов:
+
+NEW — новые,
+VIEWED — просмотренные,
+PROCESSED — обработанные.
+Ответы
+200Статус изменён
+Response Schema: application/json
+object
+Статус изменён.
+
+defaultОшибка
+Примеры запроса
+Content type
+application/json
+{
+"question_ids": [
+"string"
+],
+"status": "VIEWED"
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200default
+Content type
+application/json
+{ }
+
+Копировать
+Свернуть всё
+Количество вопросов по статусам
+post
+/v1/question/count
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+header Parameters
+Client-Id
+required
+string
+Идентификатор клиента.
+
+Api-Key
+required
+string
+API-ключ.
+
+Ответы
+200Количество вопросов по статусам
+Response Schema: application/json
+all	
+int64
+Всего вопросов.
+
+new	
+int64
+Новые вопросы.
+
+processed	
+int64
+Обработанные вопросы.
+
+unprocessed	
+int64
+Необработанные вопросы.
+
+viewed	
+int64
+Просмотренные вопросы.
+
+defaultОшибка
+Примеры ответа
+200default
+Content type
+application/json
+{
+"all": 10,
+"new": 3,
+"processed": 4,
+"unprocessed": 1,
+"viewed": 1
+}
+
+Копировать
+Свернуть всё
+Информация о вопросе
+post
+/v1/question/info
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+header Parameters
+Client-Id
+required
+string
+Идентификатор клиента.
+
+Api-Key
+required
+string
+API-ключ.
+
+Request Body schema: application/json
+question_id
+required
+string
+Идентификатор вопроса
+
+Ответы
+200Информация о вопросе
+Response Schema: application/json
+answers_count	
+int64
+Количество ответов на вопрос.
+
+author_name	
+string
+Автор вопроса.
+
+id	
+string
+Идентификатор вопроса.
+
+product_url	
+string
+Ссылка на товар.
+
+published_at	
+timestamp
+Дата публикации вопроса.
+
+question_link	
+string
+Ссылка на вопрос.
+
+sku	
+int64
+Идентификатор товара в системе Ozon — SKU.
+
+status	
+enum
+Статус вопроса:
+
+NEW — новый,
+ALL — все вопросы,
+VIEWED — просмотренный,
+PROCESSED — обработанный,
+UNPROCESSED — необработанный.
+text	
+string
+Текст вопроса.
+
+defaultОшибка
+Примеры запроса
+Content type
+application/json
+{
+"question_id": "string"
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200default
+Content type
+application/json
+{
+"answers_count": "0",
+"author_name": "Пользователь OZON",
+"product_url": "https://www.ozon.ru/product/149829950/",
+"sku": 646399170,
+"id": "0192a009-769f-7ee9-b412-893045171a66",
+"text": "Можно выбрать цвет?",
+"question_link": "https://www.ozon.ru/product/149829950/questions/?qid=290125772&utm_campaign=reviews_sc_link&utm_medium=share_button&utm_source=smm",
+"published_at": "2024-10-08T10:09:29.099284Z",
+"status": "VIEWED"
+}
+
+Копировать
+Свернуть всё
+Список вопросов
+post
+/v1/question/list
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+header Parameters
+Client-Id
+required
+string
+Идентификатор клиента.
+
+Api-Key
+required
+string
+API-ключ.
+
+Request Body schema: application/json
+filter	
+object
+Фильтр.
+
+last_id	
+string
+Идентификатор последнего значения на странице.
+
+Оставьте это поле пустым при выполнении первого запроса. Чтобы получить следующие значения, укажите last_id из ответа предыдущего запроса.
+
+Ответы
+200Список вопросов
+Response Schema: application/json
+questions	
+Array of objects [ 0 .. 10 ] items
+Вопросы.
+
+last_id	
+string
+Идентификатор последнего значения на странице.
+
+Чтобы получить следующие значения, передайте полученное значение в следующем запросе в параметре last_id.
+
+defaultОшибка
+Примеры запроса
+Content type
+application/json
+{
+"filter": {
+"date_from": "2019-08-24T14:15:22Z",
+"date_to": "2019-08-24T14:15:22Z",
+"status": "ALL"
+},
+"last_id": ""
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200default
+Content type
+application/json
+{
+"questions": [
+{
+"answers_count": 1,
+"author_name": "Пользователь OZON",
+"id": "019294ff-6888-7009-89d8-26569e4e450d",
+"sku": 646399170,
+"product_url": "https://www.ozon.ru/product/1649246352/",
+"published_at": "2024-08-14T12:02:01.889Z",
+"question_link": "https://www.ozon.ru/product/1649246352/questions/?qid=290180206&utm_campaign=reviews_sc_link&utm_medium=share_button&utm_source=smm",
+"text": "Новый вопрос о товаре Света",
+"status": "PROCESSED"
+}
+],
+"last_id": "019228a7-91d8-76af-a73a-e989dfac7ac8"
+}
+
+Копировать
+Свернуть всё
+Товары с наибольшим количеством вопросов
+post
+/v1/question/top-sku
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus.
+
+Вы можете оставить обратную связь по этому методу в комментариях к обсуждению в сообществе разработчиков Ozon for dev.
+
+header Parameters
+Client-Id
+required
+string
+Идентификатор клиента.
+
+Api-Key
+required
+string
+API-ключ.
+
+Request Body schema: application/json
+limit
+required
+int64
+Количество значений в ответе: максимум — 100, минимум — 1.
+
+Ответы
+200Идентификаторы товаров
+Response Schema: application/json
+sku	
+Array of strings <int64>
+Список идентификаторов товаров в системе Ozon — SKU.
+
+defaultОшибка
+Примеры запроса
+Content type
+application/json
+{
+"limit": "100"
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200default
+Content type
+application/json
+{
+"sku": [
+56371271
+]
+}
+
+Копировать
+Свернут

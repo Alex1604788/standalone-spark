@@ -181,44 +181,45 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 🔑 Get API credentials from multiple sources (priority order)
+    // Try to get credentials from multiple sources
     let clientId: string | null = null;
     let apiKey: string | null = null;
 
-    // 1️⃣ Try ozon_credentials table first
+    // 1. Try ozon_credentials table first (primary source)
     const { data: ozonCreds } = await supabase
       .from("ozon_credentials")
       .select("client_id, api_key")
       .eq("marketplace_id", marketplace_id)
-      .single();
+      .eq("status", "active")
+      .maybeSingle();
 
-    if (ozonCreds && ozonCreds.client_id && ozonCreds.api_key) {
-      console.log("[sync-ozon] Using credentials from ozon_credentials");
+    if (ozonCreds?.client_id && ozonCreds?.api_key) {
       clientId = ozonCreds.client_id;
       apiKey = ozonCreds.api_key;
+      console.log("[sync-ozon] Using credentials from ozon_credentials table");
     }
 
-    // 2️⃣ Try marketplace_api_credentials table
+    // 2. If not found, try marketplace_api_credentials table
     if (!clientId || !apiKey) {
       const { data: apiCreds } = await supabase
         .from("marketplace_api_credentials")
         .select("client_id, client_secret")
         .eq("marketplace_id", marketplace_id)
         .eq("api_type", "seller")
-        .single();
+        .eq("is_active", true)
+        .maybeSingle();
 
-      if (apiCreds && apiCreds.client_id && apiCreds.client_secret) {
-        console.log("[sync-ozon] Using credentials from marketplace_api_credentials");
+      if (apiCreds?.client_id && apiCreds?.client_secret) {
         clientId = apiCreds.client_id;
         apiKey = apiCreds.client_secret;
+        console.log("[sync-ozon] Using credentials from marketplace_api_credentials table");
       }
     }
 
-    // 3️⃣ Fallback to marketplace.api_key_encrypted
+    // 3. Fallback to api_key_encrypted field in marketplaces table
     if (!clientId || !apiKey) {
       if (marketplace.api_key_encrypted) {
         const apiKeyEncrypted = String(marketplace.api_key_encrypted);
-
         if (apiKeyEncrypted.includes(":")) {
           const parts = apiKeyEncrypted.split(":");
           clientId = parts[0];
@@ -228,12 +229,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ❌ No credentials found
+    // If still no credentials found, return error
     if (!clientId || !apiKey) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: "API key not configured for this marketplace. Please add credentials in Settings.",
+          error: "API key not configured for this marketplace. Please add Ozon API credentials in settings.",
         }),
         { status: 400, headers: corsHeaders },
       );

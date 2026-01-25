@@ -1,0 +1,313 @@
+тправить сообщение
+post
+/v1/chat/send/message
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus или Premium Pro.
+
+Отправляет сообщение в существующий чат по его идентификатору.
+
+Получите список чатов с покупателем chats.chat.chat_type="Buyer_Seller" в ответе метода /v3/chat/list.
+
+Для отправлений:
+
+FBO — вы можете отправить сообщение в течение 48 часов с момента получения последнего сообщения от покупателя.
+FBS или rFBS — вы можете отправить сообщение покупателю после оплаты и в течение 72 часов после доставки отправления. После этого вы можете только отвечать на сообщения в течение 48 часов с момента получения последнего сообщения от покупателя.
+header Parameters
+Client-Id
+required
+string
+Идентификатор клиента.
+
+Api-Key
+required
+string
+API-ключ.
+
+Request Body schema: application/json
+chat_id
+required
+string
+Идентификатор чата.
+
+text
+required
+string
+Текст сообщения в формате plain text от 1 до 1000 символов.
+
+Ответы
+200Сообщение отправлено
+Response Schema: application/json
+result	
+string
+Результат обработки запроса.
+
+400Неверный параметр
+403Доступ запрещён
+404Ответ не найден
+409Конфликт запроса
+500Внутренняя ошибка сервера
+Примеры запроса
+Content type
+application/json
+{
+"chat_id": "99feb3fc-a474-469f-95d5-268b470cc607",
+"text": "test"
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200400403404409500
+Content type
+application/json
+{
+"result": "success"
+}
+
+Копировать
+Свернуть всё
+Создать новый чат
+post
+/v1/chat/start
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus или Premium Pro.
+
+Создает новый чат с покупателем по отправлению. Например, чтобы уточнить адрес или модель товара.
+
+Для отправлений:
+
+FBO — начать чат может только покупатель.
+FBS и rFBS — вы можете открыть чат в течение 72 часов после оплаты или доставки отправления.
+header Parameters
+Client-Id
+required
+string
+Идентификатор клиента.
+
+Api-Key
+required
+string
+API-ключ.
+
+Request Body schema: application/json
+posting_number
+required
+string
+Идентификатор отправления.
+
+Ответы
+200Создан новый чат
+Response Schema: application/json
+result	
+object
+Результат работы метода.
+
+chat_id	
+string
+Идентификатор чата.
+
+400Неверный параметр
+403Доступ запрещён
+404Ответ не найден
+409Конфликт запроса
+500Внутренняя ошибка сервера
+Примеры запроса
+Content type
+application/json
+{
+"posting_number": "47873153-0052-1"
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200400403404409500
+Content type
+application/json
+{
+"result": {
+"chat_id": "5969c331-2e64-44b7-8a0e-ff9526762c62"
+}
+}
+
+Копировать
+Свернуть всё
+История чата
+post
+/v3/chat/history
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus или Premium Pro.
+
+Возвращает историю сообщений чата. По умолчанию от самого нового сообщения к старым.
+
+Получите список чатов с покупателем chats.chat.chat_type="Buyer_Seller" в ответе метода /v3/chat/list.
+
+header Parameters
+Client-Id
+required
+string
+Идентификатор клиента.
+
+Api-Key
+required
+string
+API-ключ.
+
+Request Body schema: application/json
+chat_id
+required
+string
+Идентификатор чата.
+
+direction	
+string
+Направление сортировки сообщений:
+
+Forward — от старых к новым.
+Backward — от новых к старым.
+Значение по умолчанию — Backward. Количество сообщений можно установить в параметре limit.
+
+filter	
+object
+Фильтр по сообщениям.
+
+from_message_id	
+integer <uint64>
+Идентификатор сообщения, с которого нужно начать вывод истории чата. По умолчанию — последнее видимое сообщение.
+
+Параметр from_message_id обязательный, если direction = Forward.
+
+limit	
+integer <int64>
+Количество сообщений в ответе. По умолчанию — 50. Максимальное значение — 1000.
+
+Ответы
+200История чата
+Response Schema: application/json
+has_next	
+boolean
+Признак, что в ответе вернули не все сообщения.
+
+messages	
+Array of objects
+Массив сообщений, отсортированный в соответствии с параметром direction из тела запроса.
+
+400Неверный параметр
+403Доступ запрещён
+404Ответ не найден
+409Конфликт запроса
+500Внутренняя ошибка сервера
+Примеры запроса
+Content type
+application/json
+{
+"chat_id": "18b8e1f9-4ae7-461c-84ea-8e1f54d1a45e",
+"direction": "Forward",
+"filter": {
+"message_ids": [
+"3000000300211559667"
+]
+},
+"from_message_id": 3000000000118032000,
+"limit": 1
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200400403404409500
+Content type
+application/json
+{
+"has_next": true,
+"messages": [
+{
+"context": {
+"order_number": "123456789",
+"sku": "987654321"
+},
+"created_at": "2019-08-24T14:15:22Z",
+"data": [
+"Здравствуйте, у меня вопрос по вашему товару \"Стекло защитное для смартфонов\", артикул 11223. Подойдет ли он на данную [ модель ](https://www.ozon.ru/product/smartfon-samsung-galaxy-a03s-4-64-gb-chernyy) телефона?"
+],
+"is_image": true,
+"is_read": true,
+"message_id": "3000000000817031942",
+"moderate_image_status": "SUCCESS",
+"user": {
+"id": "115568",
+"type": "Сustomer"
+}
+}
+]
+}
+
+Копировать
+Свернуть всё
+Отметить сообщения как прочитанные
+post
+/v2/chat/read
+
+Описание и примерыКонсоль
+Доступно для продавцов с подпиской Premium Plus или Premium Pro.
+
+Метод для отметки выбранного сообщения и сообщений до него прочитанными.
+
+Получите список чатов с покупателем chats.chat.chat_type="Buyer_Seller" в ответе метода /v3/chat/list.
+
+header Parameters
+Client-Id
+required
+string
+Идентификатор клиента.
+
+Api-Key
+required
+string
+API-ключ.
+
+Request Body schema: application/json
+chat_id
+required
+string
+Идентификатор чата.
+
+from_message_id	
+integer <uint64>
+Идентификатор сообщения.
+
+Ответы
+200Успешно
+Response Schema: application/json
+unread_count	
+integer <int64>
+Количество непрочитанных сообщений в чате.
+
+400Неверный параметр
+403Доступ запрещён
+404Ответ не найден
+409Конфликт запроса
+500Внутренняя ошибка сервера
+Примеры запроса
+Content type
+application/json
+{
+"chat_id": "99feb3fc-a474-469f-95d5-268b470cc607",
+"from_message_id": 3000000000118032000
+}
+
+Копировать
+Свернуть всё
+Примеры ответа
+200400403404409500
+Content type
+application/json
+{
+"unread_count": 0
+}
+
+Копировать
+Сверну
