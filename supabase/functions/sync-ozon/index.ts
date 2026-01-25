@@ -181,32 +181,62 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (!marketplace.api_key_encrypted) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "API key not configured for this marketplace",
-        }),
-        { status: 400, headers: corsHeaders },
-      );
+    // 🔑 Get API credentials from multiple sources (priority order)
+    let clientId: string | null = null;
+    let apiKey: string | null = null;
+
+    // 1️⃣ Try ozon_credentials table first
+    const { data: ozonCreds } = await supabase
+      .from("ozon_credentials")
+      .select("client_id, api_key")
+      .eq("marketplace_id", marketplace_id)
+      .single();
+
+    if (ozonCreds && ozonCreds.client_id && ozonCreds.api_key) {
+      console.log("[sync-ozon] Using credentials from ozon_credentials");
+      clientId = ozonCreds.client_id;
+      apiKey = ozonCreds.api_key;
     }
 
-    const apiKeyEncrypted = String(marketplace.api_key_encrypted);
-
-    if (!apiKeyEncrypted.includes(":")) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Invalid API key format. Expected format: ClientId:ApiKey",
-        }),
-        { status: 400, headers: corsHeaders },
-      );
-    }
-
-    const [clientId, apiKey] = apiKeyEncrypted.split(":");
-
+    // 2️⃣ Try marketplace_api_credentials table
     if (!clientId || !apiKey) {
-      throw new Error("Invalid API key format. Expected: ClientId:ApiKey");
+      const { data: apiCreds } = await supabase
+        .from("marketplace_api_credentials")
+        .select("client_id, client_secret")
+        .eq("marketplace_id", marketplace_id)
+        .eq("api_type", "seller")
+        .single();
+
+      if (apiCreds && apiCreds.client_id && apiCreds.client_secret) {
+        console.log("[sync-ozon] Using credentials from marketplace_api_credentials");
+        clientId = apiCreds.client_id;
+        apiKey = apiCreds.client_secret;
+      }
+    }
+
+    // 3️⃣ Fallback to marketplace.api_key_encrypted
+    if (!clientId || !apiKey) {
+      if (marketplace.api_key_encrypted) {
+        const apiKeyEncrypted = String(marketplace.api_key_encrypted);
+
+        if (apiKeyEncrypted.includes(":")) {
+          const parts = apiKeyEncrypted.split(":");
+          clientId = parts[0];
+          apiKey = parts[1];
+          console.log("[sync-ozon] Using credentials from marketplaces.api_key_encrypted");
+        }
+      }
+    }
+
+    // ❌ No credentials found
+    if (!clientId || !apiKey) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "API key not configured for this marketplace. Please add credentials in Settings.",
+        }),
+        { status: 400, headers: corsHeaders },
+      );
     }
 
     const headers = {
