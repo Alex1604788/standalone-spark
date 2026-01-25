@@ -1,6 +1,6 @@
 /**
  * sync-ozon: Синхронизирует отзывы и вопросы из Ozon API
- * VERSION: 2026-01-16-v2 - Fix duplicate replies: don't reset is_answered if published reply exists
+ * VERSION: 2026-01-25-v3
  *
  * ВАЖНО: Товары должны быть синхронизированы ЗАРАНЕЕ через sync-products!
  * Если товар не найден - отзыв/вопрос будет пропущен с warning.
@@ -11,10 +11,14 @@
  *              Если указано, загружаются только данные за последние N дней.
  *              Если не указано, загружаются все данные.
  *
- * ИСПРАВЛЕНО:
- * - Не сбрасываем is_answered в false для отзывов/вопросов с published replies,
- *   даже если OZON API еще не показывает comments_amount > 0
- * - Это предотвращает повторную генерацию и публикацию ответов
+ * CHANGELOG:
+ * v3 (2026-01-25):
+ * - FIX: Получение credentials из ozon_credentials и marketplace_api_credentials
+ * - FIX: Поиск товаров по offer_id вместо external_id (SKU хранится в offer_id)
+ *
+ * v2 (2026-01-16):
+ * - FIX: Не сбрасываем is_answered в false для отзывов/вопросов с published replies
+ * - Предотвращает повторную генерацию и публикацию дублирующихся ответов
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.58.0";
 
