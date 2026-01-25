@@ -215,8 +215,8 @@ const Reviews = () => {
     }
   };
 
-  // ✅ VERSION: 2026-01-16-v2 - Принудительная синхронизация отзывов и вопросов из OZON (за 7 дней)
-  const triggerSync = async () => {
+  // ✅ VERSION: 2026-01-16-v3 - Принудительная синхронизация отзывов и вопросов из OZON
+  const performSync = async (daysBack: number, description: string) => {
     setIsSyncing(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -244,11 +244,11 @@ const Reviews = () => {
         return;
       }
 
-      console.log("[Reviews] Starting manual sync for", marketplaces.length, "marketplaces");
+      console.log(`[Reviews] Starting manual sync (${daysBack} days) for`, marketplaces.length, "marketplaces");
 
       toast({
         title: "Запуск синхронизации...",
-        description: `Загружаем отзывы и вопросы из OZON для ${marketplaces.length} магазина(ов)`,
+        description: `${description} для ${marketplaces.length} магазина(ов)`,
       });
 
       let totalSuccess = 0;
@@ -261,7 +261,7 @@ const Reviews = () => {
         const { data, error } = await supabase.functions.invoke("sync-ozon", {
           body: {
             marketplace_id: mp.id,
-            days_back: 7  // Синхронизация за последние 7 дней
+            days_back: daysBack
           }
         });
 
@@ -306,6 +306,16 @@ const Reviews = () => {
     } finally {
       setIsSyncing(false);
     }
+  };
+
+  // Синхронизация за 7 дней
+  const triggerSync = async () => {
+    await performSync(7, "Загружаем отзывы и вопросы за 7 дней");
+  };
+
+  // Синхронизация за 14 дней (полная)
+  const triggerSyncFull = async () => {
+    await performSync(14, "Загружаем отзывы и вопросы за 14 дней");
   };
 
   // ✅ Функция для обновления статуса процесса отправки
@@ -878,10 +888,19 @@ const Reviews = () => {
                 variant="outline"
                 onClick={triggerSync}
                 disabled={isSyncing}
-                title="Загрузить новые отзывы и вопросы из OZON API"
+                title="Загрузить новые отзывы и вопросы из OZON API за последние 7 дней"
               >
                 <Download className={`w-4 h-4 mr-2 ${isSyncing ? "animate-bounce" : ""}`} />
                 {isSyncing ? "Синхронизация..." : "Синхронизировать"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={triggerSyncFull}
+                disabled={isSyncing}
+                title="Полная синхронизация: загрузить отзывы и вопросы за последние 14 дней"
+              >
+                <Download className={`w-4 h-4 mr-2 ${isSyncing ? "animate-bounce" : ""}`} />
+                {isSyncing ? "Синхронизация..." : "Синхронизация за 14 дней"}
               </Button>
               <Button
                 variant="outline"
