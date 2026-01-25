@@ -24,3 +24,4 @@ dist-ssr
 *.sw?
 LICENSE
 supabase/.temp/
+.env
