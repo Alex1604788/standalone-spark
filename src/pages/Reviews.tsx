@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ChevronLeft, ChevronRight, Loader2, RefreshCw, Sparkles, Search, Send, Clock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, RefreshCw, Sparkles, Search, Send, Clock, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/integrations/supabase/client";
@@ -55,6 +55,7 @@ const Reviews = () => {
   const [replyMethod, setReplyMethod] = useState<"template" | "ai">("template");
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [isTableLoading, setIsTableLoading] = useState(false);
 
   const [scheduleMode, setScheduleMode] = useState<"now" | "later">("now");
@@ -213,6 +214,109 @@ const Reviews = () => {
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  // ✅ VERSION: 2026-01-16-v3 - Принудительная синхронизация отзывов и вопросов из OZON
+  const performSync = async (daysBack: number, description: string) => {
+    setIsSyncing(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setIsSyncing(false);
+        return;
+      }
+
+      // Получаем активные OZON маркетплейсы с режимом API
+      const { data: marketplaces, error: mpError } = await supabase
+        .from("marketplaces")
+        .select("id, name, type, sync_mode")
+        .eq("user_id", user.id)
+        .eq("type", "ozon")
+        .eq("sync_mode", "api")
+        .eq("is_active", true);
+
+      if (mpError || !marketplaces?.length) {
+        toast({
+          title: "Ошибка",
+          description: "Не найдено активных маркетплейсов с API-режимом",
+          variant: "destructive",
+        });
+        setIsSyncing(false);
+        return;
+      }
+
+      console.log(`[Reviews] Starting manual sync (${daysBack} days) for`, marketplaces.length, "marketplaces");
+
+      toast({
+        title: "Запуск синхронизации...",
+        description: `${description} для ${marketplaces.length} магазина(ов)`,
+      });
+
+      let totalSuccess = 0;
+      let totalErrors = 0;
+
+      // Синхронизируем каждый маркетплейс
+      for (const mp of marketplaces) {
+        console.log("[Reviews] Syncing marketplace:", mp.id, mp.name);
+
+        const { data, error } = await supabase.functions.invoke("sync-ozon", {
+          body: {
+            marketplace_id: mp.id,
+            days_back: daysBack
+          }
+        });
+
+        if (error) {
+          console.error("[Reviews] Sync error for marketplace", mp.id, ":", error);
+          totalErrors++;
+        } else {
+          console.log("[Reviews] Sync result for marketplace", mp.id, ":", data);
+          if (data?.success) {
+            totalSuccess++;
+          } else {
+            totalErrors++;
+          }
+        }
+      }
+
+      // Обновляем список после синхронизации
+      await fetchReviews();
+      await fetchQuestions();
+      window.dispatchEvent(new Event("reviews-updated"));
+
+      // Показываем результат
+      if (totalSuccess > 0) {
+        toast({
+          title: "Синхронизация завершена",
+          description: `Успешно: ${totalSuccess} из ${marketplaces.length} магазинов${totalErrors > 0 ? `. Ошибки: ${totalErrors}` : ""}`,
+        });
+      } else {
+        toast({
+          title: "Ошибка синхронизации",
+          description: "Не удалось синхронизировать ни один магазин",
+          variant: "destructive",
+        });
+      }
+    } catch (e) {
+      console.error("[Reviews] Sync error:", e);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось запустить синхронизацию",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Синхронизация за 7 дней
+  const triggerSync = async () => {
+    await performSync(7, "Загружаем отзывы и вопросы за 7 дней");
+  };
+
+  // Синхронизация за 14 дней (полная)
+  const triggerSyncFull = async () => {
+    await performSync(14, "Загружаем отзывы и вопросы за 14 дней");
   };
 
   // ✅ Функция для обновления статуса процесса отправки
@@ -800,6 +904,24 @@ const Reviews = () => {
               >
                 <Sparkles className={`w-4 h-4 mr-2 ${isGenerating ? "animate-spin" : ""}`} />
                 {isGenerating ? "Генерация..." : "Автогенерация ответов"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={triggerSync}
+                disabled={isSyncing}
+                title="Загрузить новые отзывы и вопросы из OZON API за последние 7 дней"
+              >
+                <Download className={`w-4 h-4 mr-2 ${isSyncing ? "animate-bounce" : ""}`} />
+                {isSyncing ? "Синхронизация..." : "Синхронизировать"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={triggerSyncFull}
+                disabled={isSyncing}
+                title="Полная синхронизация: загрузить отзывы и вопросы за последние 14 дней"
+              >
+                <Download className={`w-4 h-4 mr-2 ${isSyncing ? "animate-bounce" : ""}`} />
+                {isSyncing ? "Синхронизация..." : "Синхронизация за 14 дней"}
               </Button>
               <Button
                 variant="outline"

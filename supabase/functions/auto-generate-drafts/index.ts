@@ -1,3 +1,12 @@
+/**
+ * auto-generate-drafts: Автоматическая генерация ответов на отзывы и вопросы
+ * VERSION: 2026-01-16-v1 - Fix duplicate replies: check for existing replies before generation
+ *
+ * ИСПРАВЛЕНО:
+ * - Возвращена проверка на существование replies (published/publishing/scheduled) перед созданием нового
+ * - Проверка защищает от повторной генерации даже если segment не обновился
+ * - Для вопросов также добавлена проверка статусов (раньше проверяли только существование)
+ */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -149,9 +158,20 @@ serve(async (req) => {
     // Generate drafts for reviews
     for (const review of reviews || []) {
       try {
-        // ✅ УБИРАЕМ проверку на existingReply - если segment = 'unanswered', значит replies нет
-        // Это ускоряет обработку и убирает лишние запросы к БД
-        // Проверка была избыточной, т.к. segment уже учитывает наличие replies
+        // 🔒 ЗАЩИТА: Проверяем что reply не существует (дополнительная защита)
+        // Даже если segment = 'unanswered', могут быть крайние случаи (например,
+        // reply был опубликован но OZON еще не обновил comments_amount, и segment не обновился)
+        const { data: existingReply } = await supabase
+          .from("replies")
+          .select("id, status")
+          .eq("review_id", review.id)
+          .in("status", ["published", "publishing", "scheduled"])
+          .limit(1);
+
+        if (existingReply && existingReply.length > 0) {
+          console.log(`[auto-generate-drafts] Skip review ${review.id}: reply exists (status: ${existingReply[0].status})`);
+          continue;
+        }
 
         const reviewText = [review.text, review.advantages, review.disadvantages]
           .filter(Boolean)
@@ -314,15 +334,16 @@ ${review.rating <= 2 ? "- Вежливо извиниться за негати�
 
         for (const question of questions || []) {
           try {
-            // Check no reply exists
+            // 🔒 ЗАЩИТА: Проверяем что reply не существует
             const { data: existingReply } = await supabase
               .from("replies")
-              .select("id")
+              .select("id, status")
               .eq("question_id", question.id)
+              .in("status", ["published", "publishing", "scheduled"])
               .limit(1);
 
             if (existingReply && existingReply.length > 0) {
-              console.log(`[auto-generate-drafts] Skip question ${question.id}: reply exists`);
+              console.log(`[auto-generate-drafts] Skip question ${question.id}: reply exists (status: ${existingReply[0].status})`);
               continue;
             }
 
