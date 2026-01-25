@@ -912,7 +912,7 @@ const Reviews = () => {
                 title="Загрузить новые отзывы и вопросы из OZON API за последние 7 дней"
               >
                 <Download className={`w-4 h-4 mr-2 ${isSyncing ? "animate-bounce" : ""}`} />
-                {isSyncing ? "Синхронизация..." : "Синхронизировать"}
+                {isSyncing ? "Синхронизация..." : "Синхронизация 7 дней"}
               </Button>
               <Button
                 variant="outline"
@@ -921,7 +921,7 @@ const Reviews = () => {
                 title="Полная синхронизация: загрузить отзывы и вопросы за последние 14 дней"
               >
                 <Download className={`w-4 h-4 mr-2 ${isSyncing ? "animate-bounce" : ""}`} />
-                {isSyncing ? "Синхронизация..." : "14 дней"}
+                {isSyncing ? "Синхронизация..." : "Синхронизация 14 дней"}
               </Button>
               <Button
                 variant="outline"
