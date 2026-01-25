@@ -891,12 +891,12 @@ const Reviews = () => {
     <div className="min-h-screen bg-gray-50/50 pb-20">
       <div className="container mx-auto p-6 space-y-6">
         <div className="flex flex-col gap-3">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col gap-3 lg:flex-row lg:justify-between lg:items-center">
             <div className="flex items-center gap-2">
               <h1 className="text-3xl font-bold text-gray-900">Отзывы и вопросы</h1>
               <HelpIcon content="Раздел для управления отзывами и вопросами покупателей.\n\nСтатусы отзывов:\n• Не отвечено - новые отзывы без ответов\n• Ожидают публикации - ответы созданы и отправляются\n• Архив - отзывы с опубликованными ответами\n\nВы можете:\n• Выбрать несколько отзывов и отправить ответы массово\n• Открыть отзыв и ответить вручную\n• Использовать ИИ для генерации ответа\n• Запустить автоматическую генерацию ответов" />
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
                 onClick={triggerAutoGenerate}
@@ -921,7 +921,7 @@ const Reviews = () => {
                 title="Полная синхронизация: загрузить отзывы и вопросы за последние 14 дней"
               >
                 <Download className={`w-4 h-4 mr-2 ${isSyncing ? "animate-bounce" : ""}`} />
-                {isSyncing ? "Синхронизация..." : "Синхронизация за 14 дней"}
+                {isSyncing ? "Синхронизация..." : "14 дней"}
               </Button>
               <Button
                 variant="outline"

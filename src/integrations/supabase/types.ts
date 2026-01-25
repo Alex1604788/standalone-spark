@@ -3142,6 +3142,7 @@ export type Database = {
       ozon_performance_summary: {
         Row: {
           add_to_cart: number | null
+          add_to_cart_conversion: number | null
           avg_bill: number | null
           avg_order_value: number | null
           campaign_id: string | null
@@ -3152,6 +3153,7 @@ export type Database = {
           cpc: number | null
           ctr: number | null
           drr: number | null
+          favorites: number | null
           id: string | null
           import_batch_id: string | null
           imported_at: string | null
@@ -3171,6 +3173,7 @@ export type Database = {
         }
         Insert: {
           add_to_cart?: number | null
+          add_to_cart_conversion?: number | null
           avg_bill?: number | null
           avg_order_value?: never
           campaign_id?: string | null
@@ -3181,6 +3184,7 @@ export type Database = {
           cpc?: never
           ctr?: never
           drr?: never
+          favorites?: number | null
           id?: string | null
           import_batch_id?: string | null
           imported_at?: string | null
@@ -3200,6 +3204,7 @@ export type Database = {
         }
         Update: {
           add_to_cart?: number | null
+          add_to_cart_conversion?: number | null
           avg_bill?: number | null
           avg_order_value?: never
           campaign_id?: string | null
@@ -3210,6 +3215,7 @@ export type Database = {
           cpc?: never
           ctr?: never
           drr?: never
+          favorites?: number | null
           id?: string | null
           import_batch_id?: string | null
           imported_at?: string | null
@@ -3438,104 +3444,6 @@ export type Database = {
           },
         ]
       }
-      ozon_performance_summary: {
-        Row: {
-          id: string
-          marketplace_id: string
-          stat_date: string
-          sku: string
-          offer_id: string | null
-          campaign_id: string
-          campaign_name: string | null
-          campaign_type: string | null
-          money_spent: number | null
-          views: number | null
-          clicks: number | null
-          orders: number | null
-          orders_model: number | null
-          revenue: number | null
-          revenue_model: number | null
-          add_to_cart: number | null
-          avg_bill: number | null
-          total_orders: number | null
-          total_revenue: number | null
-          ctr: number | null
-          cpc: number | null
-          conversion: number | null
-          drr: number | null
-          roi: number | null
-          avg_order_value: number | null
-          imported_at: string
-          import_batch_id: string | null
-        }
-        Insert: {
-          id?: string
-          marketplace_id: string
-          stat_date: string
-          sku: string
-          offer_id?: string | null
-          campaign_id: string
-          campaign_name?: string | null
-          campaign_type?: string | null
-          money_spent?: number | null
-          views?: number | null
-          clicks?: number | null
-          orders?: number | null
-          orders_model?: number | null
-          revenue?: number | null
-          revenue_model?: number | null
-          add_to_cart?: number | null
-          avg_bill?: number | null
-          total_orders?: number | null
-          total_revenue?: number | null
-          ctr?: number | null
-          cpc?: number | null
-          conversion?: number | null
-          drr?: number | null
-          roi?: number | null
-          avg_order_value?: number | null
-          imported_at?: string
-          import_batch_id?: string | null
-        }
-        Update: {
-          id?: string
-          marketplace_id?: string
-          stat_date?: string
-          sku?: string
-          offer_id?: string | null
-          campaign_id?: string
-          campaign_name?: string | null
-          campaign_type?: string | null
-          money_spent?: number | null
-          views?: number | null
-          clicks?: number | null
-          orders?: number | null
-          orders_model?: number | null
-          revenue?: number | null
-          revenue_model?: number | null
-          add_to_cart?: number | null
-          avg_bill?: number | null
-          total_orders?: number | null
-          total_revenue?: number | null
-          ctr?: number | null
-          cpc?: number | null
-          conversion?: number | null
-          drr?: number | null
-          roi?: number | null
-          avg_order_value?: number | null
-          imported_at?: string
-          import_batch_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ozon_performance_daily_marketplace_id_fkey"
-            columns: ["marketplace_id"]
-            isOneToOne: false
-            referencedRelation: "marketplaces"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       promotion_costs_aggregated: {
         Row: {
           avg_conversion: number | null
@@ -3588,6 +3496,64 @@ export type Database = {
         Args: { p_marketplace_id: string; p_rate_limit?: number }
         Returns: boolean
       }
+      cleanup_ai_reply_history: {
+        Args: never
+        Returns: {
+          batches_processed: number
+          deleted_count: number
+          total_time_ms: number
+        }[]
+      }
+      cleanup_audit_log_urgent: { Args: never; Returns: number }
+      cleanup_consent_logs: {
+        Args: never
+        Returns: {
+          batches_processed: number
+          deleted_count: number
+          total_time_ms: number
+        }[]
+      }
+      cleanup_cron_job_run_details: {
+        Args: never
+        Returns: {
+          batches_processed: number
+          deleted_count: number
+          total_time_ms: number
+        }[]
+      }
+      cleanup_fallback_action_logs: {
+        Args: never
+        Returns: {
+          batches_processed: number
+          deleted_count: number
+          total_time_ms: number
+        }[]
+      }
+      cleanup_import_logs: {
+        Args: never
+        Returns: {
+          batches_processed: number
+          deleted_count: number
+          total_time_ms: number
+        }[]
+      }
+      cleanup_logs_ai: {
+        Args: never
+        Returns: {
+          batches_processed: number
+          deleted_count: number
+          total_time_ms: number
+        }[]
+      }
+      cleanup_ozon_sync_history: {
+        Args: never
+        Returns: {
+          batches_processed: number
+          deleted_count: number
+          total_time_ms: number
+        }[]
+      }
+      delete_1k_drafted: { Args: never; Returns: number }
       find_offer_id_by_sku: {
         Args: { p_marketplace_id: string; p_sku: string }
         Returns: string
