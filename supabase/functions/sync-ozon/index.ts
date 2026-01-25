@@ -181,32 +181,63 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (!marketplace.api_key_encrypted) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "API key not configured for this marketplace",
-        }),
-        { status: 400, headers: corsHeaders },
-      );
+    // Try to get credentials from multiple sources
+    let clientId: string | null = null;
+    let apiKey: string | null = null;
+
+    // 1. Try ozon_credentials table first (primary source)
+    const { data: ozonCreds } = await supabase
+      .from("ozon_credentials")
+      .select("client_id, api_key")
+      .eq("marketplace_id", marketplace_id)
+      .eq("status", "active")
+      .maybeSingle();
+
+    if (ozonCreds?.client_id && ozonCreds?.api_key) {
+      clientId = ozonCreds.client_id;
+      apiKey = ozonCreds.api_key;
+      console.log("[sync-ozon] Using credentials from ozon_credentials table");
     }
 
-    const apiKeyEncrypted = String(marketplace.api_key_encrypted);
-
-    if (!apiKeyEncrypted.includes(":")) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Invalid API key format. Expected format: ClientId:ApiKey",
-        }),
-        { status: 400, headers: corsHeaders },
-      );
-    }
-
-    const [clientId, apiKey] = apiKeyEncrypted.split(":");
-
+    // 2. If not found, try marketplace_api_credentials table
     if (!clientId || !apiKey) {
-      throw new Error("Invalid API key format. Expected: ClientId:ApiKey");
+      const { data: apiCreds } = await supabase
+        .from("marketplace_api_credentials")
+        .select("client_id, client_secret")
+        .eq("marketplace_id", marketplace_id)
+        .eq("api_type", "seller")
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (apiCreds?.client_id && apiCreds?.client_secret) {
+        clientId = apiCreds.client_id;
+        apiKey = apiCreds.client_secret;
+        console.log("[sync-ozon] Using credentials from marketplace_api_credentials table");
+      }
+    }
+
+    // 3. Fallback to api_key_encrypted field in marketplaces table
+    if (!clientId || !apiKey) {
+      if (marketplace.api_key_encrypted) {
+        const apiKeyEncrypted = String(marketplace.api_key_encrypted);
+        if (apiKeyEncrypted.includes(":")) {
+          const parts = apiKeyEncrypted.split(":");
+          clientId = parts[0];
+          apiKey = parts[1];
+          console.log("[sync-ozon] Using credentials from marketplaces.api_key_encrypted");
+        }
+      }
+    }
+
+    // If still no credentials found, return error
+    if (!clientId || !apiKey) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "API key not configured for this marketplace. Please add Ozon API credentials in settings.",
+        }),
+        { status: 400, headers: corsHeaders },
+      );
     }
 
     const headers = {
