@@ -1,6 +1,6 @@
 /**
  * sync-ozon: Синхронизирует отзывы и вопросы из Ozon API
- * VERSION: 2026-01-25-v7
+ * VERSION: 2026-01-25-v8
  *
  * ВАЖНО: Товары должны быть синхронизированы ЗАРАНЕЕ через sync-products!
  * Если товар не найден - отзыв/вопрос будет пропущен с warning.
@@ -12,9 +12,12 @@
  *              Если не указано, загружаются все данные.
  *
  * CHANGELOG:
+ * v8 (2026-01-25):
+ * - FIX: Добавлена проверка пустого массива перед .in() для questions
+ * - Предотвращает прерывание синхронизации если нет published replies для вопросов
+ *
  * v7 (2026-01-25):
- * - FIX: Убран некорректный фильтр marketplace_id для questions (у них нет этого поля)
- * - Исправлена синхронизация вопросов - теперь работает
+ * - FIX: Убран некорректный фильтр marketplace_id для questions
  *
  * v6 (2026-01-25):
  * - FIX: Добавлен marketplace_id в upsert reviews
@@ -410,14 +413,19 @@ Deno.serve(async (req) => {
       publishedQuestionReplies?.map(r => r.question_id).filter(Boolean) || []
     );
 
-    const { data: questionsWithPublished } = await supabase
-      .from("questions")
-      .select("external_id, product_id")
-      .in("id", Array.from(publishedQuestionIds));
+    let publishedQuestionsSet = new Set<string>();
 
-    const publishedQuestionsSet = new Set(
-      questionsWithPublished?.map(q => q.external_id) || []
-    );
+    if (publishedQuestionIds.size > 0) {
+      const { data: questionsWithPublished } = await supabase
+        .from("questions")
+        .select("external_id, product_id")
+        .in("id", Array.from(publishedQuestionIds));
+
+      publishedQuestionsSet = new Set(
+        questionsWithPublished?.map(q => q.external_id) || []
+      );
+    }
+
     console.log(`[sync-ozon] Found ${publishedQuestionsSet.size} questions with published replies`);
 
     // Sync questions
