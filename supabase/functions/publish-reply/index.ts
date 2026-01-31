@@ -1,9 +1,16 @@
 /**
  * publish-reply: Публикует ответ на отзыв или вопрос
- * VERSION: 2026-01-31-v1
+ * VERSION: 2026-01-31-v2
  *
- * FIX: Убран !inner JOIN для reviews и questions (они взаимоисключающие)
- * Теперь используется LEFT JOIN - один из них будет NULL
+ * CHANGELOG:
+ * v2 (2026-01-31):
+ * - FIX: SKU проверка перенесена ТОЛЬКО для questions (для reviews SKU не нужен)
+ * - OZON Review API (/v1/review/comment/create) требует: review_id, text
+ * - OZON Question API (/v1/question/answer/create) требует: question_id, sku, text
+ *
+ * v1 (2026-01-31):
+ * - FIX: Убран !inner JOIN для reviews и questions (они взаимоисключающие)
+ * - Теперь используется LEFT JOIN - один из них будет NULL
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.58.0";
 
@@ -150,14 +157,8 @@ Deno.serve(async (req) => {
 
           const cred = ozonCreds[0];
 
-          // Get product SKU for OZON API
-          const product = reply.review?.product || reply.question?.product;
-          if (!product || !product.sku) {
-            throw new Error("Product SKU not found for OZON API");
-          }
-
           if (reply.review_id) {
-            // Publish review comment
+            // Publish review comment (SKU not needed for reviews)
             success = await publishToOzonReview(
               cred.client_id,
               cred.client_secret,
@@ -165,7 +166,12 @@ Deno.serve(async (req) => {
               reply.content,
             );
           } else if (reply.question_id) {
-            // Publish question answer
+            // Publish question answer (SKU required for questions)
+            const product = reply.question?.product;
+            if (!product || !product.sku) {
+              throw new Error("Product SKU not found for OZON question API");
+            }
+
             success = await publishToOzonQuestion(
               cred.client_id,
               cred.client_secret,
