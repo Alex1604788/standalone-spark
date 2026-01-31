@@ -1,8 +1,13 @@
 /**
  * publish-reply: Публикует ответ на отзыв или вопрос
- * VERSION: 2026-01-31-v2
+ * VERSION: 2026-01-31-v3
  *
  * CHANGELOG:
+ * v3 (2026-01-31):
+ * - FIX: Добавлена атомарная блокировка для предотвращения DUPLICATE_IN_BATCH
+ * - UPDATE status='publishing' WHERE status='scheduled' гарантирует что только 1 процесс обработает reply
+ * - Защита от race condition при параллельной обработке в process-scheduled-replies
+ *
  * v2 (2026-01-31):
  * - FIX: SKU проверка перенесена ТОЛЬКО для questions (для reviews SKU не нужен)
  * - OZON Review API (/v1/review/comment/create) требует: review_id, text
@@ -39,6 +44,26 @@ Deno.serve(async (req) => {
 
     const { reply_id } = await req.json();
     console.log("Processing reply:", reply_id);
+
+    // 🔒 ATOMIC LOCK: Пытаемся захватить reply, изменив статус на "publishing"
+    // Только ОДИН запрос успешно обновит статус, остальные получат 0 rows
+    const { data: lockResult, error: lockError } = await supabase
+      .from("replies")
+      .update({ status: "publishing" })
+      .eq("id", reply_id)
+      .eq("status", "scheduled") // ← Критически важно! Обновляем только если scheduled
+      .is("deleted_at", null)
+      .select("id");
+
+    if (lockError || !lockResult || lockResult.length === 0) {
+      console.log(`[publish-reply] Reply ${reply_id} already being processed or not scheduled. Skipping.`);
+      return new Response(
+        JSON.stringify({ success: false, message: "Already being processed or not scheduled" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 409 }
+      );
+    }
+
+    console.log(`[publish-reply] Lock acquired for reply ${reply_id}`);
 
     // 1. Получаем данные ответа
     const { data: reply, error: replyError } = await supabase
@@ -129,8 +154,7 @@ Deno.serve(async (req) => {
     // ДАЛЕЕ ИДЕТ СТАРЫЙ КОД ДЛЯ ДРУГИХ МАРКЕТПЛЕЙСОВ (WB, Yandex)
     // Они, видимо, работают через серверное API.
 
-    // Update status to publishing (только для серверной публикации)
-    await supabase.from("replies").update({ status: "publishing" }).eq("id", reply_id);
+    // Status already set to "publishing" by atomic lock above
 
     const externalId = reply.review?.external_id || reply.question?.external_id;
     if (!externalId) {
