@@ -1,3 +1,10 @@
+/**
+ * publish-reply: Публикует ответ на отзыв или вопрос
+ * VERSION: 2026-01-31-v1
+ *
+ * FIX: Убран !inner JOIN для reviews и questions (они взаимоисключающие)
+ * Теперь используется LEFT JOIN - один из них будет NULL
+ */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.58.0";
 
 const corsHeaders = {
@@ -32,8 +39,8 @@ Deno.serve(async (req) => {
       .select(
         `
         *,
-        review:reviews!inner(id, external_id, product:products(external_id, marketplace:marketplaces(*))),
-        question:questions!inner(id, external_id, product:products(external_id, marketplace:marketplaces(*)))
+        review:reviews(id, external_id, product:products(external_id, marketplace:marketplaces(*))),
+        question:questions(id, external_id, product:products(external_id, marketplace:marketplaces(*)))
       `,
       )
       .eq("id", reply_id)
