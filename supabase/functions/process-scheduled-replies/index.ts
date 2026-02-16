@@ -1,3 +1,10 @@
+/**
+ * process-scheduled-replies: Автоматически публикует scheduled replies
+ * VERSION: 2026-01-31-v1
+ *
+ * FIX: Убран фильтр исключающий OZON
+ * Теперь OZON replies публикуются автоматически через API (не через расширение)
+ */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.58.0';
 
 const corsHeaders = {
@@ -17,10 +24,8 @@ Deno.serve(async (req) => {
 
     console.log('Processing scheduled replies...');
 
-    // ✅ ИСПРАВЛЕНИЕ: Для Ozon публикация идет через расширение браузера, 
-    // поэтому process-scheduled-replies должен обрабатывать только НЕ-Ozon маркетплейсы
-    // Find all replies that should be published now (excluding Ozon)
-    const { data: allScheduledReplies, error: fetchError } = await supabase
+    // Find all replies that should be published now
+    const { data: scheduledReplies, error: fetchError } = await supabase
       .from('replies')
       .select(`
         id,
@@ -31,18 +36,13 @@ Deno.serve(async (req) => {
       .is('deleted_at', null)
       .lte('scheduled_at', new Date().toISOString())
       .order('scheduled_at', { ascending: true })
-      .limit(100); // Берем больше, потом отфильтруем
+      .limit(50);
 
     if (fetchError) {
       throw fetchError;
     }
 
-    // Фильтруем: исключаем Ozon (для него публикация через расширение)
-    const scheduledReplies = (allScheduledReplies || []).filter(
-      (reply: any) => reply.marketplace?.type !== 'ozon'
-    ).slice(0, 50); // Ограничиваем до 50
-
-    console.log(`Found ${scheduledReplies?.length || 0} replies to publish (excluding Ozon)`);
+    console.log(`Found ${scheduledReplies?.length || 0} replies to publish`);
 
     if (!scheduledReplies || scheduledReplies.length === 0) {
       return new Response(

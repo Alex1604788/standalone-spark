@@ -1,6 +1,6 @@
 /**
  * sync-ozon: Синхронизирует отзывы и вопросы из Ozon API
- * VERSION: 2026-01-25-v3
+ * VERSION: 2026-01-25-v8
  *
  * ВАЖНО: Товары должны быть синхронизированы ЗАРАНЕЕ через sync-products!
  * Если товар не найден - отзыв/вопрос будет пропущен с warning.
@@ -12,13 +12,24 @@
  *              Если не указано, загружаются все данные.
  *
  * CHANGELOG:
- * v3 (2026-01-25):
- * - FIX: Получение credentials из ozon_credentials и marketplace_api_credentials
- * - FIX: Поиск товаров по offer_id вместо external_id (SKU хранится в offer_id)
+ * v8 (2026-01-25):
+ * - FIX: Добавлена проверка пустого массива перед .in() для questions
+ * - Предотвращает прерывание синхронизации если нет published replies для вопросов
+ *
+ * v7 (2026-01-25):
+ * - FIX: Убран некорректный фильтр marketplace_id для questions
+ *
+ * v6 (2026-01-25):
+ * - FIX: Добавлен marketplace_id в upsert reviews
+ *
+ * v5 (2026-01-25):
+ * - FIX: Добавлен fallback "Аноним" для пустого author_name
+ *
+ * v4 (2026-01-25):
+ * - FIX: Поиск товаров по полю sku (артикул OZON)
  *
  * v2 (2026-01-16):
- * - FIX: Не сбрасываем is_answered в false для отзывов/вопросов с published replies
- * - Предотвращает повторную генерацию и публикацию дублирующихся ответов
+ * - FIX: Защита от дублей replies
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.58.0";
 
@@ -338,7 +349,7 @@ Deno.serve(async (req) => {
               .from("products")
               .select("id")
               .eq("marketplace_id", marketplace_id)
-              .eq("offer_id", review.sku.toString())
+              .eq("sku", review.sku.toString())
               .maybeSingle();
 
             let productId = product?.id;
@@ -358,7 +369,8 @@ Deno.serve(async (req) => {
               {
                 external_id: review.id,
                 product_id: productId,
-                author_name: review.author_name,
+                marketplace_id: marketplace_id,
+                author_name: review.author_name || "Аноним",
                 text: review.text || "",
                 advantages: review.advantages,
                 disadvantages: review.disadvantages,
@@ -401,15 +413,19 @@ Deno.serve(async (req) => {
       publishedQuestionReplies?.map(r => r.question_id).filter(Boolean) || []
     );
 
-    const { data: questionsWithPublished } = await supabase
-      .from("questions")
-      .select("external_id")
-      .eq("marketplace_id", marketplace_id)
-      .in("id", Array.from(publishedQuestionIds));
+    let publishedQuestionsSet = new Set<string>();
 
-    const publishedQuestionsSet = new Set(
-      questionsWithPublished?.map(q => q.external_id) || []
-    );
+    if (publishedQuestionIds.size > 0) {
+      const { data: questionsWithPublished } = await supabase
+        .from("questions")
+        .select("external_id, product_id")
+        .in("id", Array.from(publishedQuestionIds));
+
+      publishedQuestionsSet = new Set(
+        questionsWithPublished?.map(q => q.external_id) || []
+      );
+    }
+
     console.log(`[sync-ozon] Found ${publishedQuestionsSet.size} questions with published replies`);
 
     // Sync questions
@@ -454,7 +470,7 @@ Deno.serve(async (req) => {
               .from("products")
               .select("id")
               .eq("marketplace_id", marketplace_id)
-              .eq("offer_id", question.sku.toString())
+              .eq("sku", question.sku.toString())
               .maybeSingle();
 
             let productId = product?.id;
@@ -473,8 +489,8 @@ Deno.serve(async (req) => {
               {
                 external_id: question.id,
                 product_id: productId,
-                author_name: question.author_name,
-                text: question.text,
+                author_name: question.author_name || "Аноним",
+                text: question.text || "",
                 question_date: question.published_at,
                 is_answered: isQuestionAnswered,
               },
