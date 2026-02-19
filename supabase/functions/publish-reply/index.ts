@@ -1,8 +1,12 @@
 /**
  * publish-reply: Публикует ответ на отзыв или вопрос
- * VERSION: 2026-01-31-v3
+ * VERSION: 2026-02-19-v4
  *
  * CHANGELOG:
+ * v4 (2026-02-19):
+ * - FIX: Добавлен sku в SELECT query для products (OZON вопросы всегда падали с "Product SKU not found")
+ * - FIX: Catch блок теперь сбрасывает статус в 'failed' если ошибка возникла после захвата атомарной блокировки
+ *
  * v3 (2026-01-31):
  * - FIX: Добавлена атомарная блокировка для предотвращения DUPLICATE_IN_BATCH
  * - UPDATE status='publishing' WHERE status='scheduled' гарантирует что только 1 процесс обработает reply
@@ -37,12 +41,16 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let supabase: ReturnType<typeof createClient> | null = null;
+  let reply_id: string | null = null;
+  let lockAcquired = false;
+
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { reply_id } = await req.json();
+    ({ reply_id } = await req.json());
     console.log("Processing reply:", reply_id);
 
     // 🔒 ATOMIC LOCK: Пытаемся захватить reply, изменив статус на "publishing"
@@ -63,6 +71,7 @@ Deno.serve(async (req) => {
       );
     }
 
+    lockAcquired = true;
     console.log(`[publish-reply] Lock acquired for reply ${reply_id}`);
 
     // 1. Получаем данные ответа
@@ -71,8 +80,8 @@ Deno.serve(async (req) => {
       .select(
         `
         *,
-        review:reviews(id, external_id, product:products(external_id, marketplace:marketplaces(*))),
-        question:questions(id, external_id, product:products(external_id, marketplace:marketplaces(*)))
+        review:reviews(id, external_id, product:products(external_id, sku, marketplace:marketplaces(*))),
+        question:questions(id, external_id, product:products(external_id, sku, marketplace:marketplaces(*)))
       `,
       )
       .eq("id", reply_id)
@@ -288,6 +297,18 @@ Deno.serve(async (req) => {
     }
   } catch (error) {
     console.error("Error in publish-reply:", error);
+    // 🔒 FIX: Если блокировка была захвачена, сбрасываем статус в 'failed'
+    // Иначе reply зависнет в 'publishing' до истечения 10-минутного таймаута в process-scheduled-replies
+    if (lockAcquired && supabase && reply_id) {
+      await supabase
+        .from("replies")
+        .update({
+          status: "failed",
+          error_message: error instanceof Error ? error.message : "Unknown error",
+        })
+        .eq("id", reply_id);
+      console.log(`[publish-reply] Reply ${reply_id} marked as failed due to unhandled error`);
+    }
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
