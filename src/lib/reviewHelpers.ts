@@ -58,25 +58,42 @@ export const getReplyStatus = (review: ReviewWithDetails) => {
     return { status: "Архив", color: "bg-green-100 text-green-800 border-green-200" };
   }
 
-  const reply = review.replies && review.replies[0];
-  if (!reply) {
+  const replies = review.replies || [];
+  if (replies.length === 0) {
     return { status: "Новый", color: "bg-gray-100 text-gray-800 border-gray-200" };
   }
 
-  switch (reply.status) {
-    case "drafted":
-      return { status: "Черновик", color: "bg-yellow-100 text-yellow-800 border-yellow-200" };
-    case "scheduled":
-      return { status: "В очереди", color: "bg-blue-100 text-blue-800 border-blue-200" };
-    case "publishing":
-      return { status: "Публикация", color: "bg-blue-100 text-blue-800 border-blue-200 animate-pulse" };
-    case "failed":
-      return { status: "Ошибка", color: "bg-red-100 text-red-800 border-red-200", message: "Сбой" };
-    case "published":
-      return { status: "Опубликовано", color: "bg-green-100 text-green-800 border-green-200" };
-    default:
-      return { status: reply.status, color: "bg-gray-100" };
+  // Приоритет статусов: published > failed/retried > publishing > scheduled > drafted
+  // Берём ответ с наивысшим приоритетом, а не просто первый в массиве
+  const findByStatus = (...statuses: string[]) =>
+    replies.find((r) => statuses.includes(r.status));
+
+  const published = findByStatus("published");
+  if (published) {
+    return { status: "Опубликовано", color: "bg-green-100 text-green-800 border-green-200" };
   }
+
+  const failed = findByStatus("failed", "retried");
+  if (failed) {
+    return { status: "Ошибка", color: "bg-red-100 text-red-800 border-red-200" };
+  }
+
+  const publishing = findByStatus("publishing");
+  if (publishing) {
+    return { status: "Публикация", color: "bg-blue-100 text-blue-800 border-blue-200 animate-pulse" };
+  }
+
+  const scheduled = findByStatus("scheduled");
+  if (scheduled) {
+    return { status: "В очереди", color: "bg-blue-100 text-blue-800 border-blue-200" };
+  }
+
+  const drafted = findByStatus("drafted");
+  if (drafted) {
+    return { status: "Черновик", color: "bg-yellow-100 text-yellow-800 border-yellow-200" };
+  }
+
+  return { status: replies[0].status, color: "bg-gray-100" };
 };
 
 export const getReplyText = (review: ReviewWithDetails) => {
