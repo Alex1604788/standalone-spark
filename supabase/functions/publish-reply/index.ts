@@ -112,12 +112,13 @@ Deno.serve(async (req) => {
 
         if (!credentials || credentials.length === 0) {
           console.error("[publish-reply] API credentials not found, falling back to plugin");
-          // Fall back to plugin if no credentials
+          // Fall back to plugin if no credentials — delay 5 min to avoid tight loop in process-scheduled-replies
+          const fiveMinutesLater = new Date(Date.now() + 5 * 60 * 1000).toISOString();
           await supabase
             .from("replies")
             .update({
               status: "scheduled",
-              scheduled_at: new Date().toISOString(),
+              scheduled_at: fiveMinutesLater,
               error_message: null,
               retry_count: 0,
             })
@@ -131,14 +132,15 @@ Deno.serve(async (req) => {
         // Proceed with API publishing (handled below with other marketplaces)
         console.log("[publish-reply] API credentials found, proceeding with API publish");
       } else {
-        // NO PREMIUM: Queue for plugin
+        // NO PREMIUM: Queue for plugin — delay 5 min to avoid tight loop in process-scheduled-replies
         console.log("[publish-reply] Using plugin mode, queuing for extension");
 
+        const fiveMinutesLater = new Date(Date.now() + 5 * 60 * 1000).toISOString();
         await supabase
           .from("replies")
           .update({
             status: "scheduled",
-            scheduled_at: new Date().toISOString(),
+            scheduled_at: fiveMinutesLater,
             error_message: null,
             retry_count: 0,
           })

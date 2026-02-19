@@ -24,6 +24,22 @@ Deno.serve(async (req) => {
 
     console.log('Processing scheduled replies...');
 
+    // 🧹 CLEANUP: Reset replies stuck in 'publishing' for more than 10 minutes back to 'scheduled'
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { data: stuckReplies, error: stuckError } = await supabase
+      .from('replies')
+      .update({ status: 'scheduled', updated_at: new Date().toISOString() })
+      .eq('status', 'publishing')
+      .lt('updated_at', tenMinutesAgo)
+      .is('deleted_at', null)
+      .select('id');
+
+    if (stuckError) {
+      console.error('Error cleaning stuck publishing replies:', stuckError);
+    } else if (stuckReplies && stuckReplies.length > 0) {
+      console.log(`Cleaned up ${stuckReplies.length} stuck publishing replies → scheduled`);
+    }
+
     // Find all replies that should be published now
     const { data: scheduledReplies, error: fetchError } = await supabase
       .from('replies')
