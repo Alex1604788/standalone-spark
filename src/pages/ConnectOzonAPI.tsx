@@ -104,7 +104,7 @@ export default function ConnectOzonAPI() {
         return;
       }
 
-      // 2) Save credentials to ozon_credentials table
+      // 2) Save credentials to ozon_credentials table (primary table for sync-ozon)
       const { error: upsertError } = await supabase
         .from("ozon_credentials")
         .upsert({
@@ -123,6 +123,26 @@ export default function ConnectOzonAPI() {
           variant: "destructive",
         });
         return;
+      }
+
+      // 3) Also save to marketplace_api_credentials (api_type='seller') so that:
+      //    - trigger auto-sets sync_mode = 'api' on the marketplace
+      //    - publish-reply uses API mode instead of plugin mode
+      const { error: apiCredsError } = await supabase
+        .from("marketplace_api_credentials")
+        .upsert({
+          marketplace_id: marketplaceId,
+          api_type: "seller",
+          client_id: clientId,
+          client_secret: apiKey,  // api_key stored as client_secret for publish-reply
+          is_active: true,
+        }, {
+          onConflict: 'marketplace_id,api_type'
+        });
+
+      if (apiCredsError) {
+        // Non-fatal: ozon_credentials saved, but log the error
+        console.error("Failed to save to marketplace_api_credentials:", apiCredsError.message);
       }
 
       setStatus("success");
