@@ -1,4 +1,4 @@
-// VERSION: 2026-01-13-v3 - Fix counters: use 'id' instead of '*' to avoid cache
+// VERSION: 2026-02-19-v4 - Call process-scheduled-replies after auto-generate to trigger immediate publishing
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -186,12 +186,26 @@ const Reviews = () => {
       // Обновляем список после генерации
       fetchReviews();
       window.dispatchEvent(new Event("reviews-updated"));
-      
+
       // ✅ Обновляем статус процесса
       if (totalScheduled > 0) {
         setLastGenerationTime(new Date());
       }
       await updatePublishingStatus();
+
+      // ✅ Запускаем публикацию запланированных ответов немедленно
+      // (не ждём cron job каждую минуту)
+      if (totalScheduled > 0 || totalReactivated > 0) {
+        try {
+          await supabase.functions.invoke("process-scheduled-replies", { body: {} });
+          console.log("[Reviews] process-scheduled-replies triggered after auto-generate");
+        } catch (e) {
+          console.warn("[Reviews] Could not trigger process-scheduled-replies:", e);
+        }
+        // Обновляем статус после запуска публикации
+        await updatePublishingStatus();
+        fetchReviews();
+      }
 
       // Показываем результат
       const messages = [];
