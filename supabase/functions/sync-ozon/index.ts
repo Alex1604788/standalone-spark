@@ -1,6 +1,6 @@
 /**
  * sync-ozon: Синхронизирует отзывы и вопросы из Ozon API
- * VERSION: 2026-01-25-v8
+ * VERSION: 2026-02-19-v9
  *
  * ВАЖНО: Товары должны быть синхронизированы ЗАРАНЕЕ через sync-products!
  * Если товар не найден - отзыв/вопрос будет пропущен с warning.
@@ -12,6 +12,9 @@
  *              Если не указано, загружаются все данные.
  *
  * CHANGELOG:
+ * v9 (2026-02-19):
+ * - FIX: Добавлен marketplace_id в upsert вопросов (без него вопросы не отображались в UI)
+ *
  * v8 (2026-01-25):
  * - FIX: Добавлена проверка пустого массива перед .in() для questions
  * - Предотвращает прерывание синхронизации если нет published replies для вопросов
@@ -488,6 +491,7 @@ Deno.serve(async (req) => {
             const { error: questionError } = await supabase.from("questions").upsert(
               {
                 external_id: question.id,
+                marketplace_id: marketplace_id,
                 product_id: productId,
                 author_name: question.author_name || "Аноним",
                 text: question.text || "",

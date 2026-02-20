@@ -165,7 +165,7 @@ serve(async (req) => {
           .from("replies")
           .select("id, status")
           .eq("review_id", review.id)
-          .in("status", ["published", "publishing", "scheduled"])
+          .in("status", ["published", "publishing", "scheduled", "failed", "retried", "drafted"])
           .limit(1);
 
         if (existingReply && existingReply.length > 0) {

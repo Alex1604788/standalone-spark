@@ -89,6 +89,29 @@ serve(async (req) => {
 
     console.log(`[auto-generate-drafts-cron] Completed: ${totalProcessed} processed, ${totalErrors} errors`);
 
+    // ✅ После генерации черновиков — сразу запускаем публикацию
+    // Это гарантирует что scheduled replies отправятся немедленно, не ожидая следующего запуска cron
+    if (totalProcessed > 0) {
+      try {
+        const processResponse = await fetch(`${supabaseUrl}/functions/v1/process-scheduled-replies`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${supabaseKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({}),
+        });
+        if (processResponse.ok) {
+          const processResult = await processResponse.json();
+          console.log(`[auto-generate-drafts-cron] process-scheduled-replies result:`, processResult);
+        } else {
+          console.warn(`[auto-generate-drafts-cron] process-scheduled-replies failed: ${processResponse.status}`);
+        }
+      } catch (e) {
+        console.warn(`[auto-generate-drafts-cron] Could not trigger process-scheduled-replies:`, e);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         message: "Cron job completed",
