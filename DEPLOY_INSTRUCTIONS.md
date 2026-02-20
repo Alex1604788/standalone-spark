@@ -1,54 +1,54 @@
-# Инструкция по деплою функции auto-generate-drafts
+# Инструкции по деплою изменений
 
-## Способ 1: Через Supabase Dashboard (РЕКОМЕНДУЕТСЯ)
+## Что было добавлено в main
 
-1. Откройте https://supabase.com/dashboard
-2. Выберите проект: `bkmicyguzlwampuindff`
-3. Перейдите в раздел **Edge Functions** (в левом меню)
-4. Найдите функцию **auto-generate-drafts**
-5. Нажмите **Deploy** или **Update**
-6. Скопируйте содержимое файла `supabase/functions/auto-generate-drafts/index.ts`
-7. Вставьте код в редактор и сохраните
+### 1. Новые миграции (нужно применить)
+- `supabase/migrations/20260219000001_migrate_ozon_credentials_to_api_mode.sql`
+- `supabase/migrations/20260219_fix_process_scheduled_replies_cron_url.sql`
+- `supabase/migrations/20260220_create_cleanup_old_reviews_function.sql`
 
-## Способ 2: Через Supabase CLI
+### 2. Изменённые Edge Functions (нужно задеплоить)
+- `auto-generate-drafts-cron`
+- `auto-generate-drafts`
+- `process-scheduled-replies`
+- `publish-reply`
+- `sync-ozon`
 
-### Шаг 1: Проверьте, что вы авторизованы
+### 3. Изменения во фронтенде
+- `src/lib/reviewHelpers.ts`
+- `src/pages/ConnectOzonAPI.tsx`
+- `src/pages/Reviews.tsx`
+
+---
+
+## Вариант 1: Автоматический деплой (рекомендуется)
+
 ```bash
-supabase login
+./AUTO_DEPLOY.sh
 ```
 
-### Шаг 2: Свяжите проект (если еще не связан)
+---
+
+## Вариант 2: Ручной деплой
+
+### Шаг 1: Применить миграции через Supabase Dashboard
+
+1. Откройте SQL Editor: https://supabase.com/dashboard/project/bkmicyguzlwampuindff/editor
+2. Выполните каждую миграцию:
+   - `supabase/migrations/20260219000001_migrate_ozon_credentials_to_api_mode.sql`
+   - `supabase/migrations/20260219_fix_process_scheduled_replies_cron_url.sql`
+   - `supabase/migrations/20260220_create_cleanup_old_reviews_function.sql`
+
+### Шаг 2: Задеплоить Edge Functions
+
 ```bash
-supabase link --project-ref bkmicyguzlwampuindff
+export SUPABASE_ACCESS_TOKEN="sbp_5ff9cb7a1a678a7aad11fb7398dc810695b08a3a"
+
+npx supabase functions deploy auto-generate-drafts-cron --project-ref bkmicyguzlwampuindff
+npx supabase functions deploy auto-generate-drafts --project-ref bkmicyguzlwampuindff
+npx supabase functions deploy process-scheduled-replies --project-ref bkmicyguzlwampuindff --no-verify-jwt
+npx supabase functions deploy publish-reply --project-ref bkmicyguzlwampuindff --no-verify-jwt
+npx supabase functions deploy sync-ozon --project-ref bkmicyguzlwampuindff --no-verify-jwt
 ```
 
-### Шаг 3: Задеплойте функцию
-```bash
-supabase functions deploy auto-generate-drafts
-```
-
-## Способ 3: Через GitHub (автоматический)
-
-Если у вас настроен автоматический деплой через Lovable.dev:
-1. Закоммитьте изменения:
-   ```bash
-   git add -A
-   git commit -m "Fix: Increase processing limit to 200, remove redundant check"
-   git push
-   ```
-2. Lovable.dev автоматически синхронизирует изменения
-
-## Что было изменено:
-
-1. ✅ Увеличен лимит обработки с 100 до **200 отзывов** за запуск
-2. ✅ Убрана избыточная проверка `existingReply` (ускоряет обработку)
-3. ✅ Улучшено логирование для диагностики
-
-## После деплоя:
-
-1. Проверьте логи функции в Supabase Dashboard → Edge Functions → auto-generate-drafts → Logs
-2. Дождитесь следующего запуска cron job (каждые 5 минут)
-3. Проверьте, что отзывы обрабатываются быстрее
-
-
-
+Project Ref: bkmicyguzlwampuindff
