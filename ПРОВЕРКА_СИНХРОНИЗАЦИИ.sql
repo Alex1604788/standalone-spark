@@ -139,7 +139,7 @@ SELECT
   r.is_answered,
   r.segment,
   COUNT(rep.id) as replies_count,
-  STRING_AGG(rep.status, ', ') as reply_statuses
+  STRING_AGG(rep.status::text, ', ') as reply_statuses
 FROM reviews r
 LEFT JOIN replies rep ON rep.review_id = r.id AND rep.deleted_at IS NULL
 WHERE r.deleted_at IS NULL
