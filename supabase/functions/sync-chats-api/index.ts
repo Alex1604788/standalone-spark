@@ -1,5 +1,8 @@
-// VERSION: 2026-01-08-v2 - Fetch active chats from OZON /v3/chat/list
-// BRANCH: claude/setup-ozon-cron-jobs-2qPjk
+// VERSION: 2026-03-03-v3 - Fix critical bugs:
+// 1. historyData.messages (not historyData.result.messages — API has no result wrapper)
+// 2. posting_number taken from chat list, not history
+// 3. unread count uses message.user.type === 'Сustomer' (not message.sender_type)
+// BRANCH: main
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -68,11 +71,12 @@ serve(async (req) => {
       .update({ last_sync_status: 'syncing' })
       .eq('id', marketplace_id);
 
-    let chatsToSync: string[] = [];
+    // chatsToSync: array of { chatId, postingNumber }
+    let chatsToSync: { chatId: string; postingNumber: string }[] = [];
 
     // If specific chat_ids provided, use them
     if (chat_ids && chat_ids.length > 0) {
-      chatsToSync = chat_ids;
+      chatsToSync = chat_ids.map((id: string) => ({ chatId: id, postingNumber: id }));
       console.log(`[sync-chats-api] Syncing ${chatsToSync.length} specific chats`);
     } else {
       // Otherwise, fetch all active chats from OZON API
@@ -91,7 +95,7 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             filter: {
-              chat_status: 'OPENED', // Only active/opened chats
+              chat_status: 'OPENED',
             },
             limit: 100,
             cursor: cursor || undefined,
@@ -109,15 +113,18 @@ serve(async (req) => {
         console.log(`[sync-chats-api] Fetched ${chats.length} chats from OZON API`);
 
         for (const chatData of chats) {
-          if (chatData.chat?.chat_id) {
-            chatsToSync.push(chatData.chat.chat_id);
+          const chatObj = chatData.chat || chatData; // handle both {chat: {...}} and flat structure
+          if (chatObj.chat_id) {
+            chatsToSync.push({
+              chatId: chatObj.chat_id,
+              postingNumber: chatObj.posting_number || chatObj.chat_id,
+            });
           }
         }
 
         cursor = listData.cursor || '';
-        hasMore = listData.has_next && cursor && chats.length > 0;
+        hasMore = !!(listData.has_next && cursor && chats.length > 0);
 
-        // Small delay to avoid rate limits
         if (hasMore) {
           await new Promise(resolve => setTimeout(resolve, 200));
         }
@@ -129,11 +136,12 @@ serve(async (req) => {
     let totalMessages = 0;
     let totalChats = 0;
 
-    for (const chatId of chatsToSync) {
+    for (const { chatId, postingNumber } of chatsToSync) {
       try {
         console.log(`[sync-chats-api] Fetching history for chat ${chatId}`);
 
         // Fetch chat history from OZON API
+        // FIX: /v3/chat/history returns { has_next, messages } — NO result wrapper!
         const historyResponse = await fetch('https://api-seller.ozon.ru/v3/chat/history', {
           method: 'POST',
           headers: {
@@ -143,7 +151,8 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             chat_id: chatId,
-            limit: 1000, // Get all messages
+            direction: 'Forward',
+            limit: 1000,
           }),
         });
 
@@ -153,23 +162,19 @@ serve(async (req) => {
         }
 
         const historyData = await historyResponse.json();
-        const result = historyData.result || {};
-        const messages = result.messages || [];
-        const postingNumber = result.posting_number || chatId;
+
+        // FIX #2: API returns { has_next, messages } — not wrapped in result
+        const messages = historyData.messages || [];
 
         console.log(`[sync-chats-api] Found ${messages.length} messages in chat ${chatId}`);
 
-        if (messages.length === 0) {
-          continue;
-        }
-
-        // Extract context from first message (order_number, product_sku)
-        const firstMessage = messages[0];
-        const context = firstMessage?.context || {};
+        // Extract context from any message that has it (order_number, product_sku)
+        const contextMsg = messages.find((m: any) => m.context?.order_number || m.context?.sku);
+        const context = contextMsg?.context || {};
         const orderNumber = context.order_number || null;
         const productSku = context.sku || null;
 
-        // Upsert chat
+        // Upsert chat — posting_number from list API (FIX #4)
         const { data: chat, error: chatError } = await supabase
           .from('chats')
           .upsert({
@@ -179,7 +184,7 @@ serve(async (req) => {
             order_number: orderNumber,
             product_sku: productSku,
             status: 'active',
-            unread_count: 0, // Will be calculated from messages
+            unread_count: 0, // will be recalculated below
             updated_at: new Date().toISOString(),
           }, {
             onConflict: 'marketplace_id,chat_id',
@@ -200,7 +205,6 @@ serve(async (req) => {
 
         for (const message of messages) {
           try {
-            // Parse message data (can be text or image URLs)
             const messageData = message.data || [];
             const isImage = message.is_image || false;
             const imageUrls = isImage && Array.isArray(messageData) ? messageData : [];
@@ -208,14 +212,18 @@ serve(async (req) => {
               ? messageData.join('\n')
               : (message.text || '');
 
+            // FIX #2: OZON returns user.type === 'Сustomer' (with Cyrillic С) for buyer
+            const isBuyer = message.user?.type === 'Сustomer';
+            const senderType = isBuyer ? 'buyer' : 'seller';
+
             const { error: messageError } = await supabase
               .from('chat_messages')
               .upsert({
                 chat_id: chat.id,
                 message_id: String(message.message_id || message.id),
-                sender_type: message.user?.type === 'Сustomer' ? 'buyer' : (message.sender_type || 'seller'),
-                sender_name: message.user?.id || message.sender_name || null,
-                text: textContent,
+                sender_type: senderType,
+                sender_name: message.user?.id || null,
+                text: textContent || '',
                 is_read: message.is_read || false,
                 is_image: isImage,
                 image_urls: imageUrls.length > 0 ? imageUrls : null,
@@ -232,8 +240,8 @@ serve(async (req) => {
             } else {
               totalMessages++;
 
-              // Count unread buyer messages
-              if (message.sender_type === 'buyer' && !message.is_read) {
+              // FIX #3: use isBuyer (based on user.type) — not raw message.sender_type
+              if (isBuyer && !message.is_read) {
                 unreadCount++;
               }
             }
@@ -242,13 +250,25 @@ serve(async (req) => {
           }
         }
 
-        // Update chat with actual unread count
+        // Update chat with correct unread count and last message info
+        const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+        const lastMsgData = lastMsg?.data || [];
+        const lastMsgText = lastMsg
+          ? (!lastMsg.is_image && lastMsgData.length > 0 ? lastMsgData[0] : (lastMsg.text || ''))
+          : null;
+
         await supabase
           .from('chats')
-          .update({ unread_count: unreadCount })
+          .update({
+            unread_count: unreadCount,
+            ...(lastMsg ? {
+              last_message_text: lastMsgText,
+              last_message_at: lastMsg.created_at || new Date().toISOString(),
+              last_message_from: lastMsg.user?.type === 'Сustomer' ? 'buyer' : 'seller',
+            } : {}),
+          })
           .eq('id', chat.id);
 
-        // Small delay to avoid rate limits
         await new Promise(resolve => setTimeout(resolve, 200));
 
       } catch (err) {

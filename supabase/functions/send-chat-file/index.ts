@@ -34,8 +34,8 @@ serve(async (req) => {
     }
 
     const supabase = createClient(
-      Deno.env.get('OZON_SUPABASE_URL')!,
-      Deno.env.get('OZON_SUPABASE_SERVICE_ROLE_KEY')!
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
     console.log(`[send-chat-file] Sending file to chat ${chat_id}`);
