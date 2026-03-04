@@ -1,8 +1,9 @@
-// VERSION: 2026-03-04-v4 - Fix critical bugs:
+// VERSION: 2026-03-04-v5 - Add batching to prevent timeout:
 // 1. historyData.messages (not historyData.result.messages — API has no result wrapper)
 // 2. posting_number taken from chat list, not history
 // 3. unread count uses message.user.type === 'Сustomer' (not message.sender_type)
 // 4. Accept both snake_case (client_id/api_key) and camelCase (clientId/apiKey) from cron
+// 5. Batch processing: only fetch history for batch_size chats per run (default 30)
 // BRANCH: main
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -13,6 +14,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
+
+const DEFAULT_BATCH_SIZE = 30;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -28,11 +31,11 @@ serve(async (req) => {
 
   try {
     // Accept both snake_case (client_id/api_key) and camelCase (clientId/apiKey)
-    // The cron job in migrations sends camelCase params
     const body = await req.json();
     let { marketplace_id, ozon_seller_id, user_id, chat_ids } = body;
     let client_id = body.client_id || body.clientId;
     let api_key = body.api_key || body.apiKey;
+    const batch_size = body.batch_size || DEFAULT_BATCH_SIZE;
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
@@ -69,7 +72,7 @@ serve(async (req) => {
       );
     }
 
-    console.log(`[sync-chats-api] Starting chats sync for marketplace ${marketplace_id}`);
+    console.log(`[sync-chats-api] Starting chats sync for marketplace ${marketplace_id} (batch_size=${batch_size})`);
 
     // Update status
     await supabase
@@ -86,7 +89,7 @@ serve(async (req) => {
       console.log(`[sync-chats-api] Syncing ${chatsToSync.length} specific chats`);
     } else {
       // Otherwise, fetch all active chats from OZON API
-      console.log(`[sync-chats-api] Fetching all active chats from OZON API`);
+      console.log(`[sync-chats-api] Fetching active chats from OZON API`);
 
       let hasMore = true;
       let cursor = '';
@@ -132,22 +135,58 @@ serve(async (req) => {
         hasMore = !!(listData.has_next && cursor && chats.length > 0);
 
         if (hasMore) {
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
 
-      console.log(`[sync-chats-api] Total chats to sync: ${chatsToSync.length}`);
+      console.log(`[sync-chats-api] Total active chats found: ${chatsToSync.length}`);
     }
+
+    // STEP 1: Quick upsert ALL chat records (no history fetch — fast)
+    let quickUpserted = 0;
+    for (const { chatId, postingNumber } of chatsToSync) {
+      try {
+        await supabase
+          .from('chats')
+          .upsert({
+            marketplace_id,
+            chat_id: chatId,
+            posting_number: postingNumber,
+            status: 'active',
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: 'marketplace_id,chat_id',
+            ignoreDuplicates: false,
+          });
+        quickUpserted++;
+      } catch (_err) {
+        // skip
+      }
+    }
+    console.log(`[sync-chats-api] Quick-upserted ${quickUpserted} chat records`);
+
+    // STEP 2: Fetch message history only for a BATCH of chats
+    // Prioritize chats that haven't been synced (no last_message_at) or oldest synced
+    const { data: chatsNeedingSync } = await supabase
+      .from('chats')
+      .select('id, chat_id, posting_number')
+      .eq('marketplace_id', marketplace_id)
+      .eq('status', 'active')
+      .order('last_message_at', { ascending: true, nullsFirst: true })
+      .limit(batch_size);
+
+    const chatBatch = chatsNeedingSync || [];
+    console.log(`[sync-chats-api] Processing message history for ${chatBatch.length} chats (batch of ${batch_size})`);
 
     let totalMessages = 0;
     let totalChats = 0;
 
-    for (const { chatId, postingNumber } of chatsToSync) {
+    for (const chatRecord of chatBatch) {
       try {
+        const chatId = chatRecord.chat_id;
         console.log(`[sync-chats-api] Fetching history for chat ${chatId}`);
 
         // Fetch chat history from OZON API
-        // FIX: /v3/chat/history returns { has_next, messages } — NO result wrapper!
         const historyResponse = await fetch('https://api-seller.ozon.ru/v3/chat/history', {
           method: 'POST',
           headers: {
@@ -169,7 +208,7 @@ serve(async (req) => {
 
         const historyData = await historyResponse.json();
 
-        // FIX #2: API returns { has_next, messages } — not wrapped in result
+        // API returns { has_next, messages } — not wrapped in result
         const messages = historyData.messages || [];
 
         console.log(`[sync-chats-api] Found ${messages.length} messages in chat ${chatId}`);
@@ -180,28 +219,15 @@ serve(async (req) => {
         const orderNumber = context.order_number || null;
         const productSku = context.sku || null;
 
-        // Upsert chat — posting_number from list API (FIX #4)
-        const { data: chat, error: chatError } = await supabase
-          .from('chats')
-          .upsert({
-            marketplace_id,
-            chat_id: chatId,
-            posting_number: postingNumber,
-            order_number: orderNumber,
-            product_sku: productSku,
-            status: 'active',
-            unread_count: 0, // will be recalculated below
-            updated_at: new Date().toISOString(),
-          }, {
-            onConflict: 'marketplace_id,chat_id',
-            ignoreDuplicates: false,
-          })
-          .select()
-          .single();
-
-        if (chatError || !chat) {
-          console.error(`[sync-chats-api] Error upserting chat ${chatId}:`, chatError);
-          continue;
+        // Update chat with context info
+        if (orderNumber || productSku) {
+          await supabase
+            .from('chats')
+            .update({
+              order_number: orderNumber,
+              product_sku: productSku,
+            })
+            .eq('id', chatRecord.id);
         }
 
         totalChats++;
@@ -218,14 +244,14 @@ serve(async (req) => {
               ? messageData.join('\n')
               : (message.text || '');
 
-            // FIX #2: OZON returns user.type === 'Сustomer' (with Cyrillic С) for buyer
+            // OZON returns user.type === 'Сustomer' (with Cyrillic С) for buyer
             const isBuyer = message.user?.type === 'Сustomer';
             const senderType = isBuyer ? 'buyer' : 'seller';
 
             const { error: messageError } = await supabase
               .from('chat_messages')
               .upsert({
-                chat_id: chat.id,
+                chat_id: chatRecord.id,
                 message_id: String(message.message_id || message.id),
                 sender_type: senderType,
                 sender_name: message.user?.id || null,
@@ -246,7 +272,6 @@ serve(async (req) => {
             } else {
               totalMessages++;
 
-              // FIX #3: use isBuyer (based on user.type) — not raw message.sender_type
               if (isBuyer && !message.is_read) {
                 unreadCount++;
               }
@@ -271,14 +296,18 @@ serve(async (req) => {
               last_message_text: lastMsgText,
               last_message_at: lastMsg.created_at || new Date().toISOString(),
               last_message_from: lastMsg.user?.type === 'Сustomer' ? 'buyer' : 'seller',
-            } : {}),
+            } : {
+              // Even if no messages, update last_message_at so this chat moves to end of queue
+              last_message_at: new Date().toISOString(),
+            }),
           })
-          .eq('id', chat.id);
+          .eq('id', chatRecord.id);
 
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // Reduced delay between chats
+        await new Promise(resolve => setTimeout(resolve, 100));
 
       } catch (err) {
-        console.error(`[sync-chats-api] Error syncing chat ${chatId}:`, err);
+        console.error(`[sync-chats-api] Error syncing chat ${chatRecord.chat_id}:`, err);
       }
     }
 
@@ -293,14 +322,17 @@ serve(async (req) => {
       })
       .eq('id', marketplace_id);
 
-    console.log(`[sync-chats-api] Successfully synchronized ${totalChats} chats with ${totalMessages} messages`);
+    const remaining = chatsToSync.length - chatBatch.length;
+    console.log(`[sync-chats-api] Batch done: ${totalChats} chats, ${totalMessages} messages. ${remaining > 0 ? remaining + ' chats remaining for next run.' : 'All chats synced.'}`);
 
     return new Response(
       JSON.stringify({
         success: true,
         chats_count: totalChats,
+        chats_total: chatsToSync.length,
         messages_count: totalMessages,
-        message: `Синхронизировано ${totalChats} чатов (${totalMessages} сообщений)`,
+        remaining: remaining > 0 ? remaining : 0,
+        message: `Синхронизировано ${totalChats} чатов (${totalMessages} сообщений)${remaining > 0 ? `. Осталось: ${remaining}` : ''}`,
       }),
       { headers: { 'Content-Type': 'application/json', ...corsHeaders } }
     );
