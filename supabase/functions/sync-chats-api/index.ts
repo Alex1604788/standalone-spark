@@ -1,7 +1,8 @@
-// VERSION: 2026-03-03-v3 - Fix critical bugs:
+// VERSION: 2026-03-04-v4 - Fix critical bugs:
 // 1. historyData.messages (not historyData.result.messages — API has no result wrapper)
 // 2. posting_number taken from chat list, not history
 // 3. unread count uses message.user.type === 'Сustomer' (not message.sender_type)
+// 4. Accept both snake_case (client_id/api_key) and camelCase (clientId/apiKey) from cron
 // BRANCH: main
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -26,7 +27,12 @@ serve(async (req) => {
   }
 
   try {
-    let { marketplace_id, ozon_seller_id, user_id, client_id, api_key, chat_ids } = await req.json();
+    // Accept both snake_case (client_id/api_key) and camelCase (clientId/apiKey)
+    // The cron job in migrations sends camelCase params
+    const body = await req.json();
+    let { marketplace_id, ozon_seller_id, user_id, chat_ids } = body;
+    let client_id = body.client_id || body.clientId;
+    let api_key = body.api_key || body.apiKey;
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
