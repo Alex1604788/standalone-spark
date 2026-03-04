@@ -1,4 +1,4 @@
-// VERSION: 2026-03-04-v6 - Batch upserts + pg_net timeout fix:
+// VERSION: 2026-03-04-v7 - Fix direction 'Backward' (Forward returns empty):
 // 1. historyData.messages (not historyData.result.messages — API has no result wrapper)
 // 2. posting_number taken from chat list, not history
 // 3. unread count uses message.user.type === 'Сustomer' (not message.sender_type)
@@ -203,7 +203,7 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             chat_id: chatId,
-            direction: 'Forward',
+            direction: 'Backward',
             limit: 1000,
           }),
         });
