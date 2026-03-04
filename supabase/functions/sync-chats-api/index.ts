@@ -1,4 +1,4 @@
-// VERSION: 2026-03-04-v5 - Add batching to prevent timeout:
+// VERSION: 2026-03-04-v6 - Batch upserts + pg_net timeout fix:
 // 1. historyData.messages (not historyData.result.messages — API has no result wrapper)
 // 2. posting_number taken from chat list, not history
 // 3. unread count uses message.user.type === 'Сustomer' (not message.sender_type)
@@ -142,28 +142,35 @@ serve(async (req) => {
       console.log(`[sync-chats-api] Total active chats found: ${chatsToSync.length}`);
     }
 
-    // STEP 1: Quick upsert ALL chat records (no history fetch — fast)
+    // STEP 1: Quick batch upsert ALL chat records (no history fetch — fast)
     let quickUpserted = 0;
-    for (const { chatId, postingNumber } of chatsToSync) {
+    const UPSERT_BATCH = 100;
+    for (let i = 0; i < chatsToSync.length; i += UPSERT_BATCH) {
+      const batch = chatsToSync.slice(i, i + UPSERT_BATCH);
       try {
-        await supabase
+        const rows = batch.map(({ chatId, postingNumber }) => ({
+          marketplace_id,
+          chat_id: chatId,
+          posting_number: postingNumber,
+          status: 'active',
+          updated_at: new Date().toISOString(),
+        }));
+        const { error: batchError } = await supabase
           .from('chats')
-          .upsert({
-            marketplace_id,
-            chat_id: chatId,
-            posting_number: postingNumber,
-            status: 'active',
-            updated_at: new Date().toISOString(),
-          }, {
+          .upsert(rows, {
             onConflict: 'marketplace_id,chat_id',
             ignoreDuplicates: false,
           });
-        quickUpserted++;
+        if (batchError) {
+          console.error(`[sync-chats-api] Batch upsert error:`, batchError);
+        } else {
+          quickUpserted += batch.length;
+        }
       } catch (_err) {
-        // skip
+        console.error(`[sync-chats-api] Batch upsert exception:`, _err);
       }
     }
-    console.log(`[sync-chats-api] Quick-upserted ${quickUpserted} chat records`);
+    console.log(`[sync-chats-api] Quick-upserted ${quickUpserted} chat records in ${Math.ceil(chatsToSync.length / UPSERT_BATCH)} batches`);
 
     // STEP 2: Fetch message history only for a BATCH of chats
     // Prioritize chats that haven't been synced (no last_message_at) or oldest synced
