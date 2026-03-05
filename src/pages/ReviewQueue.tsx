@@ -55,6 +55,7 @@ const ReviewQueue = () => {
   }, []);
 
   const fetchDrafts = async () => {
+    // ✅ FIX: Exclude soft-deleted replies
     const { data, error } = await supabase
       .from("replies")
       .select(`
@@ -63,6 +64,7 @@ const ReviewQueue = () => {
         questions(*, products(name))
       `)
       .eq("status", "drafted")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
 
     if (error) {

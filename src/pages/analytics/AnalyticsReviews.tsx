@@ -316,6 +316,7 @@ const AnalyticsReviews = ({ initialFilter = "unanswered" }: AnalyticsReviewsProp
       const { count } = await countQuery;
 
       // Then get data with INNER JOIN (no count to avoid timeout)
+      // ✅ FIX: Filter replies to exclude soft-deleted duplicates
       let query = supabase
         .from("reviews")
         .select(
@@ -323,7 +324,8 @@ const AnalyticsReviews = ({ initialFilter = "unanswered" }: AnalyticsReviewsProp
      products!inner(name, offer_id, image_url, marketplace_id),
      replies(id, content, status, created_at, tone)`,
         )
-        .in("products.marketplace_id", marketplaceIds);
+        .in("products.marketplace_id", marketplaceIds)
+        .is("replies.deleted_at", null);
 
       // ✅ Фильтр по segment на основе URL параметра
       if (statusFilter === "unanswered") {

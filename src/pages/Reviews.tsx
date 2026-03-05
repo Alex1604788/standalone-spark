@@ -420,6 +420,7 @@ const Reviews = () => {
         .select("id, content")
         .eq(isReview ? "review_id" : "question_id", selectedItem.id)
         .eq("status", "drafted")
+        .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(1);
       
@@ -477,6 +478,7 @@ const Reviews = () => {
 
       // Then get data with LEFT JOIN (no count to avoid timeout)
       // Filter by reviews.marketplace_id directly, not through products join
+      // ✅ FIX: Filter replies to exclude soft-deleted duplicates (485K+ rows cause 500 error)
       let query = supabase
         .from("reviews")
         .select(
@@ -484,7 +486,8 @@ const Reviews = () => {
      products(name, offer_id, image_url, marketplace_id),
      replies(id, content, status, created_at, tone)`,
         )
-        .in("marketplace_id", marketplaceIds);
+        .in("marketplace_id", marketplaceIds)
+        .is("replies.deleted_at", null);
 
       // ✅ Фильтр по segment на основе URL параметра
       if (statusFilter === "unanswered") {
@@ -588,7 +591,8 @@ const Reviews = () => {
         .from("replies")
         .select("id, status")
         .eq("review_id", reviewId)
-        .in("status", ["scheduled", "publishing", "published"]);
+        .in("status", ["scheduled", "publishing", "published"])
+        .is("deleted_at", null);
 
       if (error) {
         console.error(`❌ Ошибка проверки для ${reviewId}:`, error);
