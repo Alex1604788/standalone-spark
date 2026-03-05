@@ -1,4 +1,4 @@
-// VERSION: 2026-03-05-v3 - Save ALL reviews even without product match, save author_name/advantages/disadvantages
+// VERSION: 2026-03-05-v6 - Don't set is_answered from comments_amount, let segment trigger determine from published replies
 // BRANCH: claude/setup-ozon-cron-jobs-2qPjk
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -62,13 +62,21 @@ serve(async (req) => {
 
     console.log(`Starting reviews sync for marketplace ${marketplace_id}`);
 
+    // Load saved cursor position for resumable sync
+    const { data: mktplace } = await supabase
+      .from('marketplaces')
+      .select('reviews_sync_cursor')
+      .eq('id', marketplace_id)
+      .single();
+    const savedCursor = mktplace?.reviews_sync_cursor || null;
+
     // Update status
     await supabase
       .from('marketplaces')
       .update({ last_sync_status: 'syncing' })
       .eq('id', marketplace_id);
 
-    // Get products for this marketplace
+    // Get products for this marketplace — build fast lookup maps
     const { data: products, error: productsError } = await supabase
       .from('products')
       .select('id, external_id, sku, offer_id')
@@ -81,27 +89,59 @@ serve(async (req) => {
 
     if (!products || products.length === 0) {
       return new Response(
-        JSON.stringify({ 
-          success: true, 
+        JSON.stringify({
+          success: true,
           message: 'No products found. Please sync products first.',
-          reviews_count: 0 
+          reviews_count: 0
         }),
         { headers: { 'Content-Type': 'application/json', ...corsHeaders } }
       );
     }
 
-    console.log(`Found ${products.length} products`);
+    // Build fast lookup maps for product matching
+    // SKU is NOT unique (discounted items can have 2 SKUs per offer_id)
+    // Use Map for O(1) lookup instead of Array.find O(n)
+    const skuMap = new Map<string, typeof products[0]>();
+    const externalIdMap = new Map<string, typeof products[0]>();
+    for (const p of products) {
+      if (p.sku && !skuMap.has(p.sku)) skuMap.set(p.sku, p);
+      if (p.external_id && !externalIdMap.has(p.external_id)) externalIdMap.set(p.external_id, p);
+    }
+
+    console.log(`Found ${products.length} products (${skuMap.size} unique SKUs)`);
 
     let totalReviews = 0;
     let totalPages = 0;
+    let skippedOld = 0;
+    let unmatchedProducts = 0;
+    const MAX_PAGES = 50; // Max pages per invocation (5000 reviews) to avoid timeout
 
-    // Fetch reviews from Ozon
+    // Default: sync reviews from last 2 months only (50-60K reviews)
+    const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    const sinceDate = since || twoMonthsAgo;
+    console.log(`Syncing reviews since: ${sinceDate}`);
+
+    // Fetch reviews from Ozon using cursor-based pagination
+    // OZON /v1/review/list returns { reviews: [...], last_id: "...", has_next: true/false }
+    // Resume from saved cursor if available (OZON ignores offset/since, only last_id works)
     const pageSize = 100;
     let hasMore = true;
     let page = 1;
+    let lastId: string | null = savedCursor;
+    let reviewsBatch: any[] = [];
+    console.log(`Starting from cursor: ${savedCursor || 'beginning'}`);
+    const BATCH_UPSERT_SIZE = 50;
 
     while (hasMore) {
-      console.log(`Fetching reviews page ${page}`);
+      console.log(`Fetching reviews page ${page}${lastId ? `, after ${lastId}` : ''}`);
+
+      const requestBody: any = {
+        filter: {},
+        limit: pageSize,
+      };
+      if (lastId) {
+        requestBody.last_id = lastId;
+      }
 
       const reviewsResponse = await fetch('https://api-seller.ozon.ru/v1/review/list', {
         method: 'POST',
@@ -110,11 +150,7 @@ serve(async (req) => {
           'Api-Key': api_key,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          filter: since ? { since } : {},
-          limit: pageSize,
-          offset: (page - 1) * pageSize,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const contentType = reviewsResponse.headers.get('content-type') || '';
@@ -131,7 +167,8 @@ serve(async (req) => {
       }
 
       const reviewsData = await reviewsResponse.json();
-      const reviews = reviewsData.result?.reviews || [];
+      // OZON returns reviews at top level, NOT inside result
+      const reviews = reviewsData.reviews || reviewsData.result?.reviews || [];
 
       console.log(`Page ${page}: Found ${reviews.length} reviews`);
 
@@ -140,65 +177,64 @@ serve(async (req) => {
         break;
       }
 
-      // Process reviews
+      // Process reviews — check date filter and build batch
+      let reachedOldReviews = false;
       for (const review of reviews) {
         try {
-          // OZON API возвращает только sku (число)
+          // Check date filter — skip reviews older than sinceDate
+          const reviewDate = review.published_at || '';
+          if (reviewDate && reviewDate < sinceDate) {
+            skippedOld++;
+            reachedOldReviews = true;
+            continue;
+          }
+
+          // Match product by SKU (primary) or external_id (fallback)
           const reviewSku = review.sku ? String(review.sku) : null;
-
-          console.log(`[sync-reviews-api] 🔍 Поиск товара: sku="${reviewSku}"`);
-
           let product = null;
 
           if (reviewSku) {
-            // Ищем по sku
-            product = products.find(p => p.sku === reviewSku);
-
-            // Если не нашли по sku, пробуем по external_id
-            if (!product) {
-              product = products.find(p => p.external_id === reviewSku);
-            }
-
-            // Если не нашли по sku, пробуем по offer_id
-            if (!product) {
-              product = products.find(p => p.offer_id === reviewSku);
-            }
-
-            if (product) {
-              console.log(`[sync-reviews-api] ✅ Товар найден: ${product.id}`);
-            }
+            product = skuMap.get(reviewSku) || externalIdMap.get(reviewSku) || null;
           }
 
           if (!product) {
-            console.log(`[sync-reviews-api] ⚠️ Товар не найден для sku="${reviewSku}", сохраняем отзыв без product_id`);
+            unmatchedProducts++;
           }
 
-          // Upsert review (even without product match - to not miss reviews)
-          const { error: reviewError } = await supabase
-            .from('reviews')
-            .upsert({
-              marketplace_id,
-              product_id: product?.id || null,
-              external_id: String(review.id),
-              rating: review.rating || 0,
-              author_name: review.author_name || 'Anonymous',
-              text: review.text || '',
-              advantages: review.advantages || null,
-              disadvantages: review.disadvantages || null,
-              review_date: review.published_at || new Date().toISOString(),
-              raw: review,
-              inserted_at: new Date().toISOString(),
-              status: 'new',
-              is_answered: (review.comments_amount || 0) > 0,
-            }, {
-              onConflict: 'marketplace_id,external_id',
-              ignoreDuplicates: false,
-            });
+          // Build upsert record
+          // NOTE: Do NOT set is_answered from comments_amount!
+          // comments_amount includes buyer/moderation comments, not just seller replies.
+          // The segment trigger uses published replies in our DB to determine the real segment.
+          reviewsBatch.push({
+            marketplace_id,
+            product_id: product?.id || null,
+            external_id: String(review.id),
+            rating: review.rating || 0,
+            author_name: review.author_name || 'Anonymous',
+            text: review.text || '',
+            advantages: review.advantages || null,
+            disadvantages: review.disadvantages || null,
+            review_date: review.published_at || new Date().toISOString(),
+            raw: review,
+            inserted_at: new Date().toISOString(),
+            status: 'new',
+          });
 
-          if (reviewError) {
-            console.error('Error upserting review:', reviewError);
-          } else {
-            totalReviews++;
+          // Flush batch when full
+          if (reviewsBatch.length >= BATCH_UPSERT_SIZE) {
+            const { error: batchError } = await supabase
+              .from('reviews')
+              .upsert(reviewsBatch, {
+                onConflict: 'marketplace_id,external_id',
+                ignoreDuplicates: false,
+              });
+
+            if (batchError) {
+              console.error('Batch upsert error:', batchError);
+            } else {
+              totalReviews += reviewsBatch.length;
+            }
+            reviewsBatch = [];
           }
         } catch (err) {
           console.error('Error processing review:', err);
@@ -206,7 +242,8 @@ serve(async (req) => {
       }
 
       totalPages++;
-      hasMore = reviews.length === pageSize;
+      lastId = reviewsData.last_id || null;
+      hasMore = reviewsData.has_next === true && reviews.length > 0 && page <= MAX_PAGES;
       page++;
 
       // Small delay to avoid rate limits
@@ -215,30 +252,51 @@ serve(async (req) => {
       }
     }
 
-    // Update marketplace status
+    // Flush remaining batch
+    if (reviewsBatch.length > 0) {
+      const { error: batchError } = await supabase
+        .from('reviews')
+        .upsert(reviewsBatch, {
+          onConflict: 'marketplace_id,external_id',
+          ignoreDuplicates: false,
+        });
+
+      if (batchError) {
+        console.error('Final batch upsert error:', batchError);
+      } else {
+        totalReviews += reviewsBatch.length;
+      }
+    }
+
+    // Save cursor position for next run (resume from where we left off)
+    // If we reached the end (no more pages), reset cursor to start fresh next time
+    const newCursor = hasMore ? lastId : null;
     await supabase
       .from('marketplaces')
       .update({
         last_sync_at: new Date().toISOString(),
         last_sync_status: 'success',
         last_sync_error: null,
+        reviews_sync_cursor: newCursor,
       })
       .eq('id', marketplace_id);
 
-    console.log(`Successfully synchronized ${totalReviews} reviews across ${totalPages} pages`);
+    console.log(`Synced ${totalReviews} reviews (${totalPages} pages, skipped ${skippedOld} old, ${unmatchedProducts} without product, cursor=${newCursor || 'reset'})`);
 
     return new Response(
       JSON.stringify({
         success: true,
         reviews_count: totalReviews,
         pages: totalPages,
-        message: `Синхронизировано ${totalReviews} отзывов (${totalPages} страниц)`,
+        skipped_old: skippedOld,
+        unmatched_products: unmatchedProducts,
+        message: `Синхронизировано ${totalReviews} отзывов (${totalPages} страниц, пропущено ${skippedOld} старых)`,
       }),
       { headers: { 'Content-Type': 'application/json', ...corsHeaders } }
     );
   } catch (error: any) {
     console.error('Unexpected error:', error);
-    
+
     return new Response(
       JSON.stringify({ success: false, error: error.message || 'Unknown error' }),
       { headers: { 'Content-Type': 'application/json', ...corsHeaders }, status: 500 }

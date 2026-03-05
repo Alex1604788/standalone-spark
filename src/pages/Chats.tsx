@@ -66,6 +66,7 @@ const Chats = () => {
   const [chats, setChats] = useState<Chat[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("active");
+  const [replyFilter, setReplyFilter] = useState<string>("all"); // all | unanswered | answered
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [messageText, setMessageText] = useState("");
@@ -323,6 +324,10 @@ const Chats = () => {
   };
 
   const filteredChats = chats.filter((chat) => {
+    // Reply filter: unanswered = last message from buyer, answered = last message from seller
+    if (replyFilter === "unanswered" && chat.last_message_from !== "buyer") return false;
+    if (replyFilter === "answered" && chat.last_message_from !== "seller") return false;
+
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     return (
@@ -376,6 +381,16 @@ const Chats = () => {
               className="pl-10"
             />
           </div>
+          <Select value={replyFilter} onValueChange={setReplyFilter}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все чаты</SelectItem>
+              <SelectItem value="unanswered">Не отвечено</SelectItem>
+              <SelectItem value="answered">Отвечено</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-[180px]">
               <SelectValue />
