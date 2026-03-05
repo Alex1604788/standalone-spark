@@ -1,4 +1,4 @@
-// VERSION: 2026-01-08-v2 - Fix OZON API response fields (sku matching)
+// VERSION: 2026-03-05-v3 - Save ALL reviews even without product match, save author_name/advantages/disadvantages
 // BRANCH: claude/setup-ozon-cron-jobs-2qPjk
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -170,22 +170,21 @@ serve(async (req) => {
           }
 
           if (!product) {
-            console.log(`[sync-reviews-api] ❌ Товар НЕ НАЙДЕН для sku="${reviewSku}"`);
-            continue;
+            console.log(`[sync-reviews-api] ⚠️ Товар не найден для sku="${reviewSku}", сохраняем отзыв без product_id`);
           }
 
-          // Upsert review
+          // Upsert review (even without product match - to not miss reviews)
           const { error: reviewError } = await supabase
             .from('reviews')
             .upsert({
               marketplace_id,
-              product_id: product.id,
+              product_id: product?.id || null,
               external_id: String(review.id),
               rating: review.rating || 0,
-              author_name: 'Anonymous', // API не возвращает имя автора
+              author_name: review.author_name || 'Anonymous',
               text: review.text || '',
-              advantages: null, // API не возвращает advantages/disadvantages
-              disadvantages: null,
+              advantages: review.advantages || null,
+              disadvantages: review.disadvantages || null,
               review_date: review.published_at || new Date().toISOString(),
               raw: review,
               inserted_at: new Date().toISOString(),

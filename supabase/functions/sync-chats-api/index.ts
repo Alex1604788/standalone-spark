@@ -1,4 +1,4 @@
-// VERSION: 2026-03-04-v7 - Fix direction 'Backward' (Forward returns empty):
+// VERSION: 2026-03-05-v8 - Sync only last 30 days, track chat status:
 // 1. historyData.messages (not historyData.result.messages — API has no result wrapper)
 // 2. posting_number taken from chat list, not history
 // 3. unread count uses message.user.type === 'Сustomer' (not message.sender_type)
@@ -80,16 +80,17 @@ serve(async (req) => {
       .update({ last_sync_status: 'syncing' })
       .eq('id', marketplace_id);
 
-    // chatsToSync: array of { chatId, postingNumber }
-    let chatsToSync: { chatId: string; postingNumber: string }[] = [];
+    // chatsToSync: array of chat data
+    let chatsToSync: { chatId: string; postingNumber: string; chatStatus: string; isUnread: boolean; lastMessageAt: string | null }[] = [];
 
     // If specific chat_ids provided, use them
     if (chat_ids && chat_ids.length > 0) {
-      chatsToSync = chat_ids.map((id: string) => ({ chatId: id, postingNumber: id }));
+      chatsToSync = chat_ids.map((id: string) => ({ chatId: id, postingNumber: id, chatStatus: 'active', isUnread: false, lastMessageAt: null }));
       console.log(`[sync-chats-api] Syncing ${chatsToSync.length} specific chats`);
     } else {
-      // Otherwise, fetch all active chats from OZON API
-      console.log(`[sync-chats-api] Fetching active chats from OZON API`);
+      // Fetch chats from last 30 days only (not all time)
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      console.log(`[sync-chats-api] Fetching chats since ${thirtyDaysAgo}`);
 
       let hasMore = true;
       let cursor = '';
@@ -104,7 +105,9 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             filter: {
-              chat_status: 'OPENED',
+              chat_status: 'All',
+              from_chat_created_at: thirtyDaysAgo,
+              unread_only: false,
             },
             limit: 100,
             cursor: cursor || undefined,
@@ -124,9 +127,17 @@ serve(async (req) => {
         for (const chatData of chats) {
           const chatObj = chatData.chat || chatData; // handle both {chat: {...}} and flat structure
           if (chatObj.chat_id) {
+            // Determine chat status from OZON response
+            let chatStatus = 'active';
+            if (chatObj.chat_status === 'CLOSED') chatStatus = 'closed';
+            else if (chatObj.chat_status === 'EXPIRED') chatStatus = 'expired';
+
             chatsToSync.push({
               chatId: chatObj.chat_id,
               postingNumber: chatObj.posting_number || chatObj.chat_id,
+              chatStatus,
+              isUnread: chatObj.is_unread || false,
+              lastMessageAt: chatObj.last_message_at || null,
             });
           }
         }
@@ -148,11 +159,11 @@ serve(async (req) => {
     for (let i = 0; i < chatsToSync.length; i += UPSERT_BATCH) {
       const batch = chatsToSync.slice(i, i + UPSERT_BATCH);
       try {
-        const rows = batch.map(({ chatId, postingNumber }) => ({
+        const rows = batch.map(({ chatId, postingNumber, chatStatus }) => ({
           marketplace_id,
           chat_id: chatId,
           posting_number: postingNumber,
-          status: 'active',
+          status: chatStatus || 'active',
           updated_at: new Date().toISOString(),
         }));
         const { error: batchError } = await supabase
