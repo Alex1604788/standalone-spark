@@ -81,11 +81,11 @@ serve(async (req) => {
       .eq('id', marketplace_id);
 
     // chatsToSync: array of chat data
-    let chatsToSync: { chatId: string; postingNumber: string; chatStatus: string; isUnread: boolean; lastMessageAt: string | null }[] = [];
+    let chatsToSync: { chatId: string; postingNumber: string; chatStatus: string; chatType: string; isUnread: boolean; lastMessageAt: string | null }[] = [];
 
     // If specific chat_ids provided, use them
     if (chat_ids && chat_ids.length > 0) {
-      chatsToSync = chat_ids.map((id: string) => ({ chatId: id, postingNumber: id, chatStatus: 'active', isUnread: false, lastMessageAt: null }));
+      chatsToSync = chat_ids.map((id: string) => ({ chatId: id, postingNumber: id, chatStatus: 'active', chatType: 'BUYER_SELLER', isUnread: false, lastMessageAt: null }));
       console.log(`[sync-chats-api] Syncing ${chatsToSync.length} specific chats`);
     } else {
       // Fetch chats from last 30 days only (not all time)
@@ -136,6 +136,7 @@ serve(async (req) => {
               chatId: chatObj.chat_id,
               postingNumber: chatObj.posting_number || chatObj.chat_id,
               chatStatus,
+              chatType: chatObj.chat_type || 'UNSPECIFIED',
               isUnread: chatObj.is_unread || false,
               lastMessageAt: chatObj.last_message_at || null,
             });
@@ -159,11 +160,12 @@ serve(async (req) => {
     for (let i = 0; i < chatsToSync.length; i += UPSERT_BATCH) {
       const batch = chatsToSync.slice(i, i + UPSERT_BATCH);
       try {
-        const rows = batch.map(({ chatId, postingNumber, chatStatus }) => ({
+        const rows = batch.map(({ chatId, postingNumber, chatStatus, chatType }) => ({
           marketplace_id,
           chat_id: chatId,
           posting_number: postingNumber,
           status: chatStatus || 'active',
+          chat_type: chatType || 'UNSPECIFIED',
           updated_at: new Date().toISOString(),
         }));
         const { error: batchError } = await supabase

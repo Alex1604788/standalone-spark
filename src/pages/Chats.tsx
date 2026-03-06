@@ -48,6 +48,7 @@ interface Chat {
   order_number: string | null;
   product_sku: string | null;
   status: "active" | "closed" | "expired";
+  chat_type: string | null;
   unread_count: number;
   last_message_text: string | null;
   last_message_at: string | null;
@@ -113,6 +114,7 @@ const Chats = () => {
           order_number,
           product_sku,
           status,
+          chat_type,
           unread_count,
           last_message_text,
           last_message_at,
@@ -124,7 +126,8 @@ const Chats = () => {
         `,
         )
         .in("marketplace_id", marketplaceIds)
-        .order("updated_at", { ascending: false });
+        .in("chat_type", ["BUYER_SELLER", "UNSPECIFIED"])
+        .order("last_message_at", { ascending: false, nullsFirst: false });
 
       // Filter by status
       if (statusFilter !== "all") {

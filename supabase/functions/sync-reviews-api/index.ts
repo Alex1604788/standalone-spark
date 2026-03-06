@@ -114,7 +114,7 @@ serve(async (req) => {
     let totalPages = 0;
     let skippedOld = 0;
     let unmatchedProducts = 0;
-    const MAX_PAGES = 50; // Max pages per invocation (5000 reviews) to avoid timeout
+    const MAX_PAGES = 50; // Max pages per invocation (5000 reviews)
 
     // Default: sync reviews from last 2 months only (50-60K reviews)
     const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
@@ -246,9 +246,10 @@ serve(async (req) => {
       hasMore = reviewsData.has_next === true && reviews.length > 0 && page <= MAX_PAGES;
       page++;
 
-      // Small delay to avoid rate limits
+      // Small delay to avoid rate limits (50ms for skip-only pages, 200ms when saving)
       if (hasMore) {
-        await new Promise(resolve => setTimeout(resolve, 200));
+        const delay = reachedOldReviews && reviewsBatch.length === 0 ? 50 : 200;
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
 
