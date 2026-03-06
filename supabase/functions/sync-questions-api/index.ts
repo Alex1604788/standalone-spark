@@ -1,5 +1,4 @@
-// VERSION: 2026-01-08-v1 - Fixed env vars (SUPABASE_URL)
-// BRANCH: claude/setup-ozon-cron-jobs-2qPjk
+// VERSION: 2026-03-06-v2 - Cursor-based pagination, batch upsert, MAX_PAGES limit
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -32,8 +31,6 @@ serve(async (req) => {
 
     // Resolve marketplace_id if not provided
     if (!marketplace_id && ozon_seller_id && user_id) {
-      console.log(`[sync-questions-api] Resolving marketplace_id for user ${user_id}, seller ${ozon_seller_id}`);
-
       const { data: marketplace } = await supabase
         .from('marketplaces')
         .select('id, api_key_encrypted, service_account_email')
@@ -60,45 +57,50 @@ serve(async (req) => {
       );
     }
 
-    console.log(`[sync-questions-api] Starting questions sync for marketplace ${marketplace_id}`);
+    console.log(`[sync-questions-api] Starting for marketplace ${marketplace_id}`);
 
-    // Update status
+    // Load saved cursor for resumable sync
+    const { data: mktplace } = await supabase
+      .from('marketplaces')
+      .select('questions_sync_cursor')
+      .eq('id', marketplace_id)
+      .single();
+    const savedCursor = mktplace?.questions_sync_cursor || null;
+
     await supabase
       .from('marketplaces')
       .update({ last_sync_status: 'syncing' })
       .eq('id', marketplace_id);
 
-    // Get products for this marketplace
+    // Get products for this marketplace — build fast lookup maps
     const { data: products, error: productsError } = await supabase
       .from('products')
       .select('id, external_id, sku, offer_id')
       .eq('marketplace_id', marketplace_id);
 
-    if (productsError) {
-      console.error('[sync-questions-api] Error fetching products:', productsError);
-      throw productsError;
+    if (productsError) throw productsError;
+
+    const skuMap = new Map<string, typeof products[0]>();
+    const externalIdMap = new Map<string, typeof products[0]>();
+    for (const p of products || []) {
+      if (p.sku && !skuMap.has(p.sku)) skuMap.set(p.sku, p);
+      if (p.external_id && !externalIdMap.has(p.external_id)) externalIdMap.set(p.external_id, p);
     }
 
-    if (!products || products.length === 0) {
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: 'No products found. Please sync products first.',
-          questions_count: 0
-        }),
-        { headers: { 'Content-Type': 'application/json', ...corsHeaders } }
-      );
-    }
-
-    console.log(`[sync-questions-api] Found ${products.length} products`);
+    console.log(`[sync-questions-api] ${products?.length || 0} products loaded. Starting from cursor: ${savedCursor || 'beginning'}`);
 
     let totalQuestions = 0;
-    let hasMore = true;
-    let lastId = '';
+    let unmatchedProducts = 0;
+    let totalPages = 0;
+    const MAX_PAGES = 30; // ~3000 questions per run to avoid timeout
+    const BATCH_SIZE = 50;
 
-    // Fetch questions from OZON API
-    while (hasMore) {
-      console.log(`[sync-questions-api] Fetching questions, last_id: ${lastId || 'first page'}`);
+    let hasMore = true;
+    let lastId: string = savedCursor || '';
+    let questionsBatch: any[] = [];
+
+    while (hasMore && totalPages < MAX_PAGES) {
+      console.log(`[sync-questions-api] Page ${totalPages + 1}, last_id: ${lastId || 'first'}`);
 
       const questionsResponse = await fetch('https://api-seller.ozon.ru/v1/question/list', {
         method: 'POST',
@@ -108,103 +110,95 @@ serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          filter: {
-            status: 'ALL', // Get all questions
-          },
-          last_id: lastId || '',
+          filter: { status: 'ALL' },
+          last_id: lastId,
+          limit: 100,
         }),
       });
 
       const contentType = questionsResponse.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
-        const errorText = await questionsResponse.text();
-        console.error('[sync-questions-api] OZON API returned non-JSON response:', errorText.slice(0, 500));
+        console.error('[sync-questions-api] Non-JSON response:', (await questionsResponse.text()).slice(0, 200));
         break;
       }
 
       if (!questionsResponse.ok) {
-        const errorText = await questionsResponse.text();
-        console.error('[sync-questions-api] OZON API error:', errorText);
+        console.error('[sync-questions-api] OZON API error:', await questionsResponse.text());
         break;
       }
 
       const questionsData = await questionsResponse.json();
       const questions = questionsData.questions || [];
-      lastId = questionsData.last_id || '';
+      const newLastId = questionsData.last_id || '';
 
-      console.log(`[sync-questions-api] Found ${questions.length} questions, last_id: ${lastId}`);
+      console.log(`[sync-questions-api] Page ${totalPages + 1}: ${questions.length} questions`);
 
       if (questions.length === 0) {
         hasMore = false;
         break;
       }
 
-      // Process questions
       for (const question of questions) {
         try {
-          // Find product by SKU
           const productSku = question.sku ? String(question.sku) : null;
-
-          console.log(`[sync-questions-api] 🔍 Поиск товара: sku="${productSku}"`);
-
           let product = null;
-
           if (productSku) {
-            // Try to find by SKU first
-            product = products.find(p => p.sku === productSku);
+            product = skuMap.get(productSku) || externalIdMap.get(productSku) || null;
+          }
+          if (!product) unmatchedProducts++;
 
-            if (!product) {
-              // Try to find by external_id as fallback
-              product = products.find(p => p.external_id === productSku);
+          questionsBatch.push({
+            marketplace_id,
+            product_id: product?.id || null,
+            external_id: String(question.id),
+            author_name: question.author_name || 'Anonymous',
+            text: question.text || '',
+            question_date: question.published_at || new Date().toISOString(),
+            status: 'new',
+            is_answered: (question.answers_count || 0) > 0,
+          });
+
+          if (questionsBatch.length >= BATCH_SIZE) {
+            const { error: batchError } = await supabase
+              .from('questions')
+              .upsert(questionsBatch, {
+                onConflict: 'marketplace_id,external_id',
+                ignoreDuplicates: false,
+              });
+            if (batchError) {
+              console.error('[sync-questions-api] Batch upsert error:', batchError);
+            } else {
+              totalQuestions += questionsBatch.length;
             }
-          }
-
-          if (!product) {
-            console.log(`[sync-questions-api] ❌ Товар НЕ НАЙДЕН для sku="${productSku}"`);
-            continue;
-          }
-
-          console.log(`[sync-questions-api] ✅ Товар найден: ${product.id}`);
-
-          // Upsert question
-          const { error: questionError } = await supabase
-            .from('questions')
-            .upsert({
-              marketplace_id,
-              product_id: product.id,
-              external_id: String(question.id),
-              author_name: question.author_name || 'Anonymous',
-              text: question.text || '',
-              question_date: question.published_at || new Date().toISOString(),
-              raw: question,
-              inserted_at: new Date().toISOString(),
-              status: 'new',
-              is_answered: (question.answers_count || 0) > 0,
-            }, {
-              onConflict: 'marketplace_id,external_id',
-              ignoreDuplicates: false,
-            });
-
-          if (questionError) {
-            console.error('[sync-questions-api] Error upserting question:', questionError);
-          } else {
-            totalQuestions++;
+            questionsBatch = [];
           }
         } catch (err) {
           console.error('[sync-questions-api] Error processing question:', err);
         }
       }
 
-      // Check if there are more questions
-      hasMore = lastId !== '' && questions.length > 0;
+      totalPages++;
+      lastId = newLastId;
+      hasMore = newLastId !== '' && questions.length > 0;
 
-      // Small delay to avoid rate limits
       if (hasMore) {
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 150));
       }
     }
 
-    // Update marketplace status and last sync timestamp
+    // Flush remaining batch
+    if (questionsBatch.length > 0) {
+      const { error: batchError } = await supabase
+        .from('questions')
+        .upsert(questionsBatch, {
+          onConflict: 'marketplace_id,external_id',
+          ignoreDuplicates: false,
+        });
+      if (!batchError) totalQuestions += questionsBatch.length;
+    }
+
+    // Save cursor: if hasMore, save position; if done, reset to start fresh
+    const newCursor = hasMore ? lastId : null;
     await supabase
       .from('marketplaces')
       .update({
@@ -212,22 +206,24 @@ serve(async (req) => {
         last_sync_at: new Date().toISOString(),
         last_sync_status: 'success',
         last_sync_error: null,
+        questions_sync_cursor: newCursor,
       })
       .eq('id', marketplace_id);
 
-    console.log(`[sync-questions-api] Successfully synchronized ${totalQuestions} questions`);
+    console.log(`[sync-questions-api] Done: ${totalQuestions} questions (${totalPages} pages, ${unmatchedProducts} unmatched, cursor=${newCursor || 'reset'})`);
 
     return new Response(
       JSON.stringify({
         success: true,
         questions_count: totalQuestions,
-        message: `Синхронизировано ${totalQuestions} вопросов`,
+        pages: totalPages,
+        unmatched_products: unmatchedProducts,
+        message: `Синхронизировано ${totalQuestions} вопросов (${totalPages} страниц)`,
       }),
       { headers: { 'Content-Type': 'application/json', ...corsHeaders } }
     );
   } catch (error: any) {
     console.error('[sync-questions-api] Unexpected error:', error);
-
     return new Response(
       JSON.stringify({ success: false, error: error.message || 'Unknown error' }),
       { headers: { 'Content-Type': 'application/json', ...corsHeaders }, status: 500 }

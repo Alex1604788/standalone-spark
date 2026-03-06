@@ -95,7 +95,8 @@ const Questions = () => {
         replies(status)
       `,
       )
-      .in("marketplace_id", marketplaceIds);
+      .in("marketplace_id", marketplaceIds)
+      .is("replies.deleted_at", null);
 
     // Фильтр по статусу (левое меню: Не отвечено / Архив)
     if (status === "unanswered") {
