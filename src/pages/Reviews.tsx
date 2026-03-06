@@ -476,18 +476,13 @@ const Reviews = () => {
 
       const { count } = await countQuery;
 
-      // Then get data with LEFT JOIN (no count to avoid timeout)
-      // Filter by reviews.marketplace_id directly, not through products join
-      // ✅ FIX: Filter replies to exclude soft-deleted duplicates (485K+ rows cause 500 error)
+      // ✅ FIX 2026-03-06: Load reviews WITHOUT replies JOIN (replies JOIN causes 500 on large table)
+      // Exclude 'raw' JSONB column (large, not needed in list view) — select specific columns only
+      // Then fetch replies separately by review_id IN list (uses idx_replies_review_id index)
       let query = supabase
         .from("reviews")
-        .select(
-          `*,
-     products(name, offer_id, image_url, marketplace_id),
-     replies(id, content, status, created_at, tone)`,
-        )
-        .in("marketplace_id", marketplaceIds)
-        .is("replies.deleted_at", null);
+        .select(`id, external_id, author_name, text, advantages, disadvantages, review_date, rating, is_answered, product_id, photos, segment, marketplace_id, status, updated_at, created_at, products(name, offer_id, image_url, marketplace_id)`)
+        .in("marketplace_id", marketplaceIds);
 
       // ✅ Фильтр по segment на основе URL параметра
       if (statusFilter === "unanswered") {
@@ -503,17 +498,35 @@ const Reviews = () => {
         query = query.eq("rating", parseInt(ratingFilter, 10));
       }
 
-      // Поиск теперь обрабатывается на клиенте, чтобы поведение было как в разделе "Вопросы"
-      // и не зависело от особенностей фильтрации по связанной таблице products.
-      // Здесь дополнительных условий по searchQuery не добавляем.
-
       const { data, error } = await query.order("review_date", { ascending: false }).range(from, to);
 
       if (error) {
         throw error;
       }
 
-      setReviews((data || []) as ReviewWithDetails[]);
+      // Fetch replies separately by review IDs (fast: uses idx_replies_review_id partial index)
+      const reviewIds = (data || []).map((r: any) => r.id);
+      let repliesMap: Record<string, any[]> = {};
+      if (reviewIds.length > 0) {
+        const { data: repliesData } = await supabase
+          .from("replies")
+          .select("id, review_id, content, status, created_at, tone")
+          .in("review_id", reviewIds)
+          .is("deleted_at", null);
+        if (repliesData) {
+          for (const reply of repliesData) {
+            if (!repliesMap[reply.review_id]) repliesMap[reply.review_id] = [];
+            repliesMap[reply.review_id].push(reply);
+          }
+        }
+      }
+
+      const reviewsWithReplies = (data || []).map((r: any) => ({
+        ...r,
+        replies: repliesMap[r.id] || [],
+      }));
+
+      setReviews(reviewsWithReplies as ReviewWithDetails[]);
       setTotalReviews(count || 0);
     } catch (error) {
       console.error("Fetch error:", error);
