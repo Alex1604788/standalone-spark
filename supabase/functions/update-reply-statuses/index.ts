@@ -1,3 +1,16 @@
+/**
+ * update-reply-statuses: Обновляет статусы ответов на основе настроек маркетплейса
+ * VERSION: 2026-03-10-v2
+ *
+ * CHANGELOG:
+ * v2 (2026-03-10):
+ * - FIX: PostgREST возвращал только первые ~1000 из 57K+ отзывов → RPC-функции пропускали drafted ответы
+ * - Заменили fetch-then-batch на SQL RPC bulk_update_reply_mode и bulk_update_reply_mode_questions
+ * - Один SQL UPDATE с subquery вместо многократных batch-запросов
+ *
+ * v1:
+ * - Базовая логика с fetch all reviews → batch update (не работало при >1000 отзывов)
+ */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -5,8 +18,6 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const BATCH_SIZE = 100;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -25,20 +36,7 @@ serve(async (req) => {
       throw new Error("marketplace_id and settings are required");
     }
 
-    console.log(`[update-reply-statuses] Starting for marketplace ${marketplace_id}`);
-
-    // Get all reviews for this marketplace
-    const { data: reviewsByRating, error: reviewsError } = await supabase
-      .from("reviews")
-      .select("id, rating")
-      .eq("marketplace_id", marketplace_id);
-
-    if (reviewsError) {
-      console.error("[update-reply-statuses] Error fetching reviews:", reviewsError);
-      throw reviewsError;
-    }
-
-    console.log(`[update-reply-statuses] Found ${reviewsByRating?.length || 0} reviews`);
+    console.log(`[update-reply-statuses] v2 Starting for marketplace ${marketplace_id}`);
 
     const modeUpdates = [
       { rating: 1, mode: settings.reviews_mode_1 },
@@ -51,108 +49,92 @@ serve(async (req) => {
     let totalUpdatedToScheduled = 0;
     let totalUpdatedToDrafted = 0;
 
+    // ✅ FIX: Используем SQL RPC вместо fetch-then-batch
+    // bulk_update_reply_mode выполняет UPDATE с subquery напрямую в SQL
+    // Никаких ограничений PostgREST (1000 строк) — обрабатывает все 57K+ отзывов
     for (const { rating, mode } of modeUpdates) {
-      const reviewIds = (reviewsByRating || [])
-        .filter(r => r.rating === rating)
-        .map(r => r.id);
+      if (mode === "auto") {
+        // drafted -> scheduled: автоматическая публикация
+        const { data: count, error } = await supabase
+          .rpc('bulk_update_reply_mode', {
+            p_marketplace_id: marketplace_id,
+            p_rating: rating,
+            p_target_status: 'scheduled',
+            p_from_status: 'drafted',
+          });
 
-      if (reviewIds.length === 0) continue;
-
-      console.log(`[update-reply-statuses] Rating ${rating}, mode: ${mode}, reviews: ${reviewIds.length}`);
-
-      // Process in batches to avoid query limits
-      for (let i = 0; i < reviewIds.length; i += BATCH_SIZE) {
-        const batchIds = reviewIds.slice(i, i + BATCH_SIZE);
-        
-        if (mode === "auto") {
-          // drafted -> scheduled
-          const { data: updated, error: updateError } = await supabase
-            .from("replies")
-            .update({ 
-              status: "scheduled", 
-              mode: "auto",
-              scheduled_at: new Date().toISOString() 
-            })
-            .eq("status", "drafted")
-            .in("review_id", batchIds)
-            .select("id");
-
-          if (updateError) {
-            console.error(`[update-reply-statuses] Batch error updating to scheduled:`, updateError);
-          } else {
-            totalUpdatedToScheduled += updated?.length || 0;
-          }
+        if (error) {
+          console.error(`[update-reply-statuses] RPC error rating ${rating} auto:`, error);
         } else {
-          // scheduled -> drafted (for semi mode)
-          const { data: updated, error: updateError } = await supabase
-            .from("replies")
-            .update({ 
-              status: "drafted", 
-              mode: "semi_auto",
-              scheduled_at: null 
-            })
-            .eq("status", "scheduled")
-            .in("review_id", batchIds)
-            .select("id");
+          const updated = count || 0;
+          totalUpdatedToScheduled += updated;
+          if (updated > 0) {
+            console.log(`[update-reply-statuses] Rating ${rating} auto: ${updated} drafted → scheduled`);
+          }
+        }
+      } else {
+        // scheduled -> drafted: полуавтоматический режим (требует одобрения)
+        const { data: count, error } = await supabase
+          .rpc('bulk_update_reply_mode', {
+            p_marketplace_id: marketplace_id,
+            p_rating: rating,
+            p_target_status: 'drafted',
+            p_from_status: 'scheduled',
+          });
 
-          if (updateError) {
-            console.error(`[update-reply-statuses] Batch error updating to drafted:`, updateError);
-          } else {
-            totalUpdatedToDrafted += updated?.length || 0;
+        if (error) {
+          console.error(`[update-reply-statuses] RPC error rating ${rating} semi:`, error);
+        } else {
+          const updated = count || 0;
+          totalUpdatedToDrafted += updated;
+          if (updated > 0) {
+            console.log(`[update-reply-statuses] Rating ${rating} semi: ${updated} scheduled → drafted`);
           }
         }
       }
-      
-      console.log(`[update-reply-statuses] Rating ${rating} done: scheduled=${totalUpdatedToScheduled}, drafted=${totalUpdatedToDrafted}`);
     }
 
-    // Handle questions
-    const { data: questionIds } = await supabase
-      .from("questions")
-      .select("id")
-      .eq("marketplace_id", marketplace_id);
+    // Handle questions (also 4990+ rows, same fix needed)
+    if (settings.questions_mode === "auto") {
+      const { data: count, error } = await supabase
+        .rpc('bulk_update_reply_mode_questions', {
+          p_marketplace_id: marketplace_id,
+          p_target_status: 'scheduled',
+          p_from_status: 'drafted',
+        });
 
-    if (questionIds && questionIds.length > 0) {
-      const qIds = questionIds.map(q => q.id);
-      
-      for (let i = 0; i < qIds.length; i += BATCH_SIZE) {
-        const batchIds = qIds.slice(i, i + BATCH_SIZE);
-        
-        if (settings.questions_mode === "auto") {
-          const { data: updated } = await supabase
-            .from("replies")
-            .update({ 
-              status: "scheduled", 
-              mode: "auto",
-              scheduled_at: new Date().toISOString() 
-            })
-            .eq("status", "drafted")
-            .in("question_id", batchIds)
-            .select("id");
-          
-          totalUpdatedToScheduled += updated?.length || 0;
-        } else if (settings.questions_mode === "semi") {
-          const { data: updated } = await supabase
-            .from("replies")
-            .update({ 
-              status: "drafted", 
-              mode: "semi_auto",
-              scheduled_at: null 
-            })
-            .eq("status", "scheduled")
-            .in("question_id", batchIds)
-            .select("id");
-          
-          totalUpdatedToDrafted += updated?.length || 0;
+      if (error) {
+        console.error('[update-reply-statuses] RPC error questions auto:', error);
+      } else {
+        const updated = count || 0;
+        totalUpdatedToScheduled += updated;
+        if (updated > 0) {
+          console.log(`[update-reply-statuses] Questions auto: ${updated} drafted → scheduled`);
         }
       }
-      console.log(`[update-reply-statuses] Questions done`);
+    } else if (settings.questions_mode === "semi") {
+      const { data: count, error } = await supabase
+        .rpc('bulk_update_reply_mode_questions', {
+          p_marketplace_id: marketplace_id,
+          p_target_status: 'drafted',
+          p_from_status: 'scheduled',
+        });
+
+      if (error) {
+        console.error('[update-reply-statuses] RPC error questions semi:', error);
+      } else {
+        const updated = count || 0;
+        totalUpdatedToDrafted += updated;
+        if (updated > 0) {
+          console.log(`[update-reply-statuses] Questions semi: ${updated} scheduled → drafted`);
+        }
+      }
     }
 
-    console.log(`[update-reply-statuses] Completed: ${totalUpdatedToScheduled} scheduled, ${totalUpdatedToDrafted} drafted`);
+    console.log(`[update-reply-statuses] Completed: ${totalUpdatedToScheduled} → scheduled, ${totalUpdatedToDrafted} → drafted`);
 
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         success: true,
         updated_to_scheduled: totalUpdatedToScheduled,
         updated_to_drafted: totalUpdatedToDrafted

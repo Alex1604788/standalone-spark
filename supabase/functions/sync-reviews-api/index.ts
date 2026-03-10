@@ -115,6 +115,7 @@ serve(async (req) => {
     let skippedOld = 0;
     let unmatchedProducts = 0;
     const MAX_PAGES = 50; // Max pages per invocation (5000 reviews)
+    let reachedActualEnd = false; // true only if has_next=false (OZON said "no more reviews")
 
     // Default: sync reviews from last 2 months only (50-60K reviews)
     const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
@@ -173,6 +174,7 @@ serve(async (req) => {
       console.log(`Page ${page}: Found ${reviews.length} reviews`);
 
       if (reviews.length === 0) {
+        reachedActualEnd = true;
         hasMore = false;
         break;
       }
@@ -199,6 +201,10 @@ serve(async (req) => {
 
           if (!product) {
             unmatchedProducts++;
+            // Skip reviews with no product match to avoid overwriting existing product_id with null
+            // These reviews either: (a) already exist in DB with a valid product_id — skip to preserve it
+            // or (b) are new but for a product not yet synced — will be picked up after daily product sync
+            continue;
           }
 
           // Build upsert record
@@ -243,6 +249,10 @@ serve(async (req) => {
 
       totalPages++;
       lastId = reviewsData.last_id || null;
+      // Track if OZON says there are no more pages (actual end of data)
+      if (reviewsData.has_next !== true) {
+        reachedActualEnd = true;
+      }
       hasMore = reviewsData.has_next === true && reviews.length > 0 && page <= MAX_PAGES;
       page++;
 
@@ -270,8 +280,9 @@ serve(async (req) => {
     }
 
     // Save cursor position for next run (resume from where we left off)
-    // If we reached the end (no more pages), reset cursor to start fresh next time
-    const newCursor = hasMore ? lastId : null;
+    // Only reset cursor if OZON said has_next=false (actual end of all reviews)
+    // If we stopped due to MAX_PAGES limit, save cursor so next run continues from here
+    const newCursor = reachedActualEnd ? null : lastId;
     await supabase
       .from('marketplaces')
       .update({
