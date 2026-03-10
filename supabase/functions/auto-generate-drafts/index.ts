@@ -139,9 +139,9 @@ serve(async (req) => {
       reviewsQuery = reviewsQuery.eq("marketplace_id", marketplace_id);
     }
 
-    // ✅ Увеличиваем лимит для обработки большего количества отзывов за раз
-    // Для шаблонов это будет очень быстро, для ИИ - с задержками
-    const { data: reviews, error: reviewsError } = await reviewsQuery.limit(200);
+    // ✅ Лимит 25 чтобы уложиться в 60с timeout edge function
+    // Cron запускается каждые 10 мин → 25*6=150 отзывов/час
+    const { data: reviews, error: reviewsError } = await reviewsQuery.limit(25);
 
     if (reviewsError) {
       console.error("Error fetching reviews:", reviewsError);
