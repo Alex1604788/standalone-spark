@@ -1,5 +1,9 @@
-// VERSION: 2026-03-05-v6 - Don't set is_answered from comments_amount, let segment trigger determine from published replies
-// BRANCH: claude/setup-ozon-cron-jobs-2qPjk
+// VERSION: 2026-03-10-v7 - Sync only UNPROCESSED reviews (OZON status filter)
+// - Added filter status=UNPROCESSED: only fetches reviews without seller response
+// - Removed date filter: not needed, UNPROCESSED is the correct filter
+// - Removed saved cursor: UNPROCESSED reviews need fresh scan each run
+//   (same review stays UNPROCESSED until we publish a reply → need to re-fetch each run)
+// - Drastically faster: ~35 pages for 3437 unprocessed vs 580+ pages for 58K+ all reviews
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -23,7 +27,7 @@ serve(async (req) => {
   }
 
   try {
-    let { marketplace_id, ozon_seller_id, user_id, client_id, api_key, since } = await req.json();
+    let { marketplace_id, ozon_seller_id, user_id, client_id, api_key } = await req.json();
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
@@ -60,15 +64,7 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Starting reviews sync for marketplace ${marketplace_id}`);
-
-    // Load saved cursor position for resumable sync
-    const { data: mktplace } = await supabase
-      .from('marketplaces')
-      .select('reviews_sync_cursor')
-      .eq('id', marketplace_id)
-      .single();
-    const savedCursor = mktplace?.reviews_sync_cursor || null;
+    console.log(`Starting reviews sync for marketplace ${marketplace_id} (UNPROCESSED only)`);
 
     // Update status
     await supabase
@@ -100,7 +96,6 @@ serve(async (req) => {
 
     // Build fast lookup maps for product matching
     // SKU is NOT unique (discounted items can have 2 SKUs per offer_id)
-    // Use Map for O(1) lookup instead of Array.find O(n)
     const skuMap = new Map<string, typeof products[0]>();
     const externalIdMap = new Map<string, typeof products[0]>();
     for (const p of products) {
@@ -112,32 +107,29 @@ serve(async (req) => {
 
     let totalReviews = 0;
     let totalPages = 0;
-    let skippedOld = 0;
     let unmatchedProducts = 0;
-    const MAX_PAGES = 50; // Max pages per invocation (5000 reviews)
-    let reachedActualEnd = false; // true only if has_next=false (OZON said "no more reviews")
+    const MAX_PAGES = 50; // 50 pages × 100 reviews = 5000 UNPROCESSED reviews per run
 
-    // Default: sync reviews from last 2 months only (50-60K reviews)
-    const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
-    const sinceDate = since || twoMonthsAgo;
-    console.log(`Syncing reviews since: ${sinceDate}`);
-
-    // Fetch reviews from Ozon using cursor-based pagination
-    // OZON /v1/review/list returns { reviews: [...], last_id: "...", has_next: true/false }
-    // Resume from saved cursor if available (OZON ignores offset/since, only last_id works)
+    // Fetch ONLY UNPROCESSED reviews from OZON
+    // OZON status=UNPROCESSED = reviews without seller response
+    // No cursor saved between runs: same reviews stay UNPROCESSED until reply is published
+    // So we always start from the beginning each run (cursor within run is still used)
     const pageSize = 100;
     let hasMore = true;
     let page = 1;
-    let lastId: string | null = savedCursor;
+    let lastId: string | null = null; // Always start fresh (no saved cursor for UNPROCESSED mode)
     let reviewsBatch: any[] = [];
-    console.log(`Starting from cursor: ${savedCursor || 'beginning'}`);
     const BATCH_UPSERT_SIZE = 50;
 
+    console.log('Fetching UNPROCESSED reviews (no cursor needed between runs)');
+
     while (hasMore) {
-      console.log(`Fetching reviews page ${page}${lastId ? `, after ${lastId}` : ''}`);
+      console.log(`Fetching UNPROCESSED reviews page ${page}${lastId ? `, after ${lastId}` : ''}`);
 
       const requestBody: any = {
-        filter: {},
+        filter: {
+          status: 'UNPROCESSED', // ✅ Only reviews without seller response
+        },
         limit: pageSize,
       };
       if (lastId) {
@@ -171,26 +163,16 @@ serve(async (req) => {
       // OZON returns reviews at top level, NOT inside result
       const reviews = reviewsData.reviews || reviewsData.result?.reviews || [];
 
-      console.log(`Page ${page}: Found ${reviews.length} reviews`);
+      console.log(`Page ${page}: Found ${reviews.length} UNPROCESSED reviews`);
 
       if (reviews.length === 0) {
-        reachedActualEnd = true;
         hasMore = false;
         break;
       }
 
-      // Process reviews — check date filter and build batch
-      let reachedOldReviews = false;
+      // Process reviews — build batch
       for (const review of reviews) {
         try {
-          // Check date filter — skip reviews older than sinceDate
-          const reviewDate = review.published_at || '';
-          if (reviewDate && reviewDate < sinceDate) {
-            skippedOld++;
-            reachedOldReviews = true;
-            continue;
-          }
-
           // Match product by SKU (primary) or external_id (fallback)
           const reviewSku = review.sku ? String(review.sku) : null;
           let product = null;
@@ -202,15 +184,12 @@ serve(async (req) => {
           if (!product) {
             unmatchedProducts++;
             // Skip reviews with no product match to avoid overwriting existing product_id with null
-            // These reviews either: (a) already exist in DB with a valid product_id — skip to preserve it
-            // or (b) are new but for a product not yet synced — will be picked up after daily product sync
             continue;
           }
 
           // Build upsert record
           // NOTE: Do NOT set is_answered from comments_amount!
-          // comments_amount includes buyer/moderation comments, not just seller replies.
-          // The segment trigger uses published replies in our DB to determine the real segment.
+          // The segment trigger determines segment from published replies in our DB.
           reviewsBatch.push({
             marketplace_id,
             product_id: product?.id || null,
@@ -249,17 +228,12 @@ serve(async (req) => {
 
       totalPages++;
       lastId = reviewsData.last_id || null;
-      // Track if OZON says there are no more pages (actual end of data)
-      if (reviewsData.has_next !== true) {
-        reachedActualEnd = true;
-      }
-      hasMore = reviewsData.has_next === true && reviews.length > 0 && page <= MAX_PAGES;
+      hasMore = reviewsData.has_next === true && reviews.length > 0 && page < MAX_PAGES;
       page++;
 
-      // Small delay to avoid rate limits (50ms for skip-only pages, 200ms when saving)
+      // Small delay to avoid rate limits
       if (hasMore) {
-        const delay = reachedOldReviews && reviewsBatch.length === 0 ? 50 : 200;
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
     }
 
@@ -279,30 +253,26 @@ serve(async (req) => {
       }
     }
 
-    // Save cursor position for next run (resume from where we left off)
-    // Only reset cursor if OZON said has_next=false (actual end of all reviews)
-    // If we stopped due to MAX_PAGES limit, save cursor so next run continues from here
-    const newCursor = reachedActualEnd ? null : lastId;
+    // Update sync status (no cursor to save for UNPROCESSED mode)
     await supabase
       .from('marketplaces')
       .update({
         last_sync_at: new Date().toISOString(),
         last_sync_status: 'success',
         last_sync_error: null,
-        reviews_sync_cursor: newCursor,
+        reviews_sync_cursor: null, // Always reset — UNPROCESSED doesn't need cursor
       })
       .eq('id', marketplace_id);
 
-    console.log(`Synced ${totalReviews} reviews (${totalPages} pages, skipped ${skippedOld} old, ${unmatchedProducts} without product, cursor=${newCursor || 'reset'})`);
+    console.log(`Synced ${totalReviews} UNPROCESSED reviews (${totalPages} pages, ${unmatchedProducts} without product)`);
 
     return new Response(
       JSON.stringify({
         success: true,
         reviews_count: totalReviews,
         pages: totalPages,
-        skipped_old: skippedOld,
         unmatched_products: unmatchedProducts,
-        message: `Синхронизировано ${totalReviews} отзывов (${totalPages} страниц, пропущено ${skippedOld} старых)`,
+        message: `Синхронизировано ${totalReviews} необработанных отзывов (${totalPages} страниц)`,
       }),
       { headers: { 'Content-Type': 'application/json', ...corsHeaders } }
     );

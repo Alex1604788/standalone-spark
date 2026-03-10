@@ -401,6 +401,7 @@ async function publishToOzonReview(
     body: JSON.stringify({
       review_id: reviewId,
       text: content,
+      mark_review_as_processed: true, // ✅ Auto-mark as PROCESSED in OZON when we reply
     }),
   });
 
