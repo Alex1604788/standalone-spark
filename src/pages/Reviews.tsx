@@ -462,7 +462,8 @@ const Reviews = () => {
       let countQuery = supabase
         .from("reviews")
         .select("id", { count: "exact", head: true })
-        .in("marketplace_id", marketplaceIds);
+        .in("marketplace_id", marketplaceIds)
+        .is("deleted_at", null);
 
       if (statusFilter === "unanswered") {
         countQuery = countQuery.eq("segment", "unanswered");
@@ -484,7 +485,8 @@ const Reviews = () => {
       let query = supabase
         .from("reviews")
         .select(`id, external_id, author_name, text, advantages, disadvantages, review_date, rating, is_answered, product_id, photos, segment, marketplace_id, status, updated_at, created_at, products(name, offer_id, image_url, marketplace_id)`)
-        .in("marketplace_id", marketplaceIds);
+        .in("marketplace_id", marketplaceIds)
+        .is("deleted_at", null);
 
       // ✅ Фильтр по segment на основе URL параметра
       if (statusFilter === "unanswered") {
@@ -550,11 +552,12 @@ const Reviews = () => {
 
       const { data, count } = await supabase
         .from("questions")
-        .select(`*, products!inner(name, marketplace_id)`, { count: "exact" })
+        .select(`*, products!inner(name, image_url, marketplace_id)`, { count: "exact" })
         .in(
           "products.marketplace_id",
           marketplaces.map((m) => m.id),
         )
+        .is("deleted_at", null)
         .order("question_date", { ascending: false })
         .limit(100);
 

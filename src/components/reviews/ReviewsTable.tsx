@@ -91,7 +91,6 @@ export function ReviewsTable({
               const isSelected = selectedReviews.includes(review.id);
               const hasPhotos = hasReviewPhotos(review);
 
-              console.log("PRODUCT DEBUG:", review.id, review.products);
 
               return (
                 <TableRow

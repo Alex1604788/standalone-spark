@@ -96,6 +96,7 @@ const Questions = () => {
       `,
       )
       .in("marketplace_id", marketplaceIds)
+      .is("deleted_at", null)
       .is("replies.deleted_at", null);
 
     // Фильтр по статусу (левое меню: Не отвечено / Архив)
