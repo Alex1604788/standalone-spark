@@ -335,7 +335,8 @@ const Reviews = () => {
 
   // ✅ Функция для обновления статуса процесса отправки
   const updatePublishingStatus = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
     if (!user) return;
 
     const { data: marketplaces } = await supabase
@@ -440,8 +441,9 @@ const Reviews = () => {
     setIsTableLoading(true);
     try {
       const {
-        data: { user },
-      } = await supabase.auth.getUser();
+        data: { session },
+      } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) return;
 
       const { data: marketplaces } = await supabase.from("marketplaces").select("id").eq("user_id", user.id);
@@ -539,8 +541,9 @@ const Reviews = () => {
   const fetchQuestions = async () => {
     try {
       const {
-        data: { user },
-      } = await supabase.auth.getUser();
+        data: { session },
+      } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) return;
       const { data: marketplaces } = await supabase.from("marketplaces").select("id").eq("user_id", user.id);
       if (!marketplaces?.length) return;
