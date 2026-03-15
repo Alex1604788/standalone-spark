@@ -652,7 +652,8 @@ const Reviews = () => {
         .from("replies")
         .select("id, review_id, content, status")
         .in("review_id", selectedReviewsIds)
-        .eq("status", "drafted");
+        .in("status", ["drafted", "failed"])
+        .is("deleted_at", null);
 
       if (draftsError) {
         console.error("❌ Ошибка загрузки черновиков:", draftsError);
@@ -783,8 +784,14 @@ const Reviews = () => {
             });
 
             if (saveError) {
-              console.error(`❌ Ошибка сохранения для ${reviewId}:`, saveError);
-              errorCount++;
+              if ((saveError as any).code === "23505" || (saveError as any).status === 409) {
+                // Конфликт: ответ уже создан другим процессом (auto-generate-drafts и т.д.) — пропускаем
+                console.log(`⏭️ Skip ${reviewId}: ответ уже существует (conflict)`);
+                skippedCount++;
+              } else {
+                console.error(`❌ Ошибка сохранения для ${reviewId}:`, saveError);
+                errorCount++;
+              }
             } else {
               console.log(`✅ ${replyMethod === "template" ? "Шаблон" : "ИИ-ответ"} отправлен для ${reviewId}`);
               successCount++;
