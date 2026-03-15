@@ -146,9 +146,10 @@ serve(async (req) => {
           const productSku = question.sku ? String(question.sku) : null;
           let product = null;
           if (productSku) {
-            // Try sku, then external_id, then offer_id for wider matching
+            // SKU (from OZON question.sku) matches products.sku (OZON item_id)
+            // offer_id is seller's unique article — secondary fallback
+            // external_id is a different OZON internal ID — NOT used for matching here
             product = skuMap.get(productSku)
-              || externalIdMap.get(productSku)
               || offerIdMap.get(productSku)
               || null;
           }
@@ -157,9 +158,11 @@ serve(async (req) => {
           const extId = String(question.id);
 
           // Determine if OZON considers this question answered.
-          // OZON API may return: answers_count (int), comments (array), or is_answered (bool).
+          // OZON returns: answers_count (int) + status ('NEW' | 'PROCESSED')
+          // 'PROCESSED' = answered by seller; answers_count > 0 = same.
           const isAnsweredByOzon =
             (question.answers_count || 0) > 0 ||
+            question.status === 'PROCESSED' ||
             (Array.isArray(question.comments) && question.comments.length > 0) ||
             question.is_answered === true;
 
