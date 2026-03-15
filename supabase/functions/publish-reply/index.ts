@@ -1,8 +1,13 @@
 /**
  * publish-reply: Публикует ответ на отзыв или вопрос
- * VERSION: 2026-02-19-v4
+ * VERSION: 2026-03-15-v5
  *
  * CHANGELOG:
+ * v5 (2026-03-15):
+ * - FIX: 404 от маркетплейса = отзыв удалён (покупателем/модерацией) — постоянная ошибка.
+ *   Вместо retry: soft-delete reply + is_answered=true на отзыве → сегмент меняется с pending на archived.
+ *   Раньше такие отзывы зависали в "Ошибка" навсегда (retry_count=5, status=failed).
+ *
  * v4 (2026-02-19):
  * - FIX: Добавлен sku в SELECT query для products (OZON вопросы всегда падали с "Product SKU not found")
  * - FIX: Catch блок теперь сбрасывает статус в 'failed' если ошибка возникла после захвата атомарной блокировки
@@ -261,6 +266,28 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     } else {
+      // 404 = Resource deleted in marketplace (by buyer/moderation) — permanent, no point retrying
+      if (errorMessage.includes('404')) {
+        console.log(`[publish-reply] Resource deleted in marketplace (404). Archiving reply and parent.`);
+        await supabase
+          .from("replies")
+          .update({
+            deleted_at: new Date().toISOString(),
+            error_message: errorMessage,
+          })
+          .eq("id", reply_id);
+
+        if (reply.review_id) {
+          await supabase.from("reviews").update({ is_answered: true }).eq("id", reply.review_id);
+        } else if (reply.question_id) {
+          await supabase.from("questions").update({ is_answered: true }).eq("id", reply.question_id);
+        }
+
+        return new Response(JSON.stringify({ success: true, mode: "archived_404" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // Handle retry logic (Server-side only)
       const newRetryCount = (reply.retry_count || 0) + 1;
       const maxRetries = 5;
