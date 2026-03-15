@@ -1,4 +1,4 @@
-// VERSION: 2026-03-15-v10 - cursor NEVER resets, always advances forward
+// VERSION: 2026-03-15-v11 - skip pre-2025 reviews + cursor never resets
 // KEY CHANGES:
 //   - ignoreDuplicates: true (from v8) — skip existing rows (no UPDATE → no trigger re-fire)
 //   - Cursor always saved at furthest position reached, never reset to NULL
@@ -198,6 +198,12 @@ serve(async (req) => {
           if (!product) {
             unmatchedProducts++;
             // Skip reviews with no product match to avoid overwriting existing product_id with null
+            continue;
+          }
+
+          // Skip reviews older than 2025 — not needed, don't store them
+          const reviewDate = review.published_at ? new Date(review.published_at) : null;
+          if (!reviewDate || reviewDate < new Date('2025-01-01T00:00:00Z')) {
             continue;
           }
 
