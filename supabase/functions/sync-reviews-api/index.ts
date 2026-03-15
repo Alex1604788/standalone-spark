@@ -1,9 +1,11 @@
-// VERSION: 2026-03-10-v7 - Sync only UNPROCESSED reviews (OZON status filter)
-// - Added filter status=UNPROCESSED: only fetches reviews without seller response
-// - Removed date filter: not needed, UNPROCESSED is the correct filter
-// - Removed saved cursor: UNPROCESSED reviews need fresh scan each run
-//   (same review stays UNPROCESSED until we publish a reply → need to re-fetch each run)
-// - Drastically faster: ~35 pages for 3437 unprocessed vs 580+ pages for 58K+ all reviews
+// VERSION: 2026-03-15-v8 - ignoreDuplicates:true to prevent segment resets on existing reviews
+// KEY CHANGE: ignoreDuplicates: true (was false)
+//   - Existing reviews are SKIPPED on conflict (no UPDATE, no trigger fire)
+//   - Only NEW reviews (not in DB) get INSERTED → segment trigger fires correctly → 'unanswered'
+//   - Prevents race condition: upsert UPDATE was re-triggering calculate_review_segment()
+//     which could cause already-archived reviews to briefly flicker back to unanswered
+// - Keeps UNPROCESSED filter: only fetches reviews without seller response from OZON
+// - No cursor between runs: UNPROCESSED list is small (883 as of 15.03), single run covers all
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -211,7 +213,7 @@ serve(async (req) => {
               .from('reviews')
               .upsert(reviewsBatch, {
                 onConflict: 'marketplace_id,external_id',
-                ignoreDuplicates: false,
+                ignoreDuplicates: true, // ✅ v8: skip existing rows (no UPDATE → no trigger re-fire)
               });
 
             if (batchError) {
@@ -243,7 +245,7 @@ serve(async (req) => {
         .from('reviews')
         .upsert(reviewsBatch, {
           onConflict: 'marketplace_id,external_id',
-          ignoreDuplicates: false,
+          ignoreDuplicates: true, // ✅ v8: skip existing rows
         });
 
       if (batchError) {

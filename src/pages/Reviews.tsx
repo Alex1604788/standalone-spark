@@ -477,9 +477,8 @@ const Reviews = () => {
         countQuery = countQuery.eq("rating", parseInt(ratingFilter, 10));
       }
 
-      const { count } = await countQuery;
-
-      // ✅ FIX 2026-03-06: Load reviews WITHOUT replies JOIN (replies JOIN causes 500 on large table)
+      // ✅ 2026-03-15: Run count and data queries IN PARALLEL (was sequential — doubled load time)
+      // FIX 2026-03-06: Load reviews WITHOUT replies JOIN (replies JOIN causes 500 on large table)
       // Exclude 'raw' JSONB column (large, not needed in list view) — select specific columns only
       // Then fetch replies separately by review_id IN list (uses idx_replies_review_id index)
       let query = supabase
@@ -502,7 +501,11 @@ const Reviews = () => {
         query = query.eq("rating", parseInt(ratingFilter, 10));
       }
 
-      const { data, error } = await query.order("review_date", { ascending: false }).range(from, to);
+      // Run count and data in parallel
+      const [{ count }, { data, error }] = await Promise.all([
+        countQuery,
+        query.order("review_date", { ascending: false }).range(from, to),
+      ]);
 
       if (error) {
         throw error;
