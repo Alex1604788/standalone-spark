@@ -1,12 +1,13 @@
-// VERSION: 2026-03-15-v9 - restored cursor between runs (UNPROCESSED list is 10k+, not small)
+// VERSION: 2026-03-15-v10 - cursor NEVER resets, always advances forward
 // KEY CHANGES:
 //   - ignoreDuplicates: true (from v8) — skip existing rows (no UPDATE → no trigger re-fire)
-//   - Cursor saved between runs: OZON has 10,000+ UNPROCESSED reviews (old unmatched + new)
-//     OZON returns oldest first → without cursor, we always page through old reviews first
-//     and never reach new ones (hit MAX_PAGES=50 before page 51+ which has recent reviews)
-//   - Cursor resets to NULL when has_next=false (full scan complete)
-//   - After full scan, cursor resets and next run starts fresh (picks up any truly new reviews)
+//   - Cursor always saved at furthest position reached, never reset to NULL
+//     After initial full scan: cursor points to end of UNPROCESSED list
+//     Next runs start from end → only pick up NEW reviews (fast, no re-scanning old ones)
+//     Since OZON review IDs are UUIDv7 (time-based), cursor acts as "reviews newer than this"
+//   - If user wants full rescan: manually clear reviews_sync_cursor in DB
 // ROOT CAUSE found 15.03: 3460 unmatched_products in first 5000 UNPROCESSED → new reviews on page 51+
+// v9 partially fixed this but reset cursor after full scan → re-scanned old reviews every cycle
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -130,8 +131,7 @@ serve(async (req) => {
     let hasMore = true;
     let page = 1;
     let lastId: string | null = savedCursor; // Resume from saved cursor (or start fresh if null)
-    let lastSavedId: string | null = savedCursor; // Track what to save at end
-    let scanComplete = false; // True when has_next=false (full scan done)
+    let lastSavedId: string | null = savedCursor; // Track furthest position reached
     let reviewsBatch: any[] = [];
     const BATCH_UPSERT_SIZE = 50;
 
@@ -243,10 +243,7 @@ serve(async (req) => {
       totalPages++;
       if (reviewsData.last_id) {
         lastId = reviewsData.last_id;
-        lastSavedId = reviewsData.last_id;
-      }
-      if (reviewsData.has_next !== true || reviews.length === 0) {
-        scanComplete = true; // Full scan complete → reset cursor on next run
+        lastSavedId = reviewsData.last_id; // Always advance cursor forward
       }
       hasMore = reviewsData.has_next === true && reviews.length > 0 && page < MAX_PAGES;
       page++;
@@ -273,21 +270,21 @@ serve(async (req) => {
       }
     }
 
-    // Save cursor for next run (progressive pagination through UNPROCESSED list)
-    // If scan completed (has_next=false) → reset cursor so next run starts fresh
-    // If hit MAX_PAGES → save cursor to continue from where we stopped
-    const cursorToSave = scanComplete ? null : lastSavedId;
+    // Always save cursor at furthest position reached — never reset to NULL
+    // This ensures next run starts from where we stopped, not from the beginning
+    // After initial full scan: cursor points to end → next runs only pick up NEW reviews
+    // To force a full rescan: manually set reviews_sync_cursor = NULL in DB
     await supabase
       .from('marketplaces')
       .update({
         last_sync_at: new Date().toISOString(),
         last_sync_status: 'success',
         last_sync_error: null,
-        reviews_sync_cursor: cursorToSave,
+        reviews_sync_cursor: lastSavedId,
       })
       .eq('id', marketplace_id);
 
-    console.log(`Synced ${totalReviews} UNPROCESSED reviews (${totalPages} pages, ${unmatchedProducts} without product, scan_complete: ${scanComplete}, cursor: ${cursorToSave ? cursorToSave.slice(0,20) + '...' : 'reset'})`);
+    console.log(`Synced ${totalReviews} UNPROCESSED reviews (${totalPages} pages, ${unmatchedProducts} without product, cursor: ${lastSavedId ? lastSavedId.slice(0,20) + '...' : 'no cursor'})`);
 
     return new Response(
       JSON.stringify({
@@ -295,9 +292,8 @@ serve(async (req) => {
         reviews_count: totalReviews,
         pages: totalPages,
         unmatched_products: unmatchedProducts,
-        scan_complete: scanComplete,
-        cursor_saved: cursorToSave ? cursorToSave.slice(0, 30) + '...' : null,
-        message: `Синхронизировано ${totalReviews} необработанных отзывов (${totalPages} стр, ${scanComplete ? 'полный скан завершён' : 'продолжение на след. запуске'})`,
+        cursor_saved: lastSavedId ? lastSavedId.slice(0, 30) + '...' : null,
+        message: `Синхронизировано ${totalReviews} необработанных отзывов (${totalPages} стр)`,
       }),
       { headers: { 'Content-Type': 'application/json', ...corsHeaders } }
     );
