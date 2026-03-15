@@ -785,9 +785,36 @@ const Reviews = () => {
 
             if (saveError) {
               if ((saveError as any).code === "23505" || (saveError as any).status === 409) {
-                // Конфликт: ответ уже создан другим процессом (auto-generate-drafts и т.д.) — пропускаем
-                console.log(`⏭️ Skip ${reviewId}: ответ уже существует (conflict)`);
-                skippedCount++;
+                // Конфликт: reply уже создан другим процессом (auto-generate-drafts).
+                // Находим существующий и обновляем его на scheduled.
+                console.log(`⚡ Conflict для ${reviewId}: ищем существующий reply...`);
+                const { data: existingConflict } = await supabase
+                  .from("replies")
+                  .select("id")
+                  .eq("review_id", reviewId)
+                  .is("deleted_at", null)
+                  .in("status", ["drafted", "failed"])
+                  .limit(1)
+                  .maybeSingle();
+
+                if (existingConflict) {
+                  const { error: fallbackError } = await supabase
+                    .from("replies")
+                    .update({ status: "scheduled", scheduled_at: new Date().toISOString(), user_id: user.id })
+                    .eq("id", existingConflict.id);
+
+                  if (fallbackError) {
+                    console.error(`❌ Fallback update failed для ${reviewId}:`, fallbackError);
+                    errorCount++;
+                  } else {
+                    console.log(`✅ Fallback: reply ${existingConflict.id} обновлён на scheduled`);
+                    successCount++;
+                  }
+                } else {
+                  // Уже scheduled/published — просто пропускаем
+                  console.log(`⏭️ Skip ${reviewId}: уже запланирован/отправлен (conflict)`);
+                  skippedCount++;
+                }
               } else {
                 console.error(`❌ Ошибка сохранения для ${reviewId}:`, saveError);
                 errorCount++;
