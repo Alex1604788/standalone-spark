@@ -12,7 +12,7 @@ BEGIN
   -- Check when the marketplace cursor was last updated (proxy for last successful sync)
   SELECT MAX(updated_at) INTO v_last_sync
   FROM public.marketplaces
-  WHERE type = 'ozon' AND sync_mode = 'api' AND deleted_at IS NULL;
+  WHERE type = 'ozon' AND sync_mode = 'api';
 
   IF v_last_sync IS NULL OR v_last_sync < NOW() - v_threshold THEN
     RAISE LOG 'watchdog_reviews_sync: sync is stale (last_sync=%), triggering manual run', v_last_sync;
