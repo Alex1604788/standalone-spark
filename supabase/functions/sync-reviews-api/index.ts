@@ -1,11 +1,12 @@
-// VERSION: 2026-03-15-v8 - ignoreDuplicates:true to prevent segment resets on existing reviews
-// KEY CHANGE: ignoreDuplicates: true (was false)
-//   - Existing reviews are SKIPPED on conflict (no UPDATE, no trigger fire)
-//   - Only NEW reviews (not in DB) get INSERTED → segment trigger fires correctly → 'unanswered'
-//   - Prevents race condition: upsert UPDATE was re-triggering calculate_review_segment()
-//     which could cause already-archived reviews to briefly flicker back to unanswered
-// - Keeps UNPROCESSED filter: only fetches reviews without seller response from OZON
-// - No cursor between runs: UNPROCESSED list is small (883 as of 15.03), single run covers all
+// VERSION: 2026-03-15-v9 - restored cursor between runs (UNPROCESSED list is 10k+, not small)
+// KEY CHANGES:
+//   - ignoreDuplicates: true (from v8) — skip existing rows (no UPDATE → no trigger re-fire)
+//   - Cursor saved between runs: OZON has 10,000+ UNPROCESSED reviews (old unmatched + new)
+//     OZON returns oldest first → without cursor, we always page through old reviews first
+//     and never reach new ones (hit MAX_PAGES=50 before page 51+ which has recent reviews)
+//   - Cursor resets to NULL when has_next=false (full scan complete)
+//   - After full scan, cursor resets and next run starts fresh (picks up any truly new reviews)
+// ROOT CAUSE found 15.03: 3460 unmatched_products in first 5000 UNPROCESSED → new reviews on page 51+
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -66,7 +67,15 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Starting reviews sync for marketplace ${marketplace_id} (UNPROCESSED only)`);
+    // Load saved cursor from DB (progressive pagination across runs)
+    const { data: marketplaceData } = await supabase
+      .from('marketplaces')
+      .select('reviews_sync_cursor')
+      .eq('id', marketplace_id)
+      .single();
+    const savedCursor: string | null = marketplaceData?.reviews_sync_cursor || null;
+
+    console.log(`Starting reviews sync for marketplace ${marketplace_id} (UNPROCESSED, cursor: ${savedCursor ? savedCursor.slice(0,20) + '...' : 'fresh start'})`);
 
     // Update status
     await supabase
@@ -114,16 +123,19 @@ serve(async (req) => {
 
     // Fetch ONLY UNPROCESSED reviews from OZON
     // OZON status=UNPROCESSED = reviews without seller response
-    // No cursor saved between runs: same reviews stay UNPROCESSED until reply is published
-    // So we always start from the beginning each run (cursor within run is still used)
+    // Cursor saved between runs: OZON has 10,000+ UNPROCESSED (old unmatched + new)
+    // OZON returns oldest first → cursor ensures we progressively page through all of them
+    // When has_next=false (full scan done), cursor resets to NULL → next run starts fresh
     const pageSize = 100;
     let hasMore = true;
     let page = 1;
-    let lastId: string | null = null; // Always start fresh (no saved cursor for UNPROCESSED mode)
+    let lastId: string | null = savedCursor; // Resume from saved cursor (or start fresh if null)
+    let lastSavedId: string | null = savedCursor; // Track what to save at end
+    let scanComplete = false; // True when has_next=false (full scan done)
     let reviewsBatch: any[] = [];
     const BATCH_UPSERT_SIZE = 50;
 
-    console.log('Fetching UNPROCESSED reviews (no cursor needed between runs)');
+    console.log(`Fetching UNPROCESSED reviews (cursor: ${lastId ? lastId.slice(0,20) + '...' : 'fresh'})`);
 
     while (hasMore) {
       console.log(`Fetching UNPROCESSED reviews page ${page}${lastId ? `, after ${lastId}` : ''}`);
@@ -229,7 +241,13 @@ serve(async (req) => {
       }
 
       totalPages++;
-      lastId = reviewsData.last_id || null;
+      if (reviewsData.last_id) {
+        lastId = reviewsData.last_id;
+        lastSavedId = reviewsData.last_id;
+      }
+      if (reviewsData.has_next !== true || reviews.length === 0) {
+        scanComplete = true; // Full scan complete → reset cursor on next run
+      }
       hasMore = reviewsData.has_next === true && reviews.length > 0 && page < MAX_PAGES;
       page++;
 
@@ -255,18 +273,21 @@ serve(async (req) => {
       }
     }
 
-    // Update sync status (no cursor to save for UNPROCESSED mode)
+    // Save cursor for next run (progressive pagination through UNPROCESSED list)
+    // If scan completed (has_next=false) → reset cursor so next run starts fresh
+    // If hit MAX_PAGES → save cursor to continue from where we stopped
+    const cursorToSave = scanComplete ? null : lastSavedId;
     await supabase
       .from('marketplaces')
       .update({
         last_sync_at: new Date().toISOString(),
         last_sync_status: 'success',
         last_sync_error: null,
-        reviews_sync_cursor: null, // Always reset — UNPROCESSED doesn't need cursor
+        reviews_sync_cursor: cursorToSave,
       })
       .eq('id', marketplace_id);
 
-    console.log(`Synced ${totalReviews} UNPROCESSED reviews (${totalPages} pages, ${unmatchedProducts} without product)`);
+    console.log(`Synced ${totalReviews} UNPROCESSED reviews (${totalPages} pages, ${unmatchedProducts} without product, scan_complete: ${scanComplete}, cursor: ${cursorToSave ? cursorToSave.slice(0,20) + '...' : 'reset'})`);
 
     return new Response(
       JSON.stringify({
@@ -274,7 +295,9 @@ serve(async (req) => {
         reviews_count: totalReviews,
         pages: totalPages,
         unmatched_products: unmatchedProducts,
-        message: `Синхронизировано ${totalReviews} необработанных отзывов (${totalPages} страниц)`,
+        scan_complete: scanComplete,
+        cursor_saved: cursorToSave ? cursorToSave.slice(0, 30) + '...' : null,
+        message: `Синхронизировано ${totalReviews} необработанных отзывов (${totalPages} стр, ${scanComplete ? 'полный скан завершён' : 'продолжение на след. запуске'})`,
       }),
       { headers: { 'Content-Type': 'application/json', ...corsHeaders } }
     );
