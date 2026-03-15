@@ -1,4 +1,4 @@
-// VERSION: 2026-03-06-v2 - Cursor-based pagination, batch upsert, MAX_PAGES limit
+// VERSION: 2026-03-15-v3 - Fix: is_answered never reset by sync; fix product match by offer_id
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -82,9 +82,11 @@ serve(async (req) => {
 
     const skuMap = new Map<string, typeof products[0]>();
     const externalIdMap = new Map<string, typeof products[0]>();
+    const offerIdMap = new Map<string, typeof products[0]>();
     for (const p of products || []) {
       if (p.sku && !skuMap.has(p.sku)) skuMap.set(p.sku, p);
       if (p.external_id && !externalIdMap.has(p.external_id)) externalIdMap.set(p.external_id, p);
+      if (p.offer_id && !offerIdMap.has(p.offer_id)) offerIdMap.set(p.offer_id, p);
     }
 
     console.log(`[sync-questions-api] ${products?.length || 0} products loaded. Starting from cursor: ${savedCursor || 'beginning'}`);
@@ -98,6 +100,7 @@ serve(async (req) => {
     let hasMore = true;
     let lastId: string = savedCursor || '';
     let questionsBatch: any[] = [];
+    let answeredExternalIds: string[] = []; // track questions OZON says are answered
 
     while (hasMore && totalPages < MAX_PAGES) {
       console.log(`[sync-questions-api] Page ${totalPages + 1}, last_id: ${lastId || 'first'}`);
@@ -143,20 +146,39 @@ serve(async (req) => {
           const productSku = question.sku ? String(question.sku) : null;
           let product = null;
           if (productSku) {
-            product = skuMap.get(productSku) || externalIdMap.get(productSku) || null;
+            // Try sku, then external_id, then offer_id for wider matching
+            product = skuMap.get(productSku)
+              || externalIdMap.get(productSku)
+              || offerIdMap.get(productSku)
+              || null;
           }
           if (!product) unmatchedProducts++;
 
+          const extId = String(question.id);
+
+          // Determine if OZON considers this question answered.
+          // OZON API may return: answers_count (int), comments (array), or is_answered (bool).
+          const isAnsweredByOzon =
+            (question.answers_count || 0) > 0 ||
+            (Array.isArray(question.comments) && question.comments.length > 0) ||
+            question.is_answered === true;
+
+          // NOTE: is_answered is intentionally excluded from upsert data.
+          // This prevents sync from resetting is_answered=true back to false.
+          // We handle is_answered separately below (only ever set true, never false).
           questionsBatch.push({
             marketplace_id,
             product_id: product?.id || null,
-            external_id: String(question.id),
+            external_id: extId,
             author_name: question.author_name || 'Anonymous',
             text: question.text || '',
             question_date: question.published_at || new Date().toISOString(),
             status: 'new',
-            is_answered: (question.answers_count || 0) > 0,
           });
+
+          if (isAnsweredByOzon) {
+            answeredExternalIds.push(extId);
+          }
 
           if (questionsBatch.length >= BATCH_SIZE) {
             const { error: batchError } = await supabase
@@ -171,6 +193,16 @@ serve(async (req) => {
               totalQuestions += questionsBatch.length;
             }
             questionsBatch = [];
+
+            // Mark answered questions (only set true, never reset to false)
+            if (answeredExternalIds.length > 0) {
+              await supabase
+                .from('questions')
+                .update({ is_answered: true })
+                .eq('marketplace_id', marketplace_id)
+                .in('external_id', answeredExternalIds);
+              answeredExternalIds = [];
+            }
           }
         } catch (err) {
           console.error('[sync-questions-api] Error processing question:', err);
@@ -195,6 +227,15 @@ serve(async (req) => {
           ignoreDuplicates: false,
         });
       if (!batchError) totalQuestions += questionsBatch.length;
+    }
+
+    // Flush remaining answered IDs
+    if (answeredExternalIds.length > 0) {
+      await supabase
+        .from('questions')
+        .update({ is_answered: true })
+        .eq('marketplace_id', marketplace_id)
+        .in('external_id', answeredExternalIds);
     }
 
     // Save cursor: if hasMore, save position; if done, reset to start fresh
