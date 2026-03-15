@@ -621,7 +621,7 @@ const AppLayout = ({ children }: AppLayoutProps) => {
       <main className="flex-1 overflow-auto">
         {/* Page Header */}
         <div className="sticky top-0 z-40 bg-card/80 backdrop-blur-sm border-b border-border shadow-soft">
-          <div className="container mx-auto px-6 py-4">
+          <div className="container mx-auto px-6 py-4 pl-16 lg:pl-6">
             <h1 className="text-2xl font-bold text-foreground">{getCurrentPageTitle()}</h1>
           </div>
         </div>

@@ -436,6 +436,7 @@ export type Database = {
       chats: {
         Row: {
           chat_id: string
+          chat_type: string | null
           created_at: string
           expires_at: string | null
           id: string
@@ -452,6 +453,7 @@ export type Database = {
         }
         Insert: {
           chat_id: string
+          chat_type?: string | null
           created_at?: string
           expires_at?: string | null
           id?: string
@@ -468,6 +470,7 @@ export type Database = {
         }
         Update: {
           chat_id?: string
+          chat_type?: string | null
           created_at?: string
           expires_at?: string | null
           id?: string
@@ -1044,6 +1047,8 @@ export type Database = {
           last_sync_total: number | null
           name: string
           ozon_seller_id: string | null
+          questions_sync_cursor: string | null
+          reviews_sync_cursor: string | null
           service_account_email: string | null
           session_expires_at: string | null
           session_token_encrypted: string | null
@@ -1075,6 +1080,8 @@ export type Database = {
           last_sync_total?: number | null
           name: string
           ozon_seller_id?: string | null
+          questions_sync_cursor?: string | null
+          reviews_sync_cursor?: string | null
           service_account_email?: string | null
           session_expires_at?: string | null
           session_token_encrypted?: string | null
@@ -1106,6 +1113,8 @@ export type Database = {
           last_sync_total?: number | null
           name?: string
           ozon_seller_id?: string | null
+          questions_sync_cursor?: string | null
+          reviews_sync_cursor?: string | null
           service_account_email?: string | null
           session_expires_at?: string | null
           session_token_encrypted?: string | null
@@ -2320,7 +2329,7 @@ export type Database = {
           is_answered: boolean | null
           last_generated_at: string | null
           marketplace_id: string | null
-          product_id: string
+          product_id: string | null
           product_image: string | null
           question_date: string
           source_type: string | null
@@ -2338,7 +2347,7 @@ export type Database = {
           is_answered?: boolean | null
           last_generated_at?: string | null
           marketplace_id?: string | null
-          product_id: string
+          product_id?: string | null
           product_image?: string | null
           question_date: string
           source_type?: string | null
@@ -2356,7 +2365,7 @@ export type Database = {
           is_answered?: boolean | null
           last_generated_at?: string | null
           marketplace_id?: string | null
-          product_id?: string
+          product_id?: string | null
           product_image?: string | null
           question_date?: string
           source_type?: string | null
@@ -2529,7 +2538,7 @@ export type Database = {
           last_generated_at: string | null
           marketplace_id: string
           photos: Json | null
-          product_id: string
+          product_id: string | null
           product_image: string | null
           rating: number
           raw: Json | null
@@ -2554,7 +2563,7 @@ export type Database = {
           last_generated_at?: string | null
           marketplace_id: string
           photos?: Json | null
-          product_id: string
+          product_id?: string | null
           product_image?: string | null
           rating: number
           raw?: Json | null
@@ -2579,7 +2588,7 @@ export type Database = {
           last_generated_at?: string | null
           marketplace_id?: string
           photos?: Json | null
-          product_id?: string
+          product_id?: string | null
           product_image?: string | null
           rating?: number
           raw?: Json | null
@@ -3474,9 +3483,37 @@ export type Database = {
       }
     }
     Functions: {
+      analyze_replies_table: { Args: never; Returns: Json }
       build_pick_list_pivot_sql: {
         Args: { p_marketplace_id: string; p_version_id: string }
         Returns: string
+      }
+      bulk_update_reply_mode:
+        | {
+            Args: {
+              p_from_status: Database["public"]["Enums"]["reply_status"]
+              p_marketplace_id: string
+              p_rating: number
+              p_target_status: Database["public"]["Enums"]["reply_status"]
+            }
+            Returns: number
+          }
+        | {
+            Args: {
+              p_from_status: string
+              p_marketplace_id: string
+              p_rating: number
+              p_target_status: string
+            }
+            Returns: number
+          }
+      bulk_update_reply_mode_questions: {
+        Args: {
+          p_from_status: Database["public"]["Enums"]["reply_status"]
+          p_marketplace_id: string
+          p_target_status: Database["public"]["Enums"]["reply_status"]
+        }
+        Returns: number
       }
       calculate_boxes_needed: {
         Args: {
@@ -3521,6 +3558,14 @@ export type Database = {
           total_time_ms: number
         }[]
       }
+      cleanup_deleted_replies: {
+        Args: { batch_size?: number }
+        Returns: number
+      }
+      cleanup_duplicate_drafts: {
+        Args: { batch_limit?: number }
+        Returns: number
+      }
       cleanup_fallback_action_logs: {
         Args: never
         Returns: {
@@ -3545,6 +3590,7 @@ export type Database = {
           total_time_ms: number
         }[]
       }
+      cleanup_old_reviews: { Args: { days_threshold?: number }; Returns: Json }
       cleanup_ozon_sync_history: {
         Args: never
         Returns: {
@@ -3723,6 +3769,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      watchdog_reviews_sync: { Args: never; Returns: undefined }
     }
     Enums: {
       app_role: "owner" | "admin" | "operator" | "analyst"
