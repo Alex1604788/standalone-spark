@@ -1,4 +1,4 @@
-// VERSION: 2026-03-15-v3 - Fix: is_answered never reset by sync; fix product match by offer_id
+// VERSION: 2026-03-16-v4 - Store sku in questions for SQL-based product matching
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -169,10 +169,12 @@ serve(async (req) => {
           // NOTE: is_answered is intentionally excluded from upsert data.
           // This prevents sync from resetting is_answered=true back to false.
           // We handle is_answered separately below (only ever set true, never false).
+          // NOTE: sku is stored to enable SQL-based product matching for unmatched questions.
           questionsBatch.push({
             marketplace_id,
             product_id: product?.id || null,
             external_id: extId,
+            sku: productSku,
             author_name: question.author_name || 'Anonymous',
             text: question.text || '',
             question_date: question.published_at || new Date().toISOString(),

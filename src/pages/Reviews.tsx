@@ -69,10 +69,19 @@ const Reviews = () => {
 
   const { toast } = useToast();
 
+  // При смене вкладки (statusFilter) — сбрасываем фильтры и страницу
+  // Это синхронизирует счётчик сайдбара (без фильтра) с таблицей
   useEffect(() => {
     setPage(1);
     setSelectedReviewsIds([]);
-  }, [searchQuery, ratingFilter, statusFilter, pageSize]);
+    setRatingFilter("all");
+  }, [statusFilter]);
+
+  // При смене рейтинга/поиска/pageSize — сбрасываем страницу
+  useEffect(() => {
+    setPage(1);
+    setSelectedReviewsIds([]);
+  }, [searchQuery, ratingFilter, pageSize]);
 
   // Автоматическая генерация черновиков в режиме полуавтомат/автомат
   const triggerAutoGenerate = async () => {
