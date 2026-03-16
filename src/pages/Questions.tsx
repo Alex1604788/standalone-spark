@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, RefreshCw, Sparkles, Package, HelpCircle, Copy, FileDown, Brain } from "lucide-react";
+import { Search, RefreshCw, Sparkles, Package, HelpCircle, Copy, FileDown, Brain, Loader2, Send } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -38,8 +38,10 @@ interface Question {
     name: string;
     image_url?: string;
     offer_id?: string | null;
+    external_id?: string | null;
+    sku?: string | null;
   };
-  replies?: { status: string }[];
+  replies?: { status: string; content?: string }[];
 }
 
 const Questions = () => {
@@ -53,6 +55,8 @@ const Questions = () => {
   const [replyTone, setReplyTone] = useState("friendly");
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isBulkGenerating, setIsBulkGenerating] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
 
   const { toast } = useToast();
 
@@ -91,8 +95,8 @@ const Questions = () => {
         is_answered,
         product_id,
         marketplace_id,
-        products(id, name, image_url, offer_id),
-        replies(status)
+        products(id, name, image_url, offer_id, external_id, sku),
+        replies(id, status, content)
       `,
       )
       .in("marketplace_id", marketplaceIds)
@@ -128,6 +132,8 @@ const Questions = () => {
           name: prod?.name || "—",
           image_url: prod?.image_url,
           offer_id: prod?.offer_id || null,
+          external_id: prod?.external_id || null,
+          sku: prod?.sku || null,
         },
         replies: q.replies || [],
       } as Question;
@@ -304,6 +310,93 @@ const Questions = () => {
     setSelectedQuestionIds([]);
   };
 
+  // Массовая генерация черновиков для выбранных вопросов
+  const handleBulkGenerate = async () => {
+    if (selectedQuestionIds.length === 0) return;
+    setIsBulkGenerating(true);
+    setBulkProgress({ current: 0, total: selectedQuestionIds.length });
+
+    const selectedQs = questions.filter((q) => selectedQuestionIds.includes(q.id));
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (let i = 0; i < selectedQs.length; i++) {
+      const q = selectedQs[i];
+      setBulkProgress({ current: i + 1, total: selectedQs.length });
+      try {
+        // Проверяем — уже есть drafted reply?
+        const existingDraft = q.replies?.find((r) => r.status === "drafted");
+        if (existingDraft) {
+          successCount++;
+          continue;
+        }
+        // Генерируем текст ответа
+        const { data, error } = await supabase.functions.invoke("generate-reply", {
+          body: { questionId: q.id, tone: "friendly" },
+        });
+        if (error || data?.error) {
+          errorCount++;
+          continue;
+        }
+        const replyContent = data.reply;
+        if (!replyContent) { errorCount++; continue; }
+
+        // Сохраняем черновик
+        const { error: insertErr } = await supabase.from("replies").insert({
+          question_id: q.id,
+          marketplace_id: q.marketplace_id,
+          content: replyContent,
+          status: "drafted",
+          mode: "manual",
+          tone: "friendly",
+        });
+        if (insertErr) { errorCount++; } else { successCount++; }
+      } catch {
+        errorCount++;
+      }
+    }
+
+    setIsBulkGenerating(false);
+    setBulkProgress({ current: 0, total: 0 });
+    toast({
+      title: `Генерация завершена`,
+      description: `Черновиков создано: ${successCount}${errorCount > 0 ? `, ошибок: ${errorCount}` : ""}`,
+    });
+    await fetchQuestions();
+  };
+
+  // Массовая отправка: переводим drafted → scheduled для выбранных вопросов
+  const handleBulkSend = async () => {
+    if (selectedQuestionIds.length === 0) return;
+    try {
+      const { data: draftedReplies } = await supabase
+        .from("replies")
+        .select("id")
+        .in("question_id", selectedQuestionIds)
+        .eq("status", "drafted")
+        .is("deleted_at", null);
+
+      if (!draftedReplies || draftedReplies.length === 0) {
+        toast({ title: "Нет черновиков", description: "Сначала сгенерируйте ответы", variant: "destructive" });
+        return;
+      }
+
+      const replyIds = draftedReplies.map((r: any) => r.id);
+      const { error } = await supabase
+        .from("replies")
+        .update({ status: "scheduled", scheduled_at: new Date().toISOString() })
+        .in("id", replyIds);
+
+      if (error) throw error;
+
+      toast({ title: `✓ Поставлено в очередь: ${replyIds.length}`, description: "Ответы будут отправлены через минуту" });
+      setSelectedQuestionIds([]);
+      await fetchQuestions();
+    } catch (err: any) {
+      toast({ title: "Ошибка", description: err.message, variant: "destructive" });
+    }
+  };
+
   const allSelected = filteredQuestions.length > 0 && selectedQuestionIds.length === filteredQuestions.length;
   const someSelected = selectedQuestionIds.length > 0 && selectedQuestionIds.length < filteredQuestions.length;
 
@@ -365,6 +458,7 @@ const Questions = () => {
                 <TableHead>Дата</TableHead>
                 <TableHead className="max-w-md">Текст вопроса</TableHead>
                 <TableHead className="w-[140px]">Статус ответа</TableHead>
+                <TableHead className="w-[220px]">Ответ</TableHead>
                 <TableHead className="w-[100px] text-right">Действие</TableHead>
               </TableRow>
             </TableHeader>
@@ -382,7 +476,12 @@ const Questions = () => {
                     <div
                       className="w-12 h-12 rounded-md overflow-hidden bg-muted flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-primary transition-all"
                       onClick={() => {
-                        const url = `https://www.ozon.ru/product/${question.external_id}`;
+                        // Fix: use product's external_id (OZON product_id), not question's external_id
+                        const url = question.products.external_id
+                          ? `https://www.ozon.ru/product/${question.products.external_id}`
+                          : question.products.sku
+                          ? `https://www.ozon.ru/product/${question.products.sku}`
+                          : `https://www.ozon.ru/search/?text=${encodeURIComponent(question.products.offer_id || question.products.name)}`;
                         window.open(url, "_blank");
                       }}
                     >
@@ -429,6 +528,16 @@ const Questions = () => {
                     <p className="text-sm line-clamp-2">{question.text}</p>
                   </TableCell>
                   <TableCell>{getStatusBadge(question)}</TableCell>
+                  <TableCell className="w-[220px]">
+                    {(() => {
+                      const reply = question.replies?.find((r) => r.content);
+                      return reply ? (
+                        <p className="text-sm line-clamp-2 text-muted-foreground">{reply.content}</p>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">—</span>
+                      );
+                    })()}
+                  </TableCell>
                   <TableCell className="text-right">
                     <Button size="sm" onClick={() => setSelectedQuestion(question)}>
                       Открыть
@@ -560,12 +669,29 @@ const Questions = () => {
               Выбрано вопросов: <span className="font-semibold text-foreground">{selectedQuestionIds.length}</span>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setSelectedQuestionIds([])}>
+              <Button variant="outline" onClick={() => setSelectedQuestionIds([])} disabled={isBulkGenerating}>
                 Отменить
               </Button>
-              <Button onClick={handleExportToSupplier}>
+              <Button variant="outline" onClick={handleExportToSupplier} disabled={isBulkGenerating}>
                 <FileDown className="h-4 w-4 mr-2" />
                 Выгрузить поставщику
+              </Button>
+              <Button onClick={handleBulkGenerate} disabled={isBulkGenerating} variant="secondary">
+                {isBulkGenerating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Генерация {bulkProgress.current}/{bulkProgress.total}...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Сгенерировать ответы ({selectedQuestionIds.length})
+                  </>
+                )}
+              </Button>
+              <Button onClick={handleBulkSend} disabled={isBulkGenerating}>
+                <Send className="h-4 w-4 mr-2" />
+                Отправить
               </Button>
             </div>
           </div>
