@@ -1,0 +1,30 @@
+name: OZON Reviews Sync (every 10 min)
+
+on:
+  schedule:
+    # Run every 10 minutes (GitHub Actions has ~1 min jitter)
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Trigger sync-reviews-api
+        run: |
+          RESPONSE=$(curl -s -X POST \
+            "https://bkmicyguzlwampuindff.supabase.co/functions/v1/sync-reviews-api" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"marketplace_id":"84b1d0f5-6750-407c-9b04-28c051972162","client_id":"1172055","api_key":"6a584aee-c327-46a0-b46d-9aa7cdd92361"}' \
+            --max-time 90)
+          echo "Response: $RESPONSE"
+          # Check if sync succeeded
+          if echo "$RESPONSE" | grep -q '"success":true'; then
+            echo "✅ Sync successful"
+          else
+            echo "❌ Sync may have failed"
+            exit 1
+          fi
