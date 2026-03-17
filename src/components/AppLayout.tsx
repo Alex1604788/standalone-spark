@@ -598,10 +598,13 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     </div>
   );
 
+  // Pages that need full viewport height with no padding (their own internal layout)
+  const isFullHeightPage = location.pathname === "/app/chats";
+
   return (
     <div className="flex h-screen bg-background">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex w-64 border-r border-border flex-col shadow-soft">
+      <aside className="hidden lg:flex w-64 border-r border-border flex-col shadow-soft flex-shrink-0">
         <NavContent />
       </aside>
 
@@ -618,16 +621,26 @@ const AppLayout = ({ children }: AppLayoutProps) => {
       </Sheet>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Page Header */}
-        <div className="sticky top-0 z-40 bg-card/80 backdrop-blur-sm border-b border-border shadow-soft">
+        <div className="flex-shrink-0 z-40 bg-card/80 backdrop-blur-sm border-b border-border shadow-soft">
           <div className="container mx-auto px-6 py-4 pl-16 lg:pl-6">
             <h1 className="text-2xl font-bold text-foreground">{getCurrentPageTitle()}</h1>
           </div>
         </div>
 
         {/* Page Content */}
-        <div className="container mx-auto p-6">{children}</div>
+        {isFullHeightPage ? (
+          // Full-height pages (Chats): no padding, flex child fills remaining space
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {children}
+          </div>
+        ) : (
+          // Regular pages: scrollable with standard padding
+          <div className="flex-1 overflow-auto">
+            <div className="container mx-auto p-6">{children}</div>
+          </div>
+        )}
       </main>
     </div>
   );

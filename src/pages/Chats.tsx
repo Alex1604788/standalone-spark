@@ -602,10 +602,16 @@ const Chats = () => {
 
                     {/* Row 3: last message preview */}
                     <p className="text-xs text-muted-foreground truncate mt-0.5">
-                      {chat.last_message_from === "seller" && (
-                        <span className="text-blue-600 mr-1">Вы:</span>
+                      {chat.last_message_text ? (
+                        <>
+                          {chat.last_message_from === "seller" && (
+                            <span className="text-blue-600 mr-1">Вы:</span>
+                          )}
+                          {chat.last_message_text}
+                        </>
+                      ) : (
+                        "Нет сообщений"
                       )}
-                      {chat.last_message_text || "Нет сообщений"}
                     </p>
 
                     {isExpiringSoon(chat.expires_at) && (
