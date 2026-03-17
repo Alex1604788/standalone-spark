@@ -312,6 +312,18 @@ serve(async (req) => {
     const newCursor = ozonHasNext ? lastSavedId : null;
     const cycleStatus = ozonHasNext ? `advanced to ${lastSavedId?.slice(0, 20)}...` : 'completed full cycle, resetting cursor';
 
+    // POST-SYNC REPAIR: Fix any reviews that got inserted with null product_id
+    // This handles race conditions and any edge cases where SKU matching failed during sync
+    // ignoreDuplicates:true means ON CONFLICT DO NOTHING — so old null-product rows stay broken without this fix
+    const { error: repairError } = await supabase.rpc('fix_null_product_reviews', {
+      p_marketplace_id: marketplace_id,
+    });
+    if (repairError) {
+      console.warn('Post-sync repair warning (non-fatal):', repairError.message);
+    } else {
+      console.log('Post-sync product_id repair completed');
+    }
+
     await supabase
       .from('marketplaces')
       .update({

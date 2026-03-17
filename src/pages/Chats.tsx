@@ -54,6 +54,7 @@ interface Chat {
   expires_at: string | null;
   updated_at: string;
   marketplace_id: string;
+  buyer_name?: string | null;
   marketplaces?: {
     name: string;
     type: string;
@@ -175,7 +176,33 @@ const Chats = () => {
         }),
       );
 
-      setChats(chatsWithProducts as Chat[]);
+      // Batch-fetch buyer names from chat_messages for all chats
+      const internalChatIds = chatsWithProducts.map((c) => c.id);
+      let buyerNameMap: Record<string, string> = {};
+
+      if (internalChatIds.length > 0) {
+        const { data: buyerMsgData } = await supabase
+          .from("chat_messages")
+          .select("chat_id, sender_name")
+          .in("chat_id", internalChatIds)
+          .eq("sender_type", "buyer")
+          .not("sender_name", "is", null)
+          .order("sent_at", { ascending: true })
+          .limit(1000);
+
+        (buyerMsgData || []).forEach((row) => {
+          if (!buyerNameMap[row.chat_id] && row.sender_name) {
+            buyerNameMap[row.chat_id] = row.sender_name;
+          }
+        });
+      }
+
+      const enriched = chatsWithProducts.map((c) => ({
+        ...c,
+        buyer_name: buyerNameMap[c.id] || null,
+      }));
+
+      setChats(enriched as Chat[]);
     } finally {
       setIsLoading(false);
     }
@@ -226,6 +253,10 @@ const Chats = () => {
     setMessageText("");
     setSelectedFile(null);
     await fetchChatMessages(chat.id);
+    // Update unread count to 0 locally immediately
+    setChats((prev) =>
+      prev.map((c) => (c.id === chat.id ? { ...c, unread_count: 0 } : c)),
+    );
   };
 
   const sendMessage = async () => {
@@ -243,9 +274,17 @@ const Chats = () => {
 
       if (error) {
         console.error("Error sending message:", error);
+        // Extract real error message from function response body
+        let errorMsg = "Не удалось отправить сообщение";
+        try {
+          const body = await (error as any).context?.json?.();
+          if (body?.error) errorMsg = body.error;
+        } catch {
+          errorMsg = error.message || errorMsg;
+        }
         toast({
           title: "Ошибка",
-          description: error.message || "Не удалось отправить сообщение",
+          description: errorMsg,
           variant: "destructive",
         });
         return;
@@ -275,9 +314,16 @@ const Chats = () => {
 
       if (error) {
         console.error("Error sending file:", error);
+        let errorMsg = "Не удалось отправить файл";
+        try {
+          const body = await (error as any).context?.json?.();
+          if (body?.error) errorMsg = body.error;
+        } catch {
+          errorMsg = error.message || errorMsg;
+        }
         toast({
           title: "Ошибка",
-          description: error.message || "Не удалось отправить файл",
+          description: errorMsg,
           variant: "destructive",
         });
         return;
@@ -338,14 +384,17 @@ const Chats = () => {
     const q = searchQuery.toLowerCase();
     return (
       chat.posting_number.toLowerCase().includes(q) ||
+      (chat.buyer_name || "").toLowerCase().includes(q) ||
       (chat.product?.name || "").toLowerCase().includes(q) ||
       chat.last_message_text?.toLowerCase().includes(q)
     );
   });
 
-  // Buyer name derived from loaded messages
+  // Buyer name from loaded messages for the right panel (fallback)
   const buyerName =
-    chatMessages.find((m) => m.sender_type === "buyer")?.sender_name || "Покупатель";
+    selectedChat?.buyer_name ||
+    chatMessages.find((m) => m.sender_type === "buyer")?.sender_name ||
+    "Покупатель";
 
   const totalNew = chats.filter((c) => c.unread_count > 0).length;
   const totalNoMyReply = chats.filter((c) => c.last_message_from === "buyer").length;
@@ -440,7 +489,7 @@ const Chats = () => {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Поиск по товару, заказу..."
+                placeholder="Поиск по имени, товару, заказу..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9 h-8 text-sm"
@@ -496,7 +545,7 @@ const Chats = () => {
                   onClick={() => openChat(chat)}
                 >
                   {/* Product image */}
-                  <div className="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-muted flex items-center justify-center">
+                  <div className="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-muted flex items-center justify-center mt-0.5">
                     {chat.product?.image_url ? (
                       <img
                         src={chat.product.image_url}
@@ -510,32 +559,47 @@ const Chats = () => {
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="font-semibold text-sm truncate">
-                        {listDisplayMode === "product"
-                          ? (chat.product?.name || `Заказ ${chat.posting_number}`)
-                          : chat.posting_number}
+                    {/* Row 1: buyer name + time column (with badge below time) */}
+                    <div className="flex items-start justify-between gap-1">
+                      <span className="font-semibold text-sm truncate leading-tight">
+                        {chat.buyer_name || "Покупатель"}
                       </span>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        <span className="text-xs text-muted-foreground">
+                      {/* Right column: time + badge stacked */}
+                      <div className="flex flex-col items-end flex-shrink-0 gap-0.5">
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
                           {formatMessageTime(chat.last_message_at)}
                         </span>
-                        {chat.unread_count > 0 && (
+                        {chat.unread_count > 0 ? (
                           <span className="bg-blue-500 text-white text-xs font-medium rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
                             {chat.unread_count}
                           </span>
+                        ) : (
+                          /* Spacer to keep layout consistent */
+                          <span className="h-[18px]" />
                         )}
                       </div>
                     </div>
-                    {listDisplayMode === "order" && chat.product?.name && (
-                      <p className="text-xs text-muted-foreground truncate">{chat.product.name}</p>
+
+                    {/* Row 2: product name or order number (secondary) */}
+                    {listDisplayMode === "product" ? (
+                      <p className="text-xs text-muted-foreground truncate leading-tight">
+                        {chat.product?.name || `Заказ ${chat.posting_number}`}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground truncate leading-tight">
+                        {chat.posting_number}
+                        {chat.product?.name && ` · ${chat.product.name}`}
+                      </p>
                     )}
+
+                    {/* Row 3: last message preview */}
                     <p className="text-xs text-muted-foreground truncate mt-0.5">
                       {chat.last_message_from === "seller" && (
-                        <span className="text-xs text-blue-600 mr-1">Вы:</span>
+                        <span className="text-blue-600 mr-1">Вы:</span>
                       )}
                       {chat.last_message_text || "Нет сообщений"}
                     </p>
+
                     {isExpiringSoon(chat.expires_at) && (
                       <div className="flex items-center gap-1 mt-0.5">
                         <Clock className="w-3 h-3 text-orange-500" />
@@ -575,10 +639,12 @@ const Chats = () => {
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold truncate">
-                      {selectedChat.product?.name || selectedChat.posting_number}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Buyer name as primary title */}
+                    <span className="font-semibold text-base">
+                      {buyerName}
                     </span>
+                    <span className="text-sm text-muted-foreground">· Покупатель</span>
                     {selectedChat.status === "active" ? (
                       <Badge variant="default" className="text-xs">Активный</Badge>
                     ) : selectedChat.status === "closed" ? (
@@ -594,10 +660,11 @@ const Chats = () => {
                     )}
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                    <span className="text-sm text-muted-foreground">
-                      <span className="font-medium text-foreground">{buyerName}</span>
-                      {" · Покупатель"}
-                    </span>
+                    {selectedChat.product?.name && (
+                      <span className="text-sm text-muted-foreground truncate max-w-xs">
+                        {selectedChat.product.name}
+                      </span>
+                    )}
                     {selectedChat.product?.offer_id && (
                       <span className="text-xs text-muted-foreground">
                         Арт: {selectedChat.product.offer_id}
