@@ -458,7 +458,7 @@ const Questions = () => {
                 <TableHead>Дата</TableHead>
                 <TableHead className="max-w-md">Текст вопроса</TableHead>
                 <TableHead className="w-[140px]">Статус ответа</TableHead>
-                <TableHead className="w-[220px]">Ответ</TableHead>
+                <TableHead>Ответ</TableHead>
                 <TableHead className="w-[100px] text-right">Действие</TableHead>
               </TableRow>
             </TableHeader>
@@ -490,6 +490,13 @@ const Questions = () => {
                           src={question.products.image_url}
                           alt={question.products.name}
                           className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                            const parent = e.currentTarget.parentElement;
+                            if (parent) {
+                              parent.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 text-muted-foreground"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>';
+                            }
+                          }}
                         />
                       ) : (
                         <Package className="w-6 h-6 text-muted-foreground" />
@@ -528,11 +535,11 @@ const Questions = () => {
                     <p className="text-xs line-clamp-4 leading-relaxed">{question.text}</p>
                   </TableCell>
                   <TableCell>{getStatusBadge(question)}</TableCell>
-                  <TableCell className="w-[220px]">
+                  <TableCell>
                     {(() => {
                       const reply = question.replies?.find((r) => r.content);
                       return reply ? (
-                        <p className="text-xs line-clamp-4 text-muted-foreground leading-relaxed">{reply.content}</p>
+                        <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">{reply.content}</p>
                       ) : (
                         <span className="text-muted-foreground text-sm">—</span>
                       );
