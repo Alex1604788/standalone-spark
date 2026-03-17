@@ -881,7 +881,8 @@ const Reviews = () => {
         .from("replies")
         .select("id, status")
         .eq(itemIdField, selectedItem.id)
-        .in("status", ["scheduled", "publishing", "published"]);
+        .in("status", ["scheduled", "publishing", "published"])
+        .is("deleted_at", null);
 
       if (existingReplies && existingReplies.length > 0) {
         toast({
