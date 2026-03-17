@@ -73,10 +73,12 @@ serve(async (req) => {
       .eq('id', marketplace_id);
 
     // Get products for this marketplace — build fast lookup maps
+    // NOTE: PostgREST default limit is 1000 rows — must use .limit(10000) to get all products
     const { data: products, error: productsError } = await supabase
       .from('products')
       .select('id, external_id, sku, offer_id')
-      .eq('marketplace_id', marketplace_id);
+      .eq('marketplace_id', marketplace_id)
+      .limit(10000);
 
     if (productsError) throw productsError;
 
