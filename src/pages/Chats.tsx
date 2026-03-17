@@ -62,12 +62,14 @@ interface Chat {
 }
 
 type ActiveFilter = "new" | "no_my_reply" | "no_client_reply";
+type ListDisplayMode = "product" | "order";
 
 const Chats = () => {
   const [chats, setChats] = useState<Chat[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
+  const [listDisplayMode, setListDisplayMode] = useState<ListDisplayMode>("product");
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [messageText, setMessageText] = useState("");
@@ -433,8 +435,8 @@ const Chats = () => {
       <div className="flex flex-1 overflow-hidden min-h-0">
         {/* ── Left panel: chat list ── */}
         <div className="w-80 border-r flex flex-col overflow-hidden flex-shrink-0">
-          {/* Search */}
-          <div className="p-3 border-b">
+          {/* Search + display toggle */}
+          <div className="p-3 border-b space-y-2">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
@@ -443,6 +445,31 @@ const Chats = () => {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9 h-8 text-sm"
               />
+            </div>
+            {/* По товару / По заказу toggle */}
+            <div className="flex rounded-md border overflow-hidden text-xs font-medium">
+              <button
+                className={cn(
+                  "flex-1 py-1 transition-colors",
+                  listDisplayMode === "product"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted"
+                )}
+                onClick={() => setListDisplayMode("product")}
+              >
+                По товару
+              </button>
+              <button
+                className={cn(
+                  "flex-1 py-1 transition-colors border-l",
+                  listDisplayMode === "order"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted"
+                )}
+                onClick={() => setListDisplayMode("order")}
+              >
+                По заказу
+              </button>
             </div>
           </div>
 
@@ -485,7 +512,9 @@ const Chats = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1">
                       <span className="font-semibold text-sm truncate">
-                        {chat.product?.name || `Заказ ${chat.posting_number}`}
+                        {listDisplayMode === "product"
+                          ? (chat.product?.name || `Заказ ${chat.posting_number}`)
+                          : chat.posting_number}
                       </span>
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <span className="text-xs text-muted-foreground">
@@ -498,6 +527,9 @@ const Chats = () => {
                         )}
                       </div>
                     </div>
+                    {listDisplayMode === "order" && chat.product?.name && (
+                      <p className="text-xs text-muted-foreground truncate">{chat.product.name}</p>
+                    )}
                     <p className="text-xs text-muted-foreground truncate mt-0.5">
                       {chat.last_message_from === "seller" && (
                         <span className="text-xs text-blue-600 mr-1">Вы:</span>
@@ -561,26 +593,26 @@ const Chats = () => {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-3 mt-0.5">
+                  <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                     <span className="text-sm text-muted-foreground">
-                      Покупатель · {selectedChat.posting_number}
+                      <span className="font-medium text-foreground">{buyerName}</span>
+                      {" · Покупатель"}
                     </span>
                     {selectedChat.product?.offer_id && (
                       <span className="text-xs text-muted-foreground">
                         Арт: {selectedChat.product.offer_id}
                       </span>
                     )}
-                    {selectedChat.order_number && (
-                      <a
-                        href={`https://seller.ozon.ru/app/postings/${selectedChat.order_number}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                        Заказ {selectedChat.order_number}
-                      </a>
-                    )}
+                    <a
+                      href={`https://seller.ozon.ru/app/postings/${selectedChat.posting_number}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                      title="Открыть заказ в OZON Seller"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      Заказ {selectedChat.posting_number}
+                    </a>
                   </div>
                 </div>
               </div>

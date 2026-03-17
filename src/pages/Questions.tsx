@@ -525,21 +525,28 @@ const Questions = () => {
                     })}
                   </TableCell>
                   <TableCell className="max-w-md">
-                    <p className="text-sm line-clamp-2">{question.text}</p>
+                    <p className="text-xs line-clamp-4 leading-relaxed">{question.text}</p>
                   </TableCell>
                   <TableCell>{getStatusBadge(question)}</TableCell>
                   <TableCell className="w-[220px]">
                     {(() => {
                       const reply = question.replies?.find((r) => r.content);
                       return reply ? (
-                        <p className="text-sm line-clamp-2 text-muted-foreground">{reply.content}</p>
+                        <p className="text-xs line-clamp-4 text-muted-foreground leading-relaxed">{reply.content}</p>
                       ) : (
                         <span className="text-muted-foreground text-sm">—</span>
                       );
                     })()}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button size="sm" onClick={() => setSelectedQuestion(question)}>
+                    <Button size="sm" onClick={() => {
+                      setSelectedQuestion(question);
+                      // Pre-fill with existing draft/published reply content
+                      const existingReply = question.replies?.find(
+                        (r) => r.content && ["drafted", "scheduled", "published", "publishing", "failed", "retried"].includes(r.status)
+                      );
+                      setReplyText(existingReply?.content || "");
+                    }}>
                       Открыть
                     </Button>
                   </TableCell>
