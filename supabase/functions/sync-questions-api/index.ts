@@ -1,4 +1,8 @@
-// VERSION: 2026-03-17-v5 - Also match question.sku against products.external_id
+// VERSION: 2026-03-17-v6 - NEVER overwrite product_id with null (fundamental fix)
+// KEY FIX: product_id is excluded from upsert rows when no match found.
+// ON CONFLICT DO UPDATE only touches columns present in the row object.
+// This means existing product_id is NEVER destroyed by a failed lookup.
+// Post-sync: fix_null_product_questions() RPC fills in any remaining nulls via SQL JOIN.
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -173,16 +177,23 @@ serve(async (req) => {
           // This prevents sync from resetting is_answered=true back to false.
           // We handle is_answered separately below (only ever set true, never false).
           // NOTE: sku is stored to enable SQL-based product matching for unmatched questions.
-          questionsBatch.push({
+          // CRITICAL: product_id is NEVER included when null — this prevents overwriting
+          // an existing good product_id on subsequent syncs when lookup temporarily fails.
+          // Post-sync fix_null_product_questions() handles filling in nulls via SQL JOIN.
+          const questionRow: Record<string, any> = {
             marketplace_id,
-            product_id: product?.id || null,
             external_id: extId,
             sku: productSku,
             author_name: question.author_name || 'Anonymous',
             text: question.text || '',
             question_date: question.published_at || new Date().toISOString(),
             status: 'new',
-          });
+          };
+          // Only set product_id when we found a match — NEVER write null
+          if (product?.id) {
+            questionRow.product_id = product.id;
+          }
+          questionsBatch.push(questionRow);
 
           if (isAnsweredByOzon) {
             answeredExternalIds.push(extId);
@@ -258,6 +269,20 @@ serve(async (req) => {
         questions_sync_cursor: newCursor,
       })
       .eq('id', marketplace_id);
+
+    // Post-sync repair: fill in any product_ids that couldn't be matched during sync
+    try {
+      const { data: repairData, error: repairError } = await supabase.rpc('fix_null_product_questions', {
+        p_marketplace_id: marketplace_id,
+      });
+      if (repairError) {
+        console.warn('[sync-questions-api] Post-sync repair warning (non-fatal):', repairError.message);
+      } else {
+        console.log(`[sync-questions-api] Post-sync repair: ${repairData} questions fixed`);
+      }
+    } catch (repairErr) {
+      console.warn('[sync-questions-api] Post-sync repair exception (non-fatal):', repairErr);
+    }
 
     console.log(`[sync-questions-api] Done: ${totalQuestions} questions (${totalPages} pages, ${unmatchedProducts} unmatched, cursor=${newCursor || 'reset'})`);
 

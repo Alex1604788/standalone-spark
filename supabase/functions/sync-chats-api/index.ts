@@ -1,9 +1,8 @@
-// VERSION: 2026-03-05-v8 - Sync only last 30 days, track chat status:
-// 1. historyData.messages (not historyData.result.messages — API has no result wrapper)
-// 2. posting_number taken from chat list, not history
-// 3. unread count uses message.user.type === 'Сustomer' (not message.sender_type)
-// 4. Accept both snake_case (client_id/api_key) and camelCase (clientId/apiKey) from cron
-// 5. Batch processing: only fetch history for batch_size chats per run (default 30)
+// VERSION: 2026-03-17-v9 - Fix isBuyer (Cyrillic+Latin С), sender_name (display name), last_message_text:
+// 1. isBuyer now handles both Cyrillic 'С' and Latin 'C' in 'Customer'
+// 2. sender_name uses message.user.name (display name), falls back to id string
+// 3. last_message_text uses message.text || data.join, not data[0] (could be posting number)
+// 4. last_message_from fix: same Cyrillic+Latin С fix
 // BRANCH: main
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -264,9 +263,13 @@ serve(async (req) => {
               ? messageData.join('\n')
               : (message.text || '');
 
-            // OZON returns user.type === 'Сustomer' (with Cyrillic С) for buyer
-            const isBuyer = message.user?.type === 'Сustomer';
+            // OZON returns user.type === 'Сustomer' (sometimes Cyrillic С, sometimes Latin C)
+            const userType = message.user?.type || '';
+            const isBuyer = userType === 'Сustomer' || userType === 'Customer' || userType.toLowerCase() === 'customer';
             const senderType = isBuyer ? 'buyer' : 'seller';
+            // Use display name; fall back to stringified user id
+            const senderName = message.user?.name || message.user?.first_name
+              || (message.user?.id ? String(message.user.id) : null);
 
             const { error: messageError } = await supabase
               .from('chat_messages')
@@ -274,7 +277,7 @@ serve(async (req) => {
                 chat_id: chatRecord.id,
                 message_id: String(message.message_id || message.id),
                 sender_type: senderType,
-                sender_name: message.user?.id || null,
+                sender_name: senderName,
                 text: textContent || '',
                 is_read: message.is_read || false,
                 is_image: isImage,
@@ -303,10 +306,18 @@ serve(async (req) => {
 
         // Update chat with correct unread count and last message info
         const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
-        const lastMsgData = lastMsg?.data || [];
-        const lastMsgText = lastMsg
-          ? (!lastMsg.is_image && lastMsgData.length > 0 ? lastMsgData[0] : (lastMsg.text || ''))
-          : null;
+        let lastMsgText: string | null = null;
+        if (lastMsg) {
+          const lastMsgData = lastMsg.data || [];
+          // Use message.text first; fall back to data array join for text messages (not images)
+          lastMsgText = lastMsg.text
+            || (!lastMsg.is_image && Array.isArray(lastMsgData) && lastMsgData.length > 0
+              ? (lastMsgData as string[]).join('\n')
+              : null);
+        }
+
+        const lastMsgUserType = lastMsg?.user?.type || '';
+        const lastMsgIsBuyer = lastMsgUserType === 'Сustomer' || lastMsgUserType === 'Customer' || lastMsgUserType.toLowerCase() === 'customer';
 
         await supabase
           .from('chats')
@@ -315,7 +326,7 @@ serve(async (req) => {
             ...(lastMsg ? {
               last_message_text: lastMsgText,
               last_message_at: lastMsg.created_at || new Date().toISOString(),
-              last_message_from: lastMsg.user?.type === 'Сustomer' ? 'buyer' : 'seller',
+              last_message_from: lastMsgIsBuyer ? 'buyer' : 'seller',
             } : {
               // Even if no messages, update last_message_at so this chat moves to end of queue
               last_message_at: new Date().toISOString(),
