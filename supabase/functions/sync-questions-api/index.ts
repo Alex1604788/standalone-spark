@@ -1,4 +1,4 @@
-// VERSION: 2026-03-16-v4 - Store sku in questions for SQL-based product matching
+// VERSION: 2026-03-17-v5 - Also match question.sku against products.external_id
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -146,10 +146,11 @@ serve(async (req) => {
           const productSku = question.sku ? String(question.sku) : null;
           let product = null;
           if (productSku) {
-            // SKU (from OZON question.sku) matches products.sku (OZON item_id)
-            // offer_id is seller's unique article — secondary fallback
-            // external_id is a different OZON internal ID — NOT used for matching here
+            // 1) products.sku = question.sku (OZON item_id / FBO SKU)
+            // 2) products.external_id = question.sku (some older products stored differently)
+            // 3) products.offer_id = question.sku (seller article fallback)
             product = skuMap.get(productSku)
+              || externalIdMap.get(productSku)
               || offerIdMap.get(productSku)
               || null;
           }
