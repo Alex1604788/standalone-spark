@@ -140,6 +140,7 @@ const Chats = () => {
         .in("marketplace_id", marketplaceIds)
         .in("chat_type", ["BUYER_SELLER", "UNSPECIFIED"])
         .gte("last_message_at", thirtyDaysAgo)
+        .not("last_message_text", "is", null)
         .order("last_message_at", { ascending: false, nullsFirst: false });
 
       if (statusFilter !== "all") {

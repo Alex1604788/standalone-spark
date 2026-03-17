@@ -320,20 +320,20 @@ serve(async (req) => {
         const lastMsgUserType = lastMsg?.user?.type || '';
         const lastMsgIsBuyer = lastMsgUserType === 'Сustomer' || lastMsgUserType === 'Customer' || lastMsgUserType.toLowerCase() === 'customer';
 
-        await supabase
-          .from('chats')
-          .update({
-            unread_count: unreadCount,
-            ...(lastMsg ? {
+        // Only update last_message_at when there are actual messages.
+        // If no messages found, do NOT touch last_message_at — otherwise empty chats
+        // get current timestamp and appear in the 30-day filter as recent "active" chats.
+        if (lastMsg) {
+          await supabase
+            .from('chats')
+            .update({
+              unread_count: unreadCount,
               last_message_text: lastMsgText,
               last_message_at: lastMsg.created_at || new Date().toISOString(),
               last_message_from: lastMsgIsBuyer ? 'buyer' : 'seller',
-            } : {
-              // Even if no messages, update last_message_at so this chat moves to end of queue
-              last_message_at: new Date().toISOString(),
-            }),
-          })
-          .eq('id', chatRecord.id);
+            })
+            .eq('id', chatRecord.id);
+        }
 
         // Reduced delay between chats
         await new Promise(resolve => setTimeout(resolve, 100));
