@@ -114,6 +114,8 @@ const Chats = () => {
 
       const marketplaceIds = marketplaces.map((m) => m.id);
 
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
       let query = supabase
         .from("chats")
         .select(
@@ -137,6 +139,7 @@ const Chats = () => {
         )
         .in("marketplace_id", marketplaceIds)
         .in("chat_type", ["BUYER_SELLER", "UNSPECIFIED"])
+        .gte("last_message_at", thirtyDaysAgo)
         .order("last_message_at", { ascending: false, nullsFirst: false });
 
       if (statusFilter !== "all") {
