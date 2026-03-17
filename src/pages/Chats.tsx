@@ -155,26 +155,33 @@ const Chats = () => {
         return;
       }
 
-      // Enrich chats with product information
-      const chatsWithProducts = await Promise.all(
-        (data || []).map(async (chat) => {
-          const marketplaceData = Array.isArray(chat.marketplaces)
-            ? chat.marketplaces[0]
-            : chat.marketplaces;
+      // Batch-fetch all products in ONE query (not N queries)
+      const uniqueSkus = [...new Set(
+        (data || []).filter(c => c.product_sku).map(c => c.product_sku as string)
+      )];
+      const productMap = new Map<string, Product>();
+      if (uniqueSkus.length > 0) {
+        const { data: prods } = await supabase
+          .from("products")
+          .select("name, image_url, offer_id, marketplace_id")
+          .in("marketplace_id", marketplaceIds)
+          .in("offer_id", uniqueSkus)
+          .limit(2000);
+        for (const p of prods || []) {
+          const key = `${p.marketplace_id}:${p.offer_id}`;
+          if (!productMap.has(key)) productMap.set(key, p);
+        }
+      }
 
-          if (chat.product_sku) {
-            const { data: product } = await supabase
-              .from("products")
-              .select("name, image_url, offer_id")
-              .eq("marketplace_id", chat.marketplace_id)
-              .eq("offer_id", chat.product_sku)
-              .maybeSingle();
-
-            return { ...chat, marketplaces: marketplaceData, product: product || undefined };
-          }
-          return { ...chat, marketplaces: marketplaceData };
-        }),
-      );
+      const chatsWithProducts = (data || []).map((chat) => {
+        const marketplaceData = Array.isArray(chat.marketplaces)
+          ? chat.marketplaces[0]
+          : chat.marketplaces;
+        const product = chat.product_sku
+          ? productMap.get(`${chat.marketplace_id}:${chat.product_sku}`) || undefined
+          : undefined;
+        return { ...chat, marketplaces: marketplaceData, product };
+      });
 
       // Batch-fetch buyer names from chat_messages for all chats
       // Process in small batches to avoid URL length limits
@@ -574,15 +581,17 @@ const Chats = () => {
                       </span>
                       {/* Right column: time + badge stacked */}
                       <div className="flex flex-col items-end flex-shrink-0 gap-0.5">
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        <span className="text-xs text-muted-foreground whitespace-nowrap flex items-center gap-0.5">
+                          {chat.last_message_from === "seller" && (
+                            <span className="text-blue-400 text-[10px]">✓✓</span>
+                          )}
                           {formatMessageTime(chat.last_message_at)}
                         </span>
                         {chat.unread_count > 0 ? (
-                          <span className="bg-blue-500 text-white text-xs font-medium rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+                          <span className="bg-red-500 text-white text-xs font-medium rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
                             {chat.unread_count}
                           </span>
                         ) : (
-                          /* Spacer to keep layout consistent */
                           <span className="h-[18px]" />
                         )}
                       </div>
@@ -741,36 +750,51 @@ const Chats = () => {
                                   {msg.sender_name || buyerName}
                                 </p>
                               )}
-                              {msg.is_image && msg.image_urls && msg.image_urls.length > 0 ? (
-                                <div className="space-y-2">
-                                  {msg.image_urls.map((url, i) => (
-                                    <a
-                                      key={i}
-                                      href={url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                    >
-                                      <img
-                                        src={url}
-                                        alt={`Изображение ${i + 1}`}
-                                        className="max-w-full rounded border hover:opacity-90 transition"
-                                      />
-                                    </a>
-                                  ))}
-                                  {msg.text && (
-                                    <p className="whitespace-pre-wrap text-sm mt-1">{msg.text}</p>
-                                  )}
-                                </div>
+                              {msg.is_image ? (
+                                msg.image_urls && msg.image_urls.length > 0 ? (
+                                  <div className="space-y-2">
+                                    {msg.image_urls.map((url, i) => (
+                                      <a
+                                        key={i}
+                                        href={url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                      >
+                                        <img
+                                          src={url}
+                                          alt={`Фото ${i + 1}`}
+                                          className="max-w-full rounded border hover:opacity-90 transition"
+                                        />
+                                      </a>
+                                    ))}
+                                    {msg.text && (
+                                      <p className="whitespace-pre-wrap text-sm mt-1">{msg.text}</p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2 opacity-80">
+                                    <span className="text-base">📷</span>
+                                    <span className="text-sm">Фотография</span>
+                                  </div>
+                                )
                               ) : (
                                 <p className="whitespace-pre-wrap text-sm">{msg.text}</p>
                               )}
                               <p
                                 className={cn(
-                                  "text-xs mt-1.5",
-                                  isSeller ? "text-primary-foreground/60 text-right" : "text-muted-foreground",
+                                  "text-xs mt-1.5 flex items-center gap-0.5",
+                                  isSeller ? "text-primary-foreground/60 justify-end" : "text-muted-foreground",
                                 )}
                               >
                                 {format(new Date(msg.sent_at), "HH:mm", { locale: ru })}
+                                {isSeller && (
+                                  <span className={cn(
+                                    "text-[10px] ml-0.5",
+                                    msg.is_read ? "text-blue-300" : "text-primary-foreground/40"
+                                  )}>
+                                    {msg.is_read ? "✓✓" : "✓"}
+                                  </span>
+                                )}
                               </p>
                             </div>
                           </div>
