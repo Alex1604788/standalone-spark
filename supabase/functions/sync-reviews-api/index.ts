@@ -1,13 +1,12 @@
-// VERSION: 2026-03-15-v11 - skip pre-2025 reviews + cursor never resets
-// KEY CHANGES:
-//   - ignoreDuplicates: true (from v8) — skip existing rows (no UPDATE → no trigger re-fire)
-//   - Cursor always saved at furthest position reached, never reset to NULL
-//     After initial full scan: cursor points to end of UNPROCESSED list
-//     Next runs start from end → only pick up NEW reviews (fast, no re-scanning old ones)
-//     Since OZON review IDs are UUIDv7 (time-based), cursor acts as "reviews newer than this"
-//   - If user wants full rescan: manually clear reviews_sync_cursor in DB
-// ROOT CAUSE found 15.03: 3460 unmatched_products in first 5000 UNPROCESSED → new reviews on page 51+
-// v9 partially fixed this but reset cursor after full scan → re-scanned old reviews every cycle
+// VERSION: 2026-03-17-v12 - date filter 90 days + cursor never resets + skip old reviews
+// KEY CHANGES from v11:
+//   - DATE FILTER: Only sync reviews from last 90 days (prevents old 2025 reviews from re-importing)
+//     Old UNPROCESSED reviews on OZON from 2025 will NEVER be imported again
+//   - ignoreDuplicates: true — skip existing rows (no UPDATE → no trigger re-fire)
+//   - Cursor always advances forward, never resets to NULL
+//   - DOUBLE PROTECTION: cursor position + date filter
+//   - If cursor is reset to NULL manually: date filter still blocks old reviews
+// FIXES BUG: cursor=NULL scan imported 79,000 old 2025 UNPROCESSED reviews
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -201,9 +200,15 @@ serve(async (req) => {
             continue;
           }
 
-          // Skip reviews older than 2025 — not needed, don't store them
+          // Skip reviews older than 90 days — only process recent/fresh reviews
+          // DOUBLE PROTECTION: cursor position also prevents re-scanning, but date filter
+          // guarantees that even if cursor is manually reset to NULL, old reviews won't be imported.
           const reviewDate = review.published_at ? new Date(review.published_at) : null;
-          if (!reviewDate || reviewDate < new Date('2025-01-01T00:00:00Z')) {
+          const cutoffDate = new Date();
+          cutoffDate.setDate(cutoffDate.getDate() - 90); // 90 days ago
+          if (!reviewDate || reviewDate < cutoffDate) {
+            // Don't log every skip (too noisy), just count them
+            unmatchedProducts--; // don't count as unmatched - it's just old
             continue;
           }
 
