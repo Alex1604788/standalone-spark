@@ -177,24 +177,32 @@ const Chats = () => {
       );
 
       // Batch-fetch buyer names from chat_messages for all chats
+      // Process in small batches to avoid URL length limits
       const internalChatIds = chatsWithProducts.map((c) => c.id);
       let buyerNameMap: Record<string, string> = {};
 
       if (internalChatIds.length > 0) {
-        const { data: buyerMsgData } = await supabase
-          .from("chat_messages")
-          .select("chat_id, sender_name")
-          .in("chat_id", internalChatIds)
-          .eq("sender_type", "buyer")
-          .not("sender_name", "is", null)
-          .order("sent_at", { ascending: true })
-          .limit(1000);
+        const BATCH = 20;
+        for (let i = 0; i < internalChatIds.length; i += BATCH) {
+          const batchIds = internalChatIds.slice(i, i + BATCH);
+          const { data: buyerMsgData, error: buyerErr } = await supabase
+            .from("chat_messages")
+            .select("chat_id, sender_name")
+            .in("chat_id", batchIds)
+            .eq("sender_type", "buyer")
+            .limit(200);
 
-        (buyerMsgData || []).forEach((row) => {
-          if (!buyerNameMap[row.chat_id] && row.sender_name) {
-            buyerNameMap[row.chat_id] = row.sender_name;
+          if (buyerErr) {
+            console.warn("Buyer names fetch warning:", buyerErr.message);
+            break;
           }
-        });
+
+          (buyerMsgData || []).forEach((row) => {
+            if (!buyerNameMap[row.chat_id] && row.sender_name) {
+              buyerNameMap[row.chat_id] = row.sender_name;
+            }
+          });
+        }
       }
 
       const enriched = chatsWithProducts.map((c) => ({
