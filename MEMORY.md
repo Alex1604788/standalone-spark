@@ -206,6 +206,22 @@ curl -s "https://bkmicyguzlwampuindff.supabase.co/rest/v1/reviews?select=id&segm
 | 4 | Починить ошибки "Ожидает публикации", повторить зависшие | ✅ 6 ответов сброшены в scheduled |
 | 5 | Расхождение отзывов (OZON 2497 vs приложение 289) | ✅ Segment bug исправлен (0 unanswered теперь), reviews sync продолжается |
 
+## Исправления сессии 10 (17.03.2026)
+
+| Исправление | Детали |
+|---|---|
+| **79,000 старых отзывов 2025 заархивированы** | cursor=NULL при отладке → синк затащил 79,000 старых UNPROCESSED отзывов OZON (авг-ноя 2025). Исправлено: cleanup-old-reviews edge function (2-проходной алгоритм обхода BEFORE триггера) — заархивировано 77,000 отзывов за 77 итераций |
+| **28,740 scheduled replies отменены** | Опасные auto-scheduled ответы для старых отзывов soft-deleted — они НЕ были отправлены в OZON |
+| **sync-reviews-api v12: фильтр 90 дней** | Добавлен `cutoffDate = today - 90 days` — двойная защита: даже если cursor=NULL, старые отзывы никогда не попадут в систему |
+| **Cursor исправлен** | `reviews_sync_cursor = 019cf74f-8653-7a04-985b-7efded78b3b6` (2026-03-16) — следующий синк только новее этой даты |
+| **GitHub Actions задеплоен** | `.github/workflows/sync-reviews.yml` — внешний крон каждые 10 мин (независим от pg_cron). Токен обновлён (workflow scope), запушен |
+| **GitHub Secret нужен** | ⚠️ Добавить `SUPABASE_SERVICE_ROLE_KEY` в GitHub repo Settings → Secrets → Actions |
+| **Questions UI улучшен** | Поля вопрос/ответ: `line-clamp-4 text-xs`. Кнопка "Открыть": предзаполняет replyText из existing draft |
+| **Chats UI улучшен** | Хедер: имя покупателя вместо posting_number. Ссылка "Заказ X" ведёт на OZON Seller. Переключатель "По товару / По заказу" в левой панели |
+| **Итог БД 17.03** | archived: 171,005 ✅ pending: 50 ✅ unanswered: 0 ✅ |
+
+---
+
 ## Исправления сессии 9 (16.03.2026 — продолжение)
 
 | Исправление | Детали |
