@@ -1,12 +1,16 @@
-// VERSION: 2026-03-17-v12 - date filter 90 days + cursor never resets + skip old reviews
-// KEY CHANGES from v11:
-//   - DATE FILTER: Only sync reviews from last 90 days (prevents old 2025 reviews from re-importing)
-//     Old UNPROCESSED reviews on OZON from 2025 will NEVER be imported again
-//   - ignoreDuplicates: true — skip existing rows (no UPDATE → no trigger re-fire)
-//   - Cursor always advances forward, never resets to NULL
-//   - DOUBLE PROTECTION: cursor position + date filter
-//   - If cursor is reset to NULL manually: date filter still blocks old reviews
-// FIXES BUG: cursor=NULL scan imported 79,000 old 2025 UNPROCESSED reviews
+// VERSION: 2026-03-17-v14 - Advancing cursor: saves position each run, advances through 30-day window
+// KEY CHANGES from v13:
+//   - Cursor loaded from DB (reviews_sync_cursor) and saved after each run
+//   - Cursor advances forward: run 1 covers Feb 15-18, run 2 covers Feb 18-21, etc.
+//   - After ~10 runs, covers all 30 days and reaches fresh reviews
+//   - On completion (has_next=false): cursor reset to null → next cycle restarts from 30 days ago
+//   - Cursor age check: if cursor > 31 days old → reset to 30-day anchor (prevents old review drift)
+//   - ignoreDuplicates: true — only insert NEW reviews (existing rows stay untouched, trigger handles them)
+//   - is_answered: false set on INSERT only — trigger immediately re-sets based on existing replies
+// WHY THIS IS NEEDED:
+//   - OZON NEVER marks reviews as PROCESSED (mark_review_as_processed: true is ignored by OZON)
+//   - OZON UNPROCESSED list = ALL 18,000+ reviews from last 30 days (forever growing)
+//   - Without advancing cursor, each run covers same Feb 10-18 window (5000 reviews) and misses recent ones
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -67,15 +71,47 @@ serve(async (req) => {
       );
     }
 
-    // Load saved cursor from DB (progressive pagination across runs)
-    const { data: marketplaceData } = await supabase
+    // Load saved cursor from DB
+    const { data: mktplaceRow } = await supabase
       .from('marketplaces')
       .select('reviews_sync_cursor')
       .eq('id', marketplace_id)
       .single();
-    const savedCursor: string | null = marketplaceData?.reviews_sync_cursor || null;
 
-    console.log(`Starting reviews sync for marketplace ${marketplace_id} (UNPROCESSED, cursor: ${savedCursor ? savedCursor.slice(0,20) + '...' : 'fresh start'})`);
+    let savedCursor: string | null = mktplaceRow?.reviews_sync_cursor || null;
+
+    // Validate cursor age: if cursor encodes a date > 31 days ago, reset it
+    // UUIDv7 encodes timestamp in first 12 hex chars (48 bits = ms since epoch)
+    if (savedCursor) {
+      const hexTs = savedCursor.replace(/-/g, '').slice(0, 12);
+      const cursorMs = parseInt(hexTs, 16);
+      const cursorAge = Date.now() - cursorMs;
+      if (cursorAge > 31 * 86400_000) {
+        console.log(`Cursor is ${Math.round(cursorAge / 86400_000)} days old — resetting to 30-day anchor`);
+        savedCursor = null;
+      }
+    }
+
+    // If no valid cursor, derive one from DB: find real review external_id from ~30 days ago
+    if (!savedCursor) {
+      const { data: cursorRow } = await supabase
+        .from('reviews')
+        .select('external_id')
+        .eq('marketplace_id', marketplace_id)
+        .gte('review_date', new Date(Date.now() - 31 * 86400_000).toISOString())
+        .lte('review_date', new Date(Date.now() - 29 * 86400_000).toISOString())
+        .is('deleted_at', null)
+        .order('review_date', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      savedCursor = cursorRow?.external_id || null;
+      console.log(`No valid cursor — auto-derived from DB: ${savedCursor ? savedCursor.slice(0, 20) + '...' : 'none found, scanning from current position'}`);
+    } else {
+      console.log(`Resuming from saved cursor: ${savedCursor.slice(0, 20)}...`);
+    }
+
+    console.log(`Starting reviews sync for marketplace ${marketplace_id}`);
 
     // Update status
     await supabase
@@ -106,7 +142,6 @@ serve(async (req) => {
     }
 
     // Build fast lookup maps for product matching
-    // SKU is NOT unique (discounted items can have 2 SKUs per offer_id)
     const skuMap = new Map<string, typeof products[0]>();
     const externalIdMap = new Map<string, typeof products[0]>();
     for (const p of products) {
@@ -118,31 +153,29 @@ serve(async (req) => {
 
     let totalReviews = 0;
     let totalPages = 0;
+    let skippedOld = 0;
     let unmatchedProducts = 0;
-    const MAX_PAGES = 50; // 50 pages × 100 reviews = 5000 UNPROCESSED reviews per run
+    const MAX_PAGES = 50; // 50 pages × 100 = 5000 reviews per run
 
-    // Fetch ONLY UNPROCESSED reviews from OZON
-    // OZON status=UNPROCESSED = reviews without seller response
-    // Cursor saved between runs: OZON has 10,000+ UNPROCESSED (old unmatched + new)
-    // OZON returns oldest first → cursor ensures we progressively page through all of them
-    // When has_next=false (full scan done), cursor resets to NULL → next run starts fresh
     const pageSize = 100;
-    let hasMore = true;
+    let continueLoop = true;
+    let ozonHasNext = false; // Whether OZON has more pages (used for cursor save decision)
     let page = 1;
-    let lastId: string | null = savedCursor; // Resume from saved cursor (or start fresh if null)
-    let lastSavedId: string | null = savedCursor; // Track furthest position reached
+    let lastId: string | null = savedCursor;
+    let lastSavedId: string | null = savedCursor;
     let reviewsBatch: any[] = [];
     const BATCH_UPSERT_SIZE = 50;
 
-    console.log(`Fetching UNPROCESSED reviews (cursor: ${lastId ? lastId.slice(0,20) + '...' : 'fresh'})`);
+    // Date cutoff: skip reviews older than 31 days (consistent with cursor reset threshold)
+    const cutoffDate = new Date(Date.now() - 31 * 86400_000);
 
-    while (hasMore) {
-      console.log(`Fetching UNPROCESSED reviews page ${page}${lastId ? `, after ${lastId}` : ''}`);
+    console.log(`Fetching UNPROCESSED reviews from cursor: ${lastId ? lastId.slice(0, 20) + '...' : 'beginning'}`);
+
+    while (continueLoop) {
+      console.log(`Page ${page}${lastId ? `, after ${lastId.slice(0, 20)}` : ''}`);
 
       const requestBody: any = {
-        filter: {
-          status: 'UNPROCESSED', // ✅ Only reviews without seller response
-        },
+        filter: { status: 'UNPROCESSED' },
         limit: pageSize,
       };
       if (lastId) {
@@ -173,51 +206,35 @@ serve(async (req) => {
       }
 
       const reviewsData = await reviewsResponse.json();
-      // OZON returns reviews at top level, NOT inside result
       const reviews = reviewsData.reviews || reviewsData.result?.reviews || [];
 
-      console.log(`Page ${page}: Found ${reviews.length} UNPROCESSED reviews`);
+      console.log(`Page ${page}: ${reviews.length} reviews`);
 
       if (reviews.length === 0) {
-        hasMore = false;
+        ozonHasNext = false;
+        continueLoop = false;
         break;
       }
 
-      // Process reviews — build batch
       for (const review of reviews) {
         try {
-          // Match product by SKU (primary) or external_id (fallback)
+          // Skip reviews older than 31 days
+          const reviewDate = review.published_at ? new Date(review.published_at) : null;
+          if (!reviewDate || reviewDate < cutoffDate) {
+            skippedOld++;
+            continue;
+          }
+
+          // Match product by SKU or external_id
           const reviewSku = review.sku ? String(review.sku) : null;
           let product = null;
-
           if (reviewSku) {
             product = skuMap.get(reviewSku) || externalIdMap.get(reviewSku) || null;
           }
+          if (!product) unmatchedProducts++;
 
-          if (!product) {
-            unmatchedProducts++;
-            // Skip reviews with no product match to avoid overwriting existing product_id with null
-            continue;
-          }
-
-          // Skip reviews older than 90 days — only process recent/fresh reviews
-          // DOUBLE PROTECTION: cursor position also prevents re-scanning, but date filter
-          // guarantees that even if cursor is manually reset to NULL, old reviews won't be imported.
-          const reviewDate = review.published_at ? new Date(review.published_at) : null;
-          const cutoffDate = new Date();
-          cutoffDate.setDate(cutoffDate.getDate() - 90); // 90 days ago
-          if (!reviewDate || reviewDate < cutoffDate) {
-            // Don't log every skip (too noisy), just count them
-            unmatchedProducts--; // don't count as unmatched - it's just old
-            continue;
-          }
-
-          // Build upsert record
-          // NOTE: Do NOT set is_answered from comments_amount!
-          // The segment trigger determines segment from published replies in our DB.
-          reviewsBatch.push({
+          const reviewRecord: any = {
             marketplace_id,
-            product_id: product?.id || null,
             external_id: String(review.id),
             rating: review.rating || 0,
             author_name: review.author_name || 'Anonymous',
@@ -225,18 +242,22 @@ serve(async (req) => {
             advantages: review.advantages || null,
             disadvantages: review.disadvantages || null,
             review_date: review.published_at || new Date().toISOString(),
+            is_answered: false,
             raw: review,
             inserted_at: new Date().toISOString(),
             status: 'new',
-          });
+          };
+          if (product) {
+            reviewRecord.product_id = product.id;
+          }
+          reviewsBatch.push(reviewRecord);
 
-          // Flush batch when full
           if (reviewsBatch.length >= BATCH_UPSERT_SIZE) {
             const { error: batchError } = await supabase
               .from('reviews')
               .upsert(reviewsBatch, {
                 onConflict: 'marketplace_id,external_id',
-                ignoreDuplicates: true, // ✅ v8: skip existing rows (no UPDATE → no trigger re-fire)
+                ignoreDuplicates: true, // Only insert new rows — trigger handles segment on insert
               });
 
             if (batchError) {
@@ -254,13 +275,15 @@ serve(async (req) => {
       totalPages++;
       if (reviewsData.last_id) {
         lastId = reviewsData.last_id;
-        lastSavedId = reviewsData.last_id; // Always advance cursor forward
+        lastSavedId = reviewsData.last_id;
       }
-      hasMore = reviewsData.has_next === true && reviews.length > 0 && page < MAX_PAGES;
+      // Track OZON's has_next separately from loop continuation
+      ozonHasNext = reviewsData.has_next === true && reviews.length > 0;
+      // Stop looping after MAX_PAGES regardless of OZON's state
+      continueLoop = ozonHasNext && page < MAX_PAGES;
       page++;
 
-      // Small delay to avoid rate limits
-      if (hasMore) {
+      if (continueLoop) {
         await new Promise(resolve => setTimeout(resolve, 200));
       }
     }
@@ -271,7 +294,7 @@ serve(async (req) => {
         .from('reviews')
         .upsert(reviewsBatch, {
           onConflict: 'marketplace_id,external_id',
-          ignoreDuplicates: true, // ✅ v8: skip existing rows
+          ignoreDuplicates: true, // Only insert new rows — trigger sets segment on insert
         });
 
       if (batchError) {
@@ -281,30 +304,33 @@ serve(async (req) => {
       }
     }
 
-    // Always save cursor at furthest position reached — never reset to NULL
-    // This ensures next run starts from where we stopped, not from the beginning
-    // After initial full scan: cursor points to end → next runs only pick up NEW reviews
-    // To force a full rescan: manually set reviews_sync_cursor = NULL in DB
+    // Save cursor:
+    // - If OZON has more pages (MAX_PAGES hit): save lastSavedId → advance next run
+    // - If OZON is done (has_next=false): save null → next run restarts from 30-day anchor
+    const newCursor = ozonHasNext ? lastSavedId : null;
+    const cycleStatus = ozonHasNext ? `advanced to ${lastSavedId?.slice(0, 20)}...` : 'completed full cycle, resetting cursor';
+
     await supabase
       .from('marketplaces')
       .update({
         last_sync_at: new Date().toISOString(),
         last_sync_status: 'success',
         last_sync_error: null,
-        reviews_sync_cursor: lastSavedId,
+        reviews_sync_cursor: newCursor,
       })
       .eq('id', marketplace_id);
 
-    console.log(`Synced ${totalReviews} UNPROCESSED reviews (${totalPages} pages, ${unmatchedProducts} without product, cursor: ${lastSavedId ? lastSavedId.slice(0,20) + '...' : 'no cursor'})`);
+    console.log(`Synced ${totalReviews} new reviews (${totalPages} pages, ${skippedOld} skipped old, ${unmatchedProducts} unmatched products, ${cycleStatus})`);
 
     return new Response(
       JSON.stringify({
         success: true,
         reviews_count: totalReviews,
         pages: totalPages,
+        skipped_old: skippedOld,
         unmatched_products: unmatchedProducts,
-        cursor_saved: lastSavedId ? lastSavedId.slice(0, 30) + '...' : null,
-        message: `Синхронизировано ${totalReviews} необработанных отзывов (${totalPages} стр)`,
+        cursor_advanced: newCursor ? newCursor.slice(0, 30) + '...' : 'cycle complete',
+        message: `Синхронизировано ${totalReviews} отзывов (${totalPages} стр)`,
       }),
       { headers: { 'Content-Type': 'application/json', ...corsHeaders } }
     );
