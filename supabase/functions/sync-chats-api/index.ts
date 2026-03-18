@@ -353,20 +353,45 @@ serve(async (req) => {
         const lastMsgUserType = lastMsg?.user?.type || '';
         const lastMsgIsBuyer = lastMsgUserType === 'Сustomer' || lastMsgUserType === 'Customer' || lastMsgUserType.toLowerCase() === 'customer';
 
-        // Only update last_message_at when there are actual messages.
-        // If no messages found, do NOT touch last_message_at — otherwise empty chats
-        // get current timestamp and appear in the 30-day filter as recent "active" chats.
+        // Find last SELLER message → is_read = buyer has read our message
+        const lastSellerMsg = [...messages].reverse().find((m: any) => {
+          const t = m.user?.type || '';
+          return !(t === 'Сustomer' || t === 'Customer' || t.toLowerCase() === 'customer');
+        });
+        const lastSellerMsgIsRead = lastSellerMsg?.is_read || false;
+
+        // Find buyer's real name from history messages (messages have user.name, chat list may not)
+        // Skip purely numeric "names" — those are user IDs, not display names
+        const buyerNameFromHistory = messages
+          .filter((m: any) => {
+            const t = m.user?.type || '';
+            return t === 'Сustomer' || t === 'Customer' || t.toLowerCase() === 'customer';
+          })
+          .map((m: any) => m.user?.name as string | undefined)
+          .find((n) => n && n.trim() && !/^\d+$/.test(n));
+
+        // Build update payload
+        const chatUpdate: Record<string, any> = {
+          unread_count: unreadCount,
+          last_seller_msg_is_read: lastSellerMsgIsRead,
+        };
+
+        // Only update last_message_at / text / from when there are actual messages
         if (lastMsg) {
-          await supabase
-            .from('chats')
-            .update({
-              unread_count: unreadCount,
-              last_message_text: lastMsgText,
-              last_message_at: lastMsg.created_at || new Date().toISOString(),
-              last_message_from: lastMsgIsBuyer ? 'buyer' : 'seller',
-            })
-            .eq('id', chatRecord.id);
+          chatUpdate.last_message_text = lastMsgText;
+          chatUpdate.last_message_at = lastMsg.created_at || new Date().toISOString();
+          chatUpdate.last_message_from = lastMsgIsBuyer ? 'buyer' : 'seller';
         }
+
+        // Only update buyer_name when we found a real non-numeric name
+        if (buyerNameFromHistory) {
+          chatUpdate.buyer_name = buyerNameFromHistory;
+        }
+
+        await supabase
+          .from('chats')
+          .update(chatUpdate)
+          .eq('id', chatRecord.id);
 
         // Reduced delay between chats
         await new Promise(resolve => setTimeout(resolve, 100));

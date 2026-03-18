@@ -51,6 +51,7 @@ interface Chat {
   last_message_text: string | null;
   last_message_at: string | null;
   last_message_from: "buyer" | "seller" | null;
+  last_seller_msg_is_read?: boolean | null;
   expires_at: string | null;
   updated_at: string;
   marketplace_id: string;
@@ -131,6 +132,7 @@ const Chats = () => {
           last_message_text,
           last_message_at,
           last_message_from,
+          last_seller_msg_is_read,
           expires_at,
           updated_at,
           marketplace_id,
@@ -560,30 +562,38 @@ const Chats = () => {
                       </span>
                       {/* Right column: time + badge stacked */}
                       <div className="flex flex-col items-end flex-shrink-0 gap-0.5">
-                        <span className="text-xs text-muted-foreground whitespace-nowrap flex items-center gap-0.5">
+                        <span className="text-xs text-muted-foreground whitespace-nowrap flex items-center gap-1">
+                          {/* Checkmarks: only shown when last message is from seller (us) */}
                           {chat.last_message_from === "seller" && (
-                            <span className="text-blue-400 text-[10px]">✓✓</span>
+                            chat.last_seller_msg_is_read
+                              ? <span className="text-blue-500 font-bold text-sm leading-none" title="Прочитано">✓</span>
+                              : <span className="text-gray-400 font-bold text-sm leading-none" title="Не прочитано">✓✓</span>
                           )}
                           {formatMessageTime(chat.last_message_at)}
                         </span>
                         {chat.unread_count > 0 ? (
-                          <span className="bg-red-500 text-white text-xs font-medium rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+                          <span className="bg-red-500 text-white text-xs font-bold rounded-full min-w-[20px] h-[20px] flex items-center justify-center px-1">
                             {chat.unread_count}
                           </span>
                         ) : (
-                          <span className="h-[18px]" />
+                          <span className="h-[20px]" />
                         )}
                       </div>
                     </div>
 
-                    {/* Row 2: product name or order number (secondary) */}
+                    {/* Row 2: product name or real order number (no UUID) */}
                     {listDisplayMode === "product" ? (
                       <p className="text-xs text-muted-foreground truncate leading-tight">
-                        {chat.product?.name || `Заказ ${chat.posting_number}`}
+                        {chat.product?.name ||
+                          (chat.posting_number && !isUUID(chat.posting_number)
+                            ? `Заказ ${chat.posting_number}`
+                            : "—")}
                       </p>
                     ) : (
                       <p className="text-xs text-muted-foreground truncate leading-tight">
-                        {chat.posting_number}
+                        {chat.posting_number && !isUUID(chat.posting_number)
+                          ? chat.posting_number
+                          : "—"}
                         {chat.product?.name && ` · ${chat.product.name}`}
                       </p>
                     )}
