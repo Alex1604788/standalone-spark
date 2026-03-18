@@ -1,4 +1,4 @@
-// VERSION: 2026-03-18-v10 - buyer_name from chat list, fix image URLs, fix posting_number:
+// VERSION: 2026-03-18-v11 - fix cycling: use last_history_synced_at NULLS FIRST in STEP 2:
 // 1. Extract buyer_name from chat list user.name → save in chats.buyer_name
 // 2. posting_number: use null fallback (not chat_id UUID) when OZON doesn't provide it
 // 3. Image URLs stored as Markdown ![](url) → extract actual URL before storing
@@ -211,8 +211,8 @@ serve(async (req) => {
     console.log(`[sync-chats-api] Quick-upserted ${quickUpserted} chat records in ${Math.ceil(chatsToSync.length / UPSERT_BATCH)} batches`);
 
     // STEP 2: Fetch message history for chats from the last 30 days
-    // ASC order = oldest active chats first → cycles through ALL chats over multiple runs
-    // (DESC would always pick the same newest 30 chats and never reach older ones)
+    // Order by last_history_synced_at NULLS FIRST: un-processed chats first,
+    // then least-recently-processed → guaranteed cycling through ALL chats
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const { data: chatsNeedingSync } = await supabase
       .from('chats')
@@ -220,7 +220,7 @@ serve(async (req) => {
       .eq('marketplace_id', marketplace_id)
       .eq('status', 'active')
       .gte('last_message_at', thirtyDaysAgo)
-      .order('last_message_at', { ascending: true })
+      .order('last_history_synced_at', { ascending: true, nullsFirst: true })
       .limit(batch_size);
 
     const chatBatch = chatsNeedingSync || [];
@@ -373,9 +373,11 @@ serve(async (req) => {
           .find((n) => n && n.trim() && !/^\d+$/.test(n));
 
         // Build update payload
+        // Always set last_history_synced_at so this chat goes to the END of the cycling queue
         const chatUpdate: Record<string, any> = {
           unread_count: unreadCount,
           last_seller_msg_is_read: lastSellerMsgIsRead,
+          last_history_synced_at: new Date().toISOString(),
         };
 
         // Only update last_message_at / text / from when there are actual messages
