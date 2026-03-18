@@ -210,7 +210,9 @@ serve(async (req) => {
     }
     console.log(`[sync-chats-api] Quick-upserted ${quickUpserted} chat records in ${Math.ceil(chatsToSync.length / UPSERT_BATCH)} batches`);
 
-    // STEP 2: Fetch message history only for chats from the last 30 days
+    // STEP 2: Fetch message history for chats from the last 30 days
+    // ASC order = oldest active chats first → cycles through ALL chats over multiple runs
+    // (DESC would always pick the same newest 30 chats and never reach older ones)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const { data: chatsNeedingSync } = await supabase
       .from('chats')
@@ -218,7 +220,7 @@ serve(async (req) => {
       .eq('marketplace_id', marketplace_id)
       .eq('status', 'active')
       .gte('last_message_at', thirtyDaysAgo)
-      .order('last_message_at', { ascending: false })
+      .order('last_message_at', { ascending: true })
       .limit(batch_size);
 
     const chatBatch = chatsNeedingSync || [];

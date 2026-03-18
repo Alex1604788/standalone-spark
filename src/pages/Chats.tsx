@@ -738,7 +738,10 @@ const Chats = () => {
                             >
                               {!isSeller && (
                                 <p className="text-xs font-semibold mb-1 opacity-70">
-                                  {msg.sender_name || buyerName}
+                                  {/* Don't show numeric user IDs — show real name or fallback */}
+                                  {(msg.sender_name && !/^\d+$/.test(msg.sender_name))
+                                    ? msg.sender_name
+                                    : buyerName}
                                 </p>
                               )}
                               {msg.is_image ? (
