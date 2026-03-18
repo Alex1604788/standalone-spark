@@ -134,6 +134,7 @@ const Chats = () => {
           expires_at,
           updated_at,
           marketplace_id,
+          buyer_name,
           marketplaces(name, type)
         `,
         )
@@ -187,41 +188,8 @@ const Chats = () => {
         return { ...chat, marketplaces: marketplaceData, product };
       });
 
-      // Batch-fetch buyer names from chat_messages for all chats
-      // Process in small batches to avoid URL length limits
-      const internalChatIds = chatsWithProducts.map((c) => c.id);
-      let buyerNameMap: Record<string, string> = {};
-
-      if (internalChatIds.length > 0) {
-        const BATCH = 20;
-        for (let i = 0; i < internalChatIds.length; i += BATCH) {
-          const batchIds = internalChatIds.slice(i, i + BATCH);
-          const { data: buyerMsgData, error: buyerErr } = await supabase
-            .from("chat_messages")
-            .select("chat_id, sender_name")
-            .in("chat_id", batchIds)
-            .eq("sender_type", "buyer")
-            .limit(200);
-
-          if (buyerErr) {
-            console.warn("Buyer names fetch warning:", buyerErr.message);
-            break;
-          }
-
-          (buyerMsgData || []).forEach((row) => {
-            if (!buyerNameMap[row.chat_id] && row.sender_name) {
-              buyerNameMap[row.chat_id] = row.sender_name;
-            }
-          });
-        }
-      }
-
-      const enriched = chatsWithProducts.map((c) => ({
-        ...c,
-        buyer_name: buyerNameMap[c.id] || null,
-      }));
-
-      setChats(enriched as Chat[]);
+      // buyer_name now comes directly from chats.buyer_name (saved from OZON chat list)
+      setChats(chatsWithProducts as Chat[]);
     } finally {
       setIsLoading(false);
     }
@@ -378,6 +346,16 @@ const Chats = () => {
     );
   };
 
+  // Detect UUID (chat_id stored as fallback posting_number — not a real order)
+  const isUUID = (str: string | null) =>
+    !!str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+  // Extract actual URL from OZON Markdown format: "![](https://...)" → "https://..."
+  const extractImageUrl = (raw: string): string => {
+    const match = raw.match(/!\[.*?\]\((https?:\/\/[^)]+)\)/);
+    return match ? match[1] : raw;
+  };
+
   const isExpiringSoon = (expiresAt: string | null) => {
     if (!expiresAt) return false;
     const now = new Date();
@@ -409,11 +387,8 @@ const Chats = () => {
     );
   });
 
-  // Buyer name from loaded messages for the right panel (fallback)
-  const buyerName =
-    selectedChat?.buyer_name ||
-    chatMessages.find((m) => m.sender_type === "buyer")?.sender_name ||
-    "Покупатель";
+  // Buyer name: from chats.buyer_name (set by sync from OZON chat list)
+  const buyerName = selectedChat?.buyer_name || "Покупатель";
 
   const totalNew = chats.filter((c) => c.unread_count > 0).length;
   const totalNoMyReply = chats.filter((c) => c.last_message_from === "buyer").length;
@@ -697,16 +672,18 @@ const Chats = () => {
                         Арт: {selectedChat.product.offer_id}
                       </span>
                     )}
-                    <a
-                      href={`https://seller.ozon.ru/app/postings/${selectedChat.posting_number}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                      title="Открыть заказ в OZON Seller"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      Заказ {selectedChat.posting_number}
-                    </a>
+                    {selectedChat.posting_number && !isUUID(selectedChat.posting_number) && (
+                      <a
+                        href={`https://seller.ozon.ru/app/postings/${selectedChat.posting_number}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                        title="Открыть заказ в OZON Seller"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        Заказ {selectedChat.posting_number}
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>
@@ -757,7 +734,9 @@ const Chats = () => {
                               {msg.is_image ? (
                                 msg.image_urls && msg.image_urls.length > 0 ? (
                                   <div className="space-y-2">
-                                    {msg.image_urls.map((url, i) => (
+                                    {msg.image_urls.map((rawUrl, i) => {
+                                      const url = extractImageUrl(rawUrl);
+                                      return (
                                       <a
                                         key={i}
                                         href={url}
@@ -768,9 +747,16 @@ const Chats = () => {
                                           src={url}
                                           alt={`Фото ${i + 1}`}
                                           className="max-w-full rounded border hover:opacity-90 transition"
+                                          onError={(e) => {
+                                            // If image fails to load (expired URL), show placeholder
+                                            (e.target as HTMLImageElement).style.display = 'none';
+                                            (e.target as HTMLImageElement).nextElementSibling?.removeAttribute('hidden');
+                                          }}
                                         />
+                                        <span hidden className="text-sm opacity-70">📷 Фото (ссылка устарела)</span>
                                       </a>
-                                    ))}
+                                      );
+                                    })}
                                     {msg.text && (
                                       <p className="whitespace-pre-wrap text-sm mt-1">{msg.text}</p>
                                     )}
@@ -786,18 +772,19 @@ const Chats = () => {
                               )}
                               <p
                                 className={cn(
-                                  "text-xs mt-1.5 flex items-center gap-0.5",
-                                  isSeller ? "text-primary-foreground/60 justify-end" : "text-muted-foreground",
+                                  "text-xs mt-1.5 flex items-center gap-1",
+                                  isSeller ? "text-primary-foreground/70 justify-end" : "text-muted-foreground",
                                 )}
                               >
                                 {format(new Date(msg.sent_at), "HH:mm", { locale: ru })}
                                 {isSeller && (
-                                  <span className={cn(
-                                    "text-[10px] ml-0.5",
-                                    msg.is_read ? "text-blue-300" : "text-primary-foreground/40"
-                                  )}>
-                                    {msg.is_read ? "✓✓" : "✓"}
-                                  </span>
+                                  /* ✓ one = buyer has READ it (blue bold)
+                                     ✓✓ two = buyer has NOT read yet (grey) */
+                                  msg.is_read ? (
+                                    <span className="text-blue-300 font-bold text-sm leading-none">✓</span>
+                                  ) : (
+                                    <span className="text-primary-foreground/40 font-semibold text-sm leading-none">✓✓</span>
+                                  )
                                 )}
                               </p>
                             </div>

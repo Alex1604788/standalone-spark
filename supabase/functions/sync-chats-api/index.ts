@@ -1,8 +1,8 @@
-// VERSION: 2026-03-17-v9 - Fix isBuyer (Cyrillic+Latin С), sender_name (display name), last_message_text:
-// 1. isBuyer now handles both Cyrillic 'С' and Latin 'C' in 'Customer'
-// 2. sender_name uses message.user.name (display name), falls back to id string
-// 3. last_message_text uses message.text || data.join, not data[0] (could be posting number)
-// 4. last_message_from fix: same Cyrillic+Latin С fix
+// VERSION: 2026-03-18-v10 - buyer_name from chat list, fix image URLs, fix posting_number:
+// 1. Extract buyer_name from chat list user.name → save in chats.buyer_name
+// 2. posting_number: use null fallback (not chat_id UUID) when OZON doesn't provide it
+// 3. Image URLs stored as Markdown ![](url) → extract actual URL before storing
+// 4. buyer_name/buyer_id only written when non-null (preserve existing values)
 // BRANCH: main
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -79,12 +79,27 @@ serve(async (req) => {
       .update({ last_sync_status: 'syncing' })
       .eq('id', marketplace_id);
 
+    // Helper: extract actual URL from OZON Markdown format ![](url) or return as-is
+    const extractImageUrl = (raw: string): string => {
+      const match = raw.match(/!\[.*?\]\((https?:\/\/[^)]+)\)/);
+      return match ? match[1] : raw;
+    };
+
     // chatsToSync: array of chat data
-    let chatsToSync: { chatId: string; postingNumber: string; chatStatus: string; chatType: string; isUnread: boolean; lastMessageAt: string | null }[] = [];
+    let chatsToSync: {
+      chatId: string;
+      postingNumber: string | null;
+      chatStatus: string;
+      chatType: string;
+      isUnread: boolean;
+      lastMessageAt: string | null;
+      buyerName: string | null;
+      buyerId: number | null;
+    }[] = [];
 
     // If specific chat_ids provided, use them
     if (chat_ids && chat_ids.length > 0) {
-      chatsToSync = chat_ids.map((id: string) => ({ chatId: id, postingNumber: id, chatStatus: 'active', chatType: 'BUYER_SELLER', isUnread: false, lastMessageAt: null }));
+      chatsToSync = chat_ids.map((id: string) => ({ chatId: id, postingNumber: null, chatStatus: 'active', chatType: 'BUYER_SELLER', isUnread: false, lastMessageAt: null, buyerName: null, buyerId: null }));
       console.log(`[sync-chats-api] Syncing ${chatsToSync.length} specific chats`);
     } else {
       // Fetch chats from last 30 days only (not all time)
@@ -133,11 +148,15 @@ serve(async (req) => {
 
             chatsToSync.push({
               chatId: chatObj.chat_id,
-              postingNumber: chatObj.posting_number || chatObj.chat_id,
+              // NEVER fall back to chat_id — that stores UUID as posting_number
+              postingNumber: chatObj.posting_number || null,
               chatStatus,
               chatType: chatObj.chat_type || 'UNSPECIFIED',
               isUnread: chatObj.is_unread || false,
               lastMessageAt: chatObj.last_message_at || null,
+              // Buyer display name from chat list (not available in message history)
+              buyerName: chatObj.user?.name || null,
+              buyerId: chatObj.user?.id || null,
             });
           }
         }
@@ -159,14 +178,21 @@ serve(async (req) => {
     for (let i = 0; i < chatsToSync.length; i += UPSERT_BATCH) {
       const batch = chatsToSync.slice(i, i + UPSERT_BATCH);
       try {
-        const rows = batch.map(({ chatId, postingNumber, chatStatus, chatType }) => ({
-          marketplace_id,
-          chat_id: chatId,
-          posting_number: postingNumber,
-          status: chatStatus || 'active',
-          chat_type: chatType || 'UNSPECIFIED',
-          updated_at: new Date().toISOString(),
-        }));
+        const rows = batch.map(({ chatId, postingNumber, chatStatus, chatType, buyerName, buyerId }) => {
+          const row: Record<string, any> = {
+            marketplace_id,
+            chat_id: chatId,
+            status: chatStatus || 'active',
+            chat_type: chatType || 'UNSPECIFIED',
+            updated_at: new Date().toISOString(),
+          };
+          // Only write posting_number when OZON provides it (never store UUID fallback)
+          if (postingNumber) row.posting_number = postingNumber;
+          // Only write buyer info when available
+          if (buyerName) row.buyer_name = buyerName;
+          if (buyerId) row.buyer_id = buyerId;
+          return row;
+        });
         const { error: batchError } = await supabase
           .from('chats')
           .upsert(rows, {
@@ -259,7 +285,14 @@ serve(async (req) => {
           try {
             const messageData = message.data || [];
             const isImage = message.is_image || false;
-            const imageUrls = isImage && Array.isArray(messageData) ? messageData : [];
+            // OZON stores image URLs as Markdown: "![](https://...)" — extract actual URL
+            const imageUrls = isImage && Array.isArray(messageData)
+              ? messageData.map((item: any) => {
+                  const s = typeof item === 'string' ? item : (item?.url || item?.link || '');
+                  const match = s.match(/!\[.*?\]\((https?:\/\/[^)]+)\)/);
+                  return match ? match[1] : s;
+                }).filter(Boolean)
+              : [];
             const textContent = !isImage && Array.isArray(messageData) && messageData.length > 0
               ? messageData.join('\n')
               : (message.text || '');
