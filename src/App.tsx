@@ -43,6 +43,8 @@ const PricesAnalytics = lazy(() => import("./pages/analytics/PricesAnalytics"));
 const PromotionAnalytics = lazy(() => import("./pages/analytics/PromotionAnalytics"));
 const PromotionsAnalytics = lazy(() => import("./pages/analytics/PromotionsAnalytics"));
 const CompetitorsAnalytics = lazy(() => import("./pages/analytics/CompetitorsAnalytics"));
+const OzonAnalytics = lazy(() => import("./pages/OzonAnalytics"));
+const Procurement = lazy(() => import("./pages/Procurement"));
 
 const queryClient = new QueryClient();
 
@@ -89,6 +91,8 @@ const App = () => (
             <Route path="/app" element={<Navigate to="/app/analytics/reviews-questions" replace />} />
             <Route path="/app/analytics/reviews-questions" element={<ProtectedPage><ReviewsQuestionsAnalytics /></ProtectedPage>} />
             <Route path="/app/sales-analytics" element={<ProtectedPage><SalesAnalytics /></ProtectedPage>} />
+            <Route path="/app/ozon-analytics" element={<ProtectedPage><OzonAnalytics /></ProtectedPage>} />
+            <Route path="/app/procurement" element={<ProtectedPage><Procurement /></ProtectedPage>} />
             <Route path="/app/analytics/prices" element={<ProtectedPage><PricesAnalytics /></ProtectedPage>} />
             <Route path="/app/analytics/promotion" element={<ProtectedPage><PromotionAnalytics /></ProtectedPage>} />
             <Route path="/app/analytics/promotions" element={<ProtectedPage><PromotionsAnalytics /></ProtectedPage>} />

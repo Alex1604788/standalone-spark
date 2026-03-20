@@ -211,6 +211,8 @@ const AppLayout = ({ children }: AppLayoutProps) => {
     const analyticsTitles: Record<string, string> = {
       "/app/analytics/reviews-questions": "Аналитика Отзывов и Вопросов",
       "/app/sales-analytics": "Аналитика Продаж",
+      "/app/ozon-analytics": "Аналитика Ozon",
+      "/app/procurement": "Закупка и распределение",
       "/app/analytics/prices": "Аналитика цен",
       "/app/analytics/promotion": "Аналитика Продвижения",
       "/app/analytics/promotions": "Аналитика Акций",
@@ -281,6 +283,18 @@ const AppLayout = ({ children }: AppLayoutProps) => {
               >
                 <TrendingUp className="w-4 h-4" />
                 <span className="text-sm">Продаж</span>
+              </Link>
+              <Link
+                to="/app/ozon-analytics"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname === "/app/ozon-analytics"
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <BarChart3 className="w-4 h-4" />
+                <span className="text-sm">Ozon Аналитика</span>
               </Link>
               <Link
                 to="/app/analytics/prices"
@@ -489,6 +503,18 @@ const AppLayout = ({ children }: AppLayoutProps) => {
               >
                 <Truck className="w-4 h-4" />
                 <span className="text-sm">Поставщиков</span>
+              </Link>
+              <Link
+                to="/app/procurement"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  location.pathname.startsWith("/app/procurement")
+                    ? "bg-primary text-primary-foreground shadow-medium"
+                    : "hover:bg-secondary text-foreground hover:shadow-soft"
+                }`}
+              >
+                <Truck className="w-4 h-4" />
+                <span className="text-sm">Закупка</span>
               </Link>
               <Link
                 to="/app/products/settings"
