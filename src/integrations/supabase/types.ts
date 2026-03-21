@@ -435,14 +435,18 @@ export type Database = {
       }
       chats: {
         Row: {
+          buyer_id: number | null
+          buyer_name: string | null
           chat_id: string
           chat_type: string | null
           created_at: string
           expires_at: string | null
           id: string
+          last_history_synced_at: string | null
           last_message_at: string | null
           last_message_from: string | null
           last_message_text: string | null
+          last_seller_msg_is_read: boolean | null
           marketplace_id: string
           order_number: string | null
           posting_number: string
@@ -452,14 +456,18 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          buyer_id?: number | null
+          buyer_name?: string | null
           chat_id: string
           chat_type?: string | null
           created_at?: string
           expires_at?: string | null
           id?: string
+          last_history_synced_at?: string | null
           last_message_at?: string | null
           last_message_from?: string | null
           last_message_text?: string | null
+          last_seller_msg_is_read?: boolean | null
           marketplace_id: string
           order_number?: string | null
           posting_number: string
@@ -469,14 +477,18 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          buyer_id?: number | null
+          buyer_name?: string | null
           chat_id?: string
           chat_type?: string | null
           created_at?: string
           expires_at?: string | null
           id?: string
+          last_history_synced_at?: string | null
           last_message_at?: string | null
           last_message_from?: string | null
           last_message_text?: string | null
+          last_seller_msg_is_read?: boolean | null
           marketplace_id?: string
           order_number?: string | null
           posting_number?: string
@@ -887,6 +899,57 @@ export type Database = {
         }
         Relationships: []
       }
+      manual_in_transit: {
+        Row: {
+          cluster_id: string | null
+          comment: string | null
+          created_at: string | null
+          id: string
+          marketplace_id: string
+          offer_id: string
+          qty: number
+          ship_date: string | null
+          status: string | null
+        }
+        Insert: {
+          cluster_id?: string | null
+          comment?: string | null
+          created_at?: string | null
+          id?: string
+          marketplace_id: string
+          offer_id: string
+          qty: number
+          ship_date?: string | null
+          status?: string | null
+        }
+        Update: {
+          cluster_id?: string | null
+          comment?: string | null
+          created_at?: string | null
+          id?: string
+          marketplace_id?: string
+          offer_id?: string
+          qty?: number
+          ship_date?: string | null
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "manual_in_transit_cluster_id_fkey"
+            columns: ["cluster_id"]
+            isOneToOne: false
+            referencedRelation: "clusters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "manual_in_transit_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       marketplace_api_credentials: {
         Row: {
           access_token: string | null
@@ -1289,6 +1352,182 @@ export type Database = {
           },
         ]
       }
+      ozon_analytics_daily: {
+        Row: {
+          acquiring: number | null
+          adv_carts: number | null
+          adv_clicks: number | null
+          adv_cpc: number | null
+          adv_cpcart: number | null
+          adv_cpm: number | null
+          adv_cpo: number | null
+          adv_cpo_general: number | null
+          adv_expenses: number | null
+          adv_orders: number | null
+          adv_revenue: number | null
+          adv_views: number | null
+          bought_amount: number | null
+          bought_cnt: number | null
+          bought_commission: number | null
+          bought_expense: number | null
+          bought_in_ozon_orders: number | null
+          cancellations: number | null
+          cancelled_cnt: number | null
+          content_rating: number | null
+          conv_tocart_pdp: number | null
+          conv_topurchase_pdp: number | null
+          created_at: string | null
+          date: string
+          hits_view: number | null
+          id: string
+          marketplace_expenses: number | null
+          marketplace_id: string
+          offer_id: string
+          ordered_amount: number | null
+          ordered_cnt: number | null
+          ordered_units: number | null
+          percent_adv_drr: number | null
+          percent_cart_to_order: number | null
+          percent_ctr: number | null
+          percent_drr: number | null
+          percent_order_to_buy: number | null
+          percent_pdp_to_cart: number | null
+          percent_pdp_to_order: number | null
+          percent_session_to_pdp: number | null
+          price_index: number | null
+          price_ozon: number | null
+          price_seller: number | null
+          product_name: string | null
+          returned_amount: number | null
+          returned_cnt: number | null
+          returned_commission: number | null
+          returned_expense: number | null
+          returns: number | null
+          revenue: number | null
+          session_view: number | null
+          session_view_pdp: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          acquiring?: number | null
+          adv_carts?: number | null
+          adv_clicks?: number | null
+          adv_cpc?: number | null
+          adv_cpcart?: number | null
+          adv_cpm?: number | null
+          adv_cpo?: number | null
+          adv_cpo_general?: number | null
+          adv_expenses?: number | null
+          adv_orders?: number | null
+          adv_revenue?: number | null
+          adv_views?: number | null
+          bought_amount?: number | null
+          bought_cnt?: number | null
+          bought_commission?: number | null
+          bought_expense?: number | null
+          bought_in_ozon_orders?: number | null
+          cancellations?: number | null
+          cancelled_cnt?: number | null
+          content_rating?: number | null
+          conv_tocart_pdp?: number | null
+          conv_topurchase_pdp?: number | null
+          created_at?: string | null
+          date: string
+          hits_view?: number | null
+          id?: string
+          marketplace_expenses?: number | null
+          marketplace_id: string
+          offer_id: string
+          ordered_amount?: number | null
+          ordered_cnt?: number | null
+          ordered_units?: number | null
+          percent_adv_drr?: number | null
+          percent_cart_to_order?: number | null
+          percent_ctr?: number | null
+          percent_drr?: number | null
+          percent_order_to_buy?: number | null
+          percent_pdp_to_cart?: number | null
+          percent_pdp_to_order?: number | null
+          percent_session_to_pdp?: number | null
+          price_index?: number | null
+          price_ozon?: number | null
+          price_seller?: number | null
+          product_name?: string | null
+          returned_amount?: number | null
+          returned_cnt?: number | null
+          returned_commission?: number | null
+          returned_expense?: number | null
+          returns?: number | null
+          revenue?: number | null
+          session_view?: number | null
+          session_view_pdp?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          acquiring?: number | null
+          adv_carts?: number | null
+          adv_clicks?: number | null
+          adv_cpc?: number | null
+          adv_cpcart?: number | null
+          adv_cpm?: number | null
+          adv_cpo?: number | null
+          adv_cpo_general?: number | null
+          adv_expenses?: number | null
+          adv_orders?: number | null
+          adv_revenue?: number | null
+          adv_views?: number | null
+          bought_amount?: number | null
+          bought_cnt?: number | null
+          bought_commission?: number | null
+          bought_expense?: number | null
+          bought_in_ozon_orders?: number | null
+          cancellations?: number | null
+          cancelled_cnt?: number | null
+          content_rating?: number | null
+          conv_tocart_pdp?: number | null
+          conv_topurchase_pdp?: number | null
+          created_at?: string | null
+          date?: string
+          hits_view?: number | null
+          id?: string
+          marketplace_expenses?: number | null
+          marketplace_id?: string
+          offer_id?: string
+          ordered_amount?: number | null
+          ordered_cnt?: number | null
+          ordered_units?: number | null
+          percent_adv_drr?: number | null
+          percent_cart_to_order?: number | null
+          percent_ctr?: number | null
+          percent_drr?: number | null
+          percent_order_to_buy?: number | null
+          percent_pdp_to_cart?: number | null
+          percent_pdp_to_order?: number | null
+          percent_session_to_pdp?: number | null
+          price_index?: number | null
+          price_ozon?: number | null
+          price_seller?: number | null
+          product_name?: string | null
+          returned_amount?: number | null
+          returned_cnt?: number | null
+          returned_commission?: number | null
+          returned_expense?: number | null
+          returns?: number | null
+          revenue?: number | null
+          session_view?: number | null
+          session_view_pdp?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ozon_analytics_daily_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ozon_avg_delivery_time: {
         Row: {
           attention_level: string | null
@@ -1385,6 +1624,54 @@ export type Database = {
           },
         ]
       }
+      ozon_category_cluster_distribution: {
+        Row: {
+          cluster_id: string
+          created_at: string | null
+          description_category_id: number
+          distribution_share: number
+          id: string
+          marketplace_id: string
+          ozon_category_name: string | null
+          source: string | null
+        }
+        Insert: {
+          cluster_id: string
+          created_at?: string | null
+          description_category_id: number
+          distribution_share?: number
+          id?: string
+          marketplace_id: string
+          ozon_category_name?: string | null
+          source?: string | null
+        }
+        Update: {
+          cluster_id?: string
+          created_at?: string | null
+          description_category_id?: number
+          distribution_share?: number
+          id?: string
+          marketplace_id?: string
+          ozon_category_name?: string | null
+          source?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ozon_category_cluster_distribution_cluster_id_fkey"
+            columns: ["cluster_id"]
+            isOneToOne: false
+            referencedRelation: "clusters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ozon_category_cluster_distribution_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ozon_credentials: {
         Row: {
           api_key: string
@@ -1416,6 +1703,56 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "ozon_credentials_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ozon_finance_daily: {
+        Row: {
+          acquiring: number
+          commission: number
+          date: string
+          disbursement: number
+          logistics_return: number
+          logistics_to_customer: number
+          marketplace_id: string
+          offer_id: string
+          other_expenses: number
+          sale_amount: number
+          synced_at: string
+        }
+        Insert: {
+          acquiring?: number
+          commission?: number
+          date: string
+          disbursement?: number
+          logistics_return?: number
+          logistics_to_customer?: number
+          marketplace_id: string
+          offer_id: string
+          other_expenses?: number
+          sale_amount?: number
+          synced_at?: string
+        }
+        Update: {
+          acquiring?: number
+          commission?: number
+          date?: string
+          disbursement?: number
+          logistics_return?: number
+          logistics_to_customer?: number
+          marketplace_id?: string
+          offer_id?: string
+          other_expenses?: number
+          sale_amount?: number
+          synced_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ozon_finance_daily_marketplace_id_fkey"
             columns: ["marketplace_id"]
             isOneToOne: false
             referencedRelation: "marketplaces"
@@ -1656,6 +1993,47 @@ export type Database = {
           },
         ]
       }
+      ozon_stocks_daily: {
+        Row: {
+          created_at: string | null
+          date: string
+          fbo_stocks: number | null
+          fbs_stocks: number | null
+          id: string
+          marketplace_id: string
+          offer_id: string
+          sku: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          date: string
+          fbo_stocks?: number | null
+          fbs_stocks?: number | null
+          id?: string
+          marketplace_id: string
+          offer_id: string
+          sku?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          date?: string
+          fbo_stocks?: number | null
+          fbs_stocks?: number | null
+          id?: string
+          marketplace_id?: string
+          offer_id?: string
+          sku?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ozon_stocks_daily_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ozon_sync_history: {
         Row: {
           campaigns_count: number | null
@@ -1815,13 +2193,82 @@ export type Database = {
           },
         ]
       }
+      procurement_suppliers: {
+        Row: {
+          contact: string | null
+          created_at: string | null
+          id: string
+          lead_time_days: number | null
+          marketplace_id: string
+          name: string
+        }
+        Insert: {
+          contact?: string | null
+          created_at?: string | null
+          id?: string
+          lead_time_days?: number | null
+          marketplace_id: string
+          name: string
+        }
+        Update: {
+          contact?: string | null
+          created_at?: string | null
+          id?: string
+          lead_time_days?: number | null
+          marketplace_id?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "procurement_suppliers_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_bom: {
+        Row: {
+          component_offer_id: string
+          component_qty: number
+          id: string
+          marketplace_id: string
+          parent_offer_id: string
+        }
+        Insert: {
+          component_offer_id: string
+          component_qty?: number
+          id?: string
+          marketplace_id: string
+          parent_offer_id: string
+        }
+        Update: {
+          component_offer_id?: string
+          component_qty?: number
+          id?: string
+          marketplace_id?: string
+          parent_offer_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_bom_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_business_data: {
         Row: {
           category: string | null
+          central_stock: number | null
           created_at: string
           id: string
           is_complete: boolean | null
           large_box_quantity: number | null
+          lead_time_days: number | null
           marketplace_id: string
           min_ship_qty: number | null
           missing_fields: string[] | null
@@ -1832,6 +2279,7 @@ export type Database = {
           purchase_price: number | null
           purchase_price_updated_at: string | null
           rounding_enabled: boolean
+          seller_category_code: string | null
           small_box_quantity: number | null
           storage_zone: string | null
           supplier_id: string | null
@@ -1839,10 +2287,12 @@ export type Database = {
         }
         Insert: {
           category?: string | null
+          central_stock?: number | null
           created_at?: string
           id?: string
           is_complete?: boolean | null
           large_box_quantity?: number | null
+          lead_time_days?: number | null
           marketplace_id: string
           min_ship_qty?: number | null
           missing_fields?: string[] | null
@@ -1853,6 +2303,7 @@ export type Database = {
           purchase_price?: number | null
           purchase_price_updated_at?: string | null
           rounding_enabled?: boolean
+          seller_category_code?: string | null
           small_box_quantity?: number | null
           storage_zone?: string | null
           supplier_id?: string | null
@@ -1860,10 +2311,12 @@ export type Database = {
         }
         Update: {
           category?: string | null
+          central_stock?: number | null
           created_at?: string
           id?: string
           is_complete?: boolean | null
           large_box_quantity?: number | null
+          lead_time_days?: number | null
           marketplace_id?: string
           min_ship_qty?: number | null
           missing_fields?: string[] | null
@@ -1874,6 +2327,7 @@ export type Database = {
           purchase_price?: number | null
           purchase_price_updated_at?: string | null
           rounding_enabled?: boolean
+          seller_category_code?: string | null
           small_box_quantity?: number | null
           storage_zone?: string | null
           supplier_id?: string | null
@@ -1892,6 +2346,47 @@ export type Database = {
             columns: ["supplier_id"]
             isOneToOne: false
             referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_cost_prices: {
+        Row: {
+          cost_price: number
+          created_at: string | null
+          id: string
+          marketplace_id: string
+          offer_id: string
+          source: string | null
+          valid_from: string
+          valid_to: string | null
+        }
+        Insert: {
+          cost_price: number
+          created_at?: string | null
+          id?: string
+          marketplace_id: string
+          offer_id: string
+          source?: string | null
+          valid_from?: string
+          valid_to?: string | null
+        }
+        Update: {
+          cost_price?: number
+          created_at?: string | null
+          id?: string
+          marketplace_id?: string
+          offer_id?: string
+          source?: string | null
+          valid_from?: string
+          valid_to?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_cost_prices_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
             referencedColumns: ["id"]
           },
         ]
@@ -2332,6 +2827,7 @@ export type Database = {
           product_id: string | null
           product_image: string | null
           question_date: string
+          sku: string | null
           source_type: string | null
           status: string | null
           suggested_reply: string | null
@@ -2350,6 +2846,7 @@ export type Database = {
           product_id?: string | null
           product_image?: string | null
           question_date: string
+          sku?: string | null
           source_type?: string | null
           status?: string | null
           suggested_reply?: string | null
@@ -2368,6 +2865,7 @@ export type Database = {
           product_id?: string | null
           product_image?: string | null
           question_date?: string
+          sku?: string | null
           source_type?: string | null
           status?: string | null
           suggested_reply?: string | null
@@ -2606,6 +3104,91 @@ export type Database = {
             columns: ["product_id"]
             isOneToOne: false
             referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_plan: {
+        Row: {
+          created_at: string | null
+          id: string
+          marketplace_id: string
+          offer_id: string
+          plan_month: string
+          plan_qty: number
+          source: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          marketplace_id: string
+          offer_id: string
+          plan_month: string
+          plan_qty: number
+          source?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          marketplace_id?: string
+          offer_id?: string
+          plan_month?: string
+          plan_qty?: number
+          source?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_plan_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seller_categories: {
+        Row: {
+          code: string
+          coverage_coef: number
+          created_at: string | null
+          description: string | null
+          distribution_coef: number
+          id: string
+          is_novelty: boolean | null
+          marketplace_id: string
+          name: string
+        }
+        Insert: {
+          code: string
+          coverage_coef?: number
+          created_at?: string | null
+          description?: string | null
+          distribution_coef?: number
+          id?: string
+          is_novelty?: boolean | null
+          marketplace_id: string
+          name: string
+        }
+        Update: {
+          code?: string
+          coverage_coef?: number
+          created_at?: string | null
+          description?: string | null
+          distribution_coef?: number
+          id?: string
+          is_novelty?: boolean | null
+          marketplace_id?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seller_categories_marketplace_id_fkey"
+            columns: ["marketplace_id"]
+            isOneToOne: false
+            referencedRelation: "marketplaces"
             referencedColumns: ["id"]
           },
         ]
@@ -3604,6 +4187,14 @@ export type Database = {
         Args: { p_marketplace_id: string; p_sku: string }
         Returns: string
       }
+      fix_null_product_questions: {
+        Args: { p_marketplace_id: string }
+        Returns: number
+      }
+      fix_null_product_reviews: {
+        Args: { p_marketplace_id: string }
+        Returns: number
+      }
       generate_pairing_code: { Args: never; Returns: string }
       get_api_credentials: {
         Args: { p_api_type?: string; p_marketplace_id: string }
@@ -3749,6 +4340,14 @@ export type Database = {
         }[]
       }
       trigger_ozon_daily_sync: { Args: never; Returns: undefined }
+      trigger_ozon_finance_sync: {
+        Args: { p_days?: number; p_marketplace_id: string }
+        Returns: undefined
+      }
+      trigger_ozon_performance_sync: {
+        Args: { p_marketplace_id: string; p_sync_period?: string }
+        Returns: undefined
+      }
       trigger_ozon_sync: {
         Args: {
           p_api_key: string
