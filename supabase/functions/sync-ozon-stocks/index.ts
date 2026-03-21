@@ -55,7 +55,9 @@ serve(async (req) => {
       const clientId = mp.service_account_email;
       const apiKey = mp.api_key_encrypted;
 
-      // Агрегированные остатки по offer_id
+      // Агрегированные остатки: ключ = offer_id+sku (один товар может иметь 2 SKU)
+      // offer_id — артикул продавца (уникален для товара)
+      // sku — код Ozon (может быть 2 на товар: основной + уценённый)
       const stockMap = new Map<string, { offer_id: string; sku: string; fbo: number; fbs: number }>();
 
       // FBO остатки через /v2/analytics/stock_on_warehouses
@@ -85,10 +87,13 @@ serve(async (req) => {
         if (rows.length === 0) break;
 
         for (const row of rows) {
-          const key = row.item_code; // offer_id
-          const existing = stockMap.get(key) || { offer_id: key, sku: row.sku || "", fbo: 0, fbs: 0 };
+          const offerId = row.item_code; // артикул продавца
+          const sku = String(row.sku || "");
+          // Ключ = offer_id + sku, чтобы хранить каждый SKU отдельно
+          // (уценённый товар у Ozon имеет тот же offer_id, но другой sku)
+          const key = `${offerId}::${sku}`;
+          const existing = stockMap.get(key) || { offer_id: offerId, sku, fbo: 0, fbs: 0 };
 
-          // warehouse_type: "FBO" или "FBS"
           if (row.warehouse_name?.includes("FBO") || row.warehouse_type === "FBO") {
             existing.fbo += (row.free_to_sell_amount || 0) + (row.reserved_amount || 0);
           } else {

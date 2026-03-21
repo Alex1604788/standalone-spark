@@ -55,64 +55,41 @@ const COLUMN_GROUPS: ColGroup[] = [
     label: "Продажи",
     defaultVisible: true,
     columns: [
-      { key: "ordered_cnt", label: "Заказ шт", format: "number",
-        formula: "Количество заказов" },
-      { key: "ordered_amount", label: "Заказ ₽", format: "money",
-        formula: "Сумма заказов" },
-      { key: "bought_cnt", label: "Выкуп шт", format: "number",
-        formula: "Фактически выкупленных" },
-      { key: "bought_amount", label: "Выкуп ₽", format: "money",
-        formula: "Сумма выкупа" },
-      { key: "returned_cnt", label: "Возврат", format: "number",
-        formula: "Возвращённые заказы" },
-      { key: "percent_cancellations_and_returns", label: "Отм+Воз %", format: "percent",
-        formula: "(returned + cancelled) / ordered × 100",
-        benchmark: "Норма < 10%",
-        colorFn: (v) => v > 15 ? "text-red-600 bg-red-50" : v > 10 ? "text-amber-600 bg-amber-50" : "" },
-    ],
-  },
-  {
-    id: "ads",
-    label: "Реклама",
-    defaultVisible: true,
-    columns: [
-      { key: "adv_expenses", label: "Расход ₽", format: "money",
-        formula: "Рекламные расходы" },
-      { key: "percent_drr", label: "ДРР %", format: "percent",
-        formula: "adv_expenses / ordered_amount × 100",
-        benchmark: "Хорошо < 10%",
-        colorFn: drrColor },
-      { key: "percent_ctr", label: "CTR %", format: "percent",
-        formula: "adv_clicks / adv_views × 100",
-        benchmark: "Хорошо > 2%" },
-      { key: "adv_cpc", label: "CPC ₽", format: "money",
-        formula: "adv_expenses / adv_clicks" },
-      { key: "adv_cpo", label: "CPO ₽", format: "money",
-        formula: "adv_expenses / adv_orders (рекламные)" },
-      { key: "adv_views", label: "Показы", format: "number",
-        formula: "Показы рекламы" },
-      { key: "adv_clicks", label: "Клики", format: "number",
-        formula: "Клики по рекламе" },
+      { key: "ordered_units", label: "Заказ шт", format: "number",
+        formula: "Количество заказанных единиц" },
+      { key: "revenue", label: "Выручка ₽", format: "money",
+        formula: "Сумма оформленных заказов" },
+      { key: "bought_in_ozon_orders", label: "Выкуп шт", format: "number",
+        formula: "Фактически выкупленных единиц" },
+      { key: "redemption_rate", label: "% выкупа", format: "percent",
+        formula: "bought / ordered × 100",
+        benchmark: "Хорошо > 80%",
+        colorFn: (v) => v < 60 ? "text-red-600 bg-red-50" : v < 80 ? "text-amber-600 bg-amber-50" : "text-emerald-600 bg-emerald-50" },
+      { key: "cancellations", label: "Отмены", format: "number",
+        formula: "Количество отменённых заказов" },
+      { key: "cancellation_rate", label: "% отмен", format: "percent",
+        formula: "cancelled / ordered × 100",
+        benchmark: "Хорошо < 5%",
+        colorFn: (v) => v > 10 ? "text-red-600 bg-red-50" : v > 5 ? "text-amber-600 bg-amber-50" : "" },
     ],
   },
   {
     id: "funnel",
     label: "Воронка",
-    defaultVisible: false,
+    defaultVisible: true,
     columns: [
       { key: "session_view", label: "Сессии", format: "number",
-        formula: "Уникальные сессии просмотра" },
-      { key: "percent_session_to_pdp", label: "В карточку %", format: "percent",
-        formula: "посетители_карточки / сессии × 100",
-        benchmark: "Хорошо > 5%" },
-      { key: "percent_pdp_to_cart", label: "В корзину %", format: "percent",
-        formula: "добавления / посетители_карточки × 100",
+        formula: "Сессии с просмотром товара" },
+      { key: "session_view_pdp", label: "Карточка", format: "number",
+        formula: "Просмотры страницы товара (PDP)" },
+      { key: "hits_view", label: "Хиты", format: "number",
+        formula: "Всего просмотров товара" },
+      { key: "conv_tocart_pdp", label: "В корзину %", format: "percent",
+        formula: "% добавлений в корзину с карточки",
         benchmark: "Хорошо > 10%" },
-      { key: "percent_cart_to_order", label: "Корзина→Заказ %", format: "percent",
-        formula: "заказы / добавления × 100",
-        benchmark: "Хорошо > 20%" },
-      { key: "percent_order_to_buy", label: "CR выкупа %", format: "percent",
-        formula: "выкупы / заказы × 100" },
+      { key: "conv_topurchase_pdp", label: "CR покупки %", format: "percent",
+        formula: "% покупок с карточки",
+        benchmark: "Хорошо > 5%" },
     ],
   },
   {
@@ -125,13 +102,13 @@ const COLUMN_GROUPS: ColGroup[] = [
       { key: "fbs_stocks", label: "FBS", format: "number",
         formula: "Остаток на своём складе (FBS)" },
       { key: "turnover_days", label: "Оборач дн", format: "days",
-        formula: "(FBO + FBS) / avg_weekly_orders × 7",
+        formula: "(FBO + FBS) / средние_продажи_в_день",
         benchmark: "Норма: 30−60 дней",
         colorFn: turnoverColor },
-      { key: "available_in_days", label: "Хватит дн", format: "days",
-        formula: "FBO / avg_weekly_orders × 7",
+      { key: "fbo_days", label: "FBO хватит", format: "days",
+        formula: "FBO / средние_продажи_в_день",
         benchmark: "Критично < 14 дней",
-        colorFn: (v) => v < 14 ? "text-red-600 bg-red-50" : v < 30 ? "text-amber-600 bg-amber-50" : "text-emerald-600" },
+        colorFn: (v) => v > 0 && v < 14 ? "text-red-600 bg-red-50" : v < 30 ? "text-amber-600 bg-amber-50" : "text-emerald-600" },
     ],
   },
   {
@@ -140,19 +117,18 @@ const COLUMN_GROUPS: ColGroup[] = [
     defaultVisible: false,
     columns: [
       { key: "profit", label: "Прибыль ₽", format: "money",
-        formula: "Выкупы − комиссии − расходы − себестоимость",
+        formula: "Выручка − себестоимость (без комиссий Ozon)",
         colorFn: profitColor },
       { key: "profit_unit", label: "Прибыль/шт", format: "money",
-        formula: "profit / bought_cnt",
+        formula: "profit / выкуплено",
         colorFn: profitColor },
-      { key: "margin_percent", label: "Наценка %", format: "percent",
-        formula: "(price_seller − cost_price) / cost_price × 100" },
-      { key: "roi_percent", label: "ROI %", format: "percent",
-        formula: "profit / (себестоимость + расходы) × 100",
-        benchmark: "Хорошо > 30%" },
+      { key: "margin_percent", label: "Маржа %", format: "percent",
+        formula: "(цена − себестоимость) / цена × 100" },
       { key: "ros_percent", label: "ROS %", format: "percent",
-        formula: "profit / bought_amount × 100",
+        formula: "profit / revenue × 100",
         benchmark: "Хорошо > 10%" },
+      { key: "revenue_per_unit", label: "Ср цена ₽", format: "money",
+        formula: "revenue / ordered_units" },
     ],
   },
 ];
@@ -197,7 +173,7 @@ export function ProductsTable({ data, isLoading }: ProductsTableProps) {
     () => Object.fromEntries(COLUMN_GROUPS.map((g) => [g.id, g.defaultVisible]))
   );
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<keyof ProductMetrics>("ordered_amount");
+  const [sortKey, setSortKey] = useState<keyof ProductMetrics>("revenue");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
@@ -415,34 +391,34 @@ export function ProductsTable({ data, isLoading }: ProductsTableProps) {
                         <td colSpan={1 + activeColumns.length} className="px-6 py-3">
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
                             <div>
-                              <p className="text-muted-foreground">Категория</p>
-                              <p className="font-medium">{row.category || "—"}</p>
+                              <p className="text-muted-foreground">Средняя цена</p>
+                              <p className="font-medium">{row.revenue_per_unit ? Math.round(row.revenue_per_unit) + " ₽" : "—"}</p>
                             </div>
                             <div>
-                              <p className="text-muted-foreground">Контент-рейтинг</p>
-                              <p className="font-medium">{row.content_rating ? row.content_rating.toFixed(0) + "%" : "—"}</p>
+                              <p className="text-muted-foreground">% возврата</p>
+                              <p className="font-medium">{row.return_rate ? row.return_rate.toFixed(1) + "%" : "—"}</p>
                             </div>
                             <div>
-                              <p className="text-muted-foreground">Цена продавца</p>
-                              <p className="font-medium">{row.price_seller ? Math.round(row.price_seller) + " ₽" : "—"}</p>
+                              <p className="text-muted-foreground">Возвраты (шт)</p>
+                              <p className="font-medium">{row.returns ?? "—"}</p>
                             </div>
                             <div>
-                              <p className="text-muted-foreground">Цена Ozon</p>
-                              <p className="font-medium">{row.price_ozon ? Math.round(row.price_ozon) + " ₽" : "—"}</p>
+                              <p className="text-muted-foreground">Себестоимость/шт</p>
+                              <p className="font-medium">{row.cost_price_unit ? Math.round(row.cost_price_unit) + " ₽" : "—"}</p>
                             </div>
                             <div>
-                              <p className="text-muted-foreground">Индекс цены</p>
-                              <p className={`font-medium ${row.price_index > 1.1 ? "text-red-600" : row.price_index < 0.9 ? "text-emerald-600" : ""}`}>
-                                {row.price_index ? row.price_index.toFixed(2) : "—"}
+                              <p className="text-muted-foreground">FBO хватит (дн)</p>
+                              <p className={`font-medium ${row.fbo_days > 0 && row.fbo_days < 14 ? "text-red-600" : ""}`}>
+                                {row.fbo_days ? Math.round(row.fbo_days) + " дн" : "—"}
                               </p>
                             </div>
                             <div>
-                              <p className="text-muted-foreground">Кликов на рекламу</p>
-                              <p className="font-medium">{row.adv_clicks ? new Intl.NumberFormat("ru-RU").format(row.adv_clicks) : "—"}</p>
+                              <p className="text-muted-foreground">Хиты просмотров</p>
+                              <p className="font-medium">{row.hits_view ? new Intl.NumberFormat("ru-RU").format(row.hits_view) : "—"}</p>
                             </div>
                             <div>
-                              <p className="text-muted-foreground">CTR рекламы</p>
-                              <p className="font-medium">{row.percent_ctr ? row.percent_ctr.toFixed(2) + "%" : "—"}</p>
+                              <p className="text-muted-foreground">CR в покупку %</p>
+                              <p className="font-medium">{row.conv_topurchase_pdp ? row.conv_topurchase_pdp.toFixed(2) + "%" : "—"}</p>
                             </div>
                             <div>
                               <p className="text-muted-foreground">Дней данных</p>

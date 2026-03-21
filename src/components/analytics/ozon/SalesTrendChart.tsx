@@ -84,9 +84,9 @@ export function SalesTrendChart({ data, isLoading }: SalesTrendChartProps) {
 
   const chartData = data.map((d) => ({
     date: formatDate(d.date),
-    "Заказано ₽": Math.round(d.ordered_amount),
-    "Выкуплено ₽": Math.round(d.bought_amount),
-    "Реклама ₽": Math.round(d.adv_expenses),
+    "Выручка ₽": Math.round(d.revenue),
+    "Выкуплено шт": d.bought_in_ozon_orders,
+    "Сессии": d.session_view,
   }));
 
   return (
@@ -130,7 +130,7 @@ export function SalesTrendChart({ data, isLoading }: SalesTrendChartProps) {
             <Legend wrapperStyle={{ fontSize: "12px" }} />
             <Area
               type="monotone"
-              dataKey="Заказано ₽"
+              dataKey="Выручка ₽"
               stroke="#6366f1"
               fill="url(#gradOrdered)"
               strokeWidth={2}
@@ -138,7 +138,7 @@ export function SalesTrendChart({ data, isLoading }: SalesTrendChartProps) {
             />
             <Area
               type="monotone"
-              dataKey="Выкуплено ₽"
+              dataKey="Выкуплено шт"
               stroke="#22c55e"
               fill="url(#gradBought)"
               strokeWidth={2}
@@ -146,7 +146,7 @@ export function SalesTrendChart({ data, isLoading }: SalesTrendChartProps) {
             />
             <Area
               type="monotone"
-              dataKey="Реклама ₽"
+              dataKey="Сессии"
               stroke="#f59e0b"
               fill="url(#gradAdv)"
               strokeWidth={2}
