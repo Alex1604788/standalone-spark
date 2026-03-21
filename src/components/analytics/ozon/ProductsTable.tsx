@@ -281,12 +281,12 @@ export function ProductsTable({ data, isLoading }: ProductsTableProps) {
 
       {/* Таблица */}
       <div className="border rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[70vh]">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 z-20">
               <tr className="border-b bg-muted/50">
                 {/* Фиксированная колонка — товар */}
-                <th className="sticky left-0 bg-muted/50 text-left px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap min-w-48 z-10">
+                <th className="sticky left-0 bg-muted/50 text-left px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap min-w-48 z-30">
                   Товар
                 </th>
 
@@ -295,7 +295,7 @@ export function ProductsTable({ data, isLoading }: ProductsTableProps) {
                   group.columns.map((col, ci) => (
                     <th
                       key={`${group.id}_${col.key}`}
-                      className={`text-right px-2 py-2 font-medium text-xs whitespace-nowrap cursor-pointer hover:bg-muted transition-colors
+                      className={`text-right px-2 py-2 font-medium text-xs whitespace-nowrap cursor-pointer bg-muted/50 hover:bg-muted transition-colors
                         ${ci === 0 && gi > 0 ? "border-l-2 border-muted-foreground/20" : ""}`}
                       onClick={() => handleSort(col.key)}
                     >
