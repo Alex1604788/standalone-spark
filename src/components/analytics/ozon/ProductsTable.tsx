@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { ArrowUpDown, ArrowUp, ArrowDown, Download, Search, ChevronRight } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, Download, Search, ChevronRight, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -357,8 +357,18 @@ export function ProductsTable({ data, isLoading }: ProductsTableProps) {
                             }`}
                           />
                           <div className="min-w-0">
-                            <div className="font-medium text-xs truncate max-w-40">
-                              {row.product_name || row.offer_id}
+                            <div className="flex items-center gap-1">
+                              <div className="font-medium text-xs truncate max-w-40">
+                                {row.product_name || row.offer_id}
+                              </div>
+                              {!row.cost_price_unit && (
+                                <MetricTooltip
+                                  label="Нет себестоимости"
+                                  formula="Задайте закупочную цену в настройках товара — без неё прибыль считается некорректно"
+                                >
+                                  <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
+                                </MetricTooltip>
+                              )}
                             </div>
                             <div className="text-xs text-muted-foreground">{row.offer_id}</div>
                           </div>
