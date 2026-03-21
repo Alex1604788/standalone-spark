@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { ArrowUpDown, ArrowUp, ArrowDown, Download, Search, ChevronRight } from "lucide-react";
+import React, { useState, useMemo } from "react";
+import { ArrowUpDown, ArrowUp, ArrowDown, Download, Search, ChevronRight, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -87,9 +87,6 @@ const COLUMN_GROUPS: ColGroup[] = [
       { key: "conv_tocart_pdp", label: "В корзину %", format: "percent",
         formula: "% добавлений в корзину с карточки",
         benchmark: "Хорошо > 10%" },
-      { key: "conv_topurchase_pdp", label: "CR покупки %", format: "percent",
-        formula: "% покупок с карточки",
-        benchmark: "Хорошо > 5%" },
     ],
   },
   {
@@ -117,16 +114,22 @@ const COLUMN_GROUPS: ColGroup[] = [
     defaultVisible: false,
     columns: [
       { key: "profit", label: "Прибыль ₽", format: "money",
-        formula: "Выручка − себестоимость (без комиссий Ozon)",
+        formula: "Выручка + комиссия + логистика + эквайринг + прочее − реклама − себестоимость",
+        benchmark: "Все суммы из Finance API Ozon",
         colorFn: profitColor },
       { key: "profit_unit", label: "Прибыль/шт", format: "money",
         formula: "profit / выкуплено",
         colorFn: profitColor },
-      { key: "margin_percent", label: "Маржа %", format: "percent",
-        formula: "(цена − себестоимость) / цена × 100" },
+      { key: "margin_percent", label: "Наценка %", format: "percent",
+        formula: "(ср.цена − себестоимость) / себестоимость × 100",
+        benchmark: "Наценка над закупкой (как в КА)" },
       { key: "ros_percent", label: "ROS %", format: "percent",
         formula: "profit / revenue × 100",
         benchmark: "Хорошо > 10%" },
+      { key: "drr_percent", label: "ДРР %", format: "percent",
+        formula: "расходы_на_рекламу / выручка × 100",
+        benchmark: "Хорошо < 10%",
+        colorFn: drrColor },
       { key: "revenue_per_unit", label: "Ср цена ₽", format: "money",
         formula: "revenue / ordered_units" },
     ],
@@ -338,9 +341,8 @@ export function ProductsTable({ data, isLoading }: ProductsTableProps) {
                 </tr>
               ) : (
                 sorted.map((row) => (
-                  <>
+                  <React.Fragment key={row.offer_id}>
                     <tr
-                      key={row.offer_id}
                       className="border-b hover:bg-muted/30 transition-colors cursor-pointer"
                       onClick={() =>
                         setExpandedRow(expandedRow === row.offer_id ? null : row.offer_id)
@@ -354,9 +356,19 @@ export function ProductsTable({ data, isLoading }: ProductsTableProps) {
                               expandedRow === row.offer_id ? "rotate-90" : ""
                             }`}
                           />
-                          <div>
-                            <div className="font-medium text-xs truncate max-w-40">
-                              {row.product_name || row.offer_id}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1">
+                              <div className="font-medium text-xs truncate max-w-40">
+                                {row.product_name || row.offer_id}
+                              </div>
+                              {row.cost_price_unit === 0 && (
+                                <MetricTooltip
+                                  label="Нет себестоимости"
+                                  formula="Задайте закупочную цену в настройках товара чтобы прибыль считалась корректно"
+                                >
+                                  <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
+                                </MetricTooltip>
+                              )}
                             </div>
                             <div className="text-xs text-muted-foreground">{row.offer_id}</div>
                           </div>
@@ -387,7 +399,7 @@ export function ProductsTable({ data, isLoading }: ProductsTableProps) {
 
                     {/* Развёрнутая строка — детали */}
                     {expandedRow === row.offer_id && (
-                      <tr key={`${row.offer_id}_expanded`} className="bg-muted/20">
+                      <tr className="bg-muted/20">
                         <td colSpan={1 + activeColumns.length} className="px-6 py-3">
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
                             <div>
@@ -417,10 +429,6 @@ export function ProductsTable({ data, isLoading }: ProductsTableProps) {
                               <p className="font-medium">{row.hits_view ? new Intl.NumberFormat("ru-RU").format(row.hits_view) : "—"}</p>
                             </div>
                             <div>
-                              <p className="text-muted-foreground">CR в покупку %</p>
-                              <p className="font-medium">{row.conv_topurchase_pdp ? row.conv_topurchase_pdp.toFixed(2) + "%" : "—"}</p>
-                            </div>
-                            <div>
                               <p className="text-muted-foreground">Дней данных</p>
                               <p className="font-medium">{row.days_count}</p>
                             </div>
@@ -428,7 +436,7 @@ export function ProductsTable({ data, isLoading }: ProductsTableProps) {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 ))
               )}
             </tbody>

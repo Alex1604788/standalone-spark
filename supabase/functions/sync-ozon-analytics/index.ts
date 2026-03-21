@@ -21,7 +21,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Подтверждённые валидные метрики Ozon API /v1/analytics/data (макс ~10 реально возвращается)
+// Реально поддерживаемые метрики Ozon API /v1/analytics/data.
+// ВАЖНО: API молча отбрасывает неподдерживаемые метрики и сдвигает индексы!
+// Проверено: conv_topurchase_pdp и bought_in_ozon_orders НЕ возвращаются.
+// Порядок строго соответствует позициям в массиве metrics в ответе API.
 const METRICS = [
   "ordered_units",          // 0 - заказано штук
   "revenue",                // 1 - выручка от заказов (руб)
@@ -30,9 +33,7 @@ const METRICS = [
   "session_view",           // 4 - сессии с просмотром товара
   "session_view_pdp",       // 5 - просмотры карточки товара
   "conv_tocart_pdp",        // 6 - % добавлений в корзину с карточки
-  "conv_topurchase_pdp",    // 7 - % покупок с карточки
-  "bought_in_ozon_orders",  // 8 - выкуплено штук
-  "hits_view",              // 9 - всего просмотров (хиты)
+  "hits_view",              // 7 - всего просмотров (хиты)
 ];
 
 const METRIC_COLUMNS = [
@@ -43,15 +44,13 @@ const METRIC_COLUMNS = [
   "session_view",
   "session_view_pdp",
   "conv_tocart_pdp",
-  "conv_topurchase_pdp",
-  "bought_in_ozon_orders",
   "hits_view",
 ];
 
 // Метрики которые нужно СУММИРОВАТЬ при агрегации нескольких SKU одного offer_id
-const SUM_METRICS = new Set(["ordered_units","revenue","cancellations","returns","session_view","session_view_pdp","bought_in_ozon_orders","hits_view"]);
+const SUM_METRICS = new Set(["ordered_units","revenue","cancellations","returns","session_view","session_view_pdp","hits_view"]);
 // Метрики которые нужно УСРЕДНЯТЬ (проценты/конверсии)
-const AVG_METRICS = new Set(["conv_tocart_pdp","conv_topurchase_pdp"]);
+const AVG_METRICS = new Set(["conv_tocart_pdp"]);
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {

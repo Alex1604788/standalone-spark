@@ -154,18 +154,21 @@ export default function OzonAnalytics() {
           {/* Воронка */}
           <TabsContent value="funnel" className="space-y-4">
             {!isLoading && hasData ? (
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 {[
                   { label: "Сессии", key: "session_view" as const, format: "number" },
-                  { label: "В карточку", key: "percent_session_to_pdp" as const, format: "percent" },
-                  { label: "В корзину", key: "percent_pdp_to_cart" as const, format: "percent" },
-                  { label: "В заказ", key: "percent_cart_to_order" as const, format: "percent" },
-                  { label: "Выкуп", key: "percent_order_to_buy" as const, format: "percent" },
+                  { label: "Просмотры карточки", key: "session_view_pdp" as const, format: "number" },
+                  { label: "В корзину", key: "conv_tocart_pdp" as const, format: "percent" },
+                  { label: "Выкуп", key: "redemption_rate" as const, format: "percent" },
                 ].map((step) => {
                   const vals = (data?.products ?? [])
                     .map((p) => p[step.key] as number)
                     .filter((v) => v > 0);
-                  const avg = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
+                  const agg = vals.length
+                    ? step.format === "number"
+                      ? vals.reduce((s, v) => s + v, 0)
+                      : vals.reduce((s, v) => s + v, 0) / vals.length
+                    : 0;
                   return (
                     <div
                       key={step.key}
@@ -173,9 +176,13 @@ export default function OzonAnalytics() {
                     >
                       <p className="text-xs text-muted-foreground">{step.label}</p>
                       <p className="text-2xl font-bold">
-                        {step.format === "percent" ? avg.toFixed(1) + "%" : Math.round(avg).toLocaleString("ru-RU")}
+                        {step.format === "percent"
+                          ? agg.toFixed(1) + "%"
+                          : Math.round(agg).toLocaleString("ru-RU")}
                       </p>
-                      <p className="text-xs text-muted-foreground">среднее</p>
+                      <p className="text-xs text-muted-foreground">
+                        {step.format === "number" ? "всего" : "среднее"}
+                      </p>
                     </div>
                   );
                 })}
@@ -189,33 +196,14 @@ export default function OzonAnalytics() {
 
           {/* Реклама */}
           <TabsContent value="ads" className="space-y-4">
-            {!isLoading && hasData ? (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {[
-                  { label: "Показы", value: data!.totals.adv_views, format: "number" },
-                  { label: "Клики", value: data!.totals.adv_clicks, format: "number" },
-                  { label: "CTR", value: data!.totals.percent_ctr, format: "percent" },
-                  { label: "Расход", value: data!.totals.adv_expenses, format: "money" },
-                  { label: "Выручка с рекл.", value: data!.totals.adv_revenue, format: "money" },
-                  { label: "ДРР", value: data!.totals.percent_drr, format: "percent" },
-                ].map((m) => (
-                  <div key={m.label} className="border rounded-lg p-4 bg-card space-y-1">
-                    <p className="text-xs text-muted-foreground">{m.label}</p>
-                    <p className="text-xl font-bold tabular-nums">
-                      {m.format === "money"
-                        ? new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(m.value) + " ₽"
-                        : m.format === "percent"
-                        ? m.value.toFixed(1) + "%"
-                        : new Intl.NumberFormat("ru-RU").format(Math.round(m.value))}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-12 text-muted-foreground text-sm">
-                Нет рекламных данных за период
-              </div>
-            )}
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+              <BarChart3 className="w-10 h-10 text-muted-foreground/40" />
+              <p className="text-sm font-medium">Рекламная аналитика недоступна</p>
+              <p className="text-xs text-muted-foreground max-w-sm">
+                Метрики рекламных кампаний (показы, клики, CTR, расход, ДРР)
+                доступны через отдельный рекламный API Ozon и не входят в аналитику продаж.
+              </p>
+            </div>
           </TabsContent>
         </Tabs>
       </div>

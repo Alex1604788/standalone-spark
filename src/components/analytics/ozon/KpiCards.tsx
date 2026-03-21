@@ -60,9 +60,10 @@ const CARDS: CardConfig[] = [
     label: "Прибыль",
     icon: <TrendingUp className="w-5 h-5" />,
     format: "money",
-    formula: "Выручка − себестоимость (без комиссий Ozon — нужны данные финансового отчёта)",
+    formula: "Выручка + комиссия + логистика + эквайринг + прочее − реклама − себестоимость (данные Finance API Ozon)",
     benchmark: "Чем больше, тем лучше",
     color: "text-violet-600",
+    secondary: (t) => t.revenue > 0 ? `ROS: ${(t.ros_percent).toFixed(1)}%` : "—",
   },
   {
     key: "cancellation_rate",
@@ -129,7 +130,9 @@ export function KpiCards({ totals, isLoading }: KpiCardsProps) {
           : formatNum(raw);
 
         const valueColor =
-          card.key === "cancellation_rate" ? getCancellationColor(raw) : card.color;
+          card.key === "cancellation_rate" ? getCancellationColor(raw)
+          : card.key === "profit" ? (raw > 0 ? "text-emerald-600" : raw < 0 ? "text-red-600" : card.color)
+          : card.color;
 
         return (
           <Card
@@ -148,11 +151,11 @@ export function KpiCards({ totals, isLoading }: KpiCardsProps) {
               <div className={`text-xl font-bold tabular-nums ${valueColor}`}>
                 {formatted}
               </div>
-              {card.secondary && (
+              {card.secondary ? (
                 <div className="text-xs text-muted-foreground">
                   {card.secondary(totals)}
                 </div>
-              )}
+              ) : null}
             </CardContent>
           </Card>
         );
